@@ -37,7 +37,7 @@ public class SerializingPersistence {
       throws FileNotFoundException, ClassNotFoundException, ClassCastException, IOException {
     final SerializingPersistence persistence = new SerializingPersistence(root);
     final KnowledgeBase kb = persistence.load();
-    kb.changes().sample(SAMPLE_PERIOD.toMillis(), TimeUnit.MILLISECONDS).subscribe(x -> persistence.save(kb), null,
+    kb.change().sample(SAMPLE_PERIOD.toMillis(), TimeUnit.MILLISECONDS).subscribe(x -> persistence.save(kb), null,
         () -> persistence.save(kb));
     return kb;
   }

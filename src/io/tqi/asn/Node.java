@@ -1,26 +1,42 @@
 package io.tqi.asn;
 
 import java.io.Serializable;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import io.reactivex.Observable;
+import io.reactivex.subjects.PublishSubject;
+import io.reactivex.subjects.Subject;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Value;
 
 @RequiredArgsConstructor
-@Getter
 public class Node implements Serializable {
+  @Value
+  public static class SetPropertyEvent {
+    Node property, value;
+  }
+  
   private static final long serialVersionUID = -4340465118968553513L;
-
+  
+  @Getter
   private final Serializable value;
   
-  /**
-   * indexed by (nullable) relation
-   */
-  private final ConcurrentMap<Optional<Node>, NodeRelation> associations = new ConcurrentHashMap<>();
+  private final ConcurrentMap<Node, Node> properties = new ConcurrentHashMap<>();
   
-  public void associate(final Optional<Node> relation, final Node child, final long timestamp) {
-    associations.computeIfAbsent(relation, k -> new NodeRelation()).update(child, timestamp);
+  private final Subject<SetPropertyEvent> setProperty = PublishSubject.create();
+  
+  public Observable<SetPropertyEvent> setProperty() {
+    return setProperty;
+  }
+  
+  public Node getProperty(final Node property) {
+    return properties.get(property);
+  }
+  
+  public void setProperty(final Node property, final Node value) {
+    properties.put(property, value);
+    setProperty.onNext(new SetPropertyEvent(property, value));
   }
 }

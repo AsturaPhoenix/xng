@@ -23,9 +23,12 @@ public class Node implements Serializable {
   @Getter
   private final Serializable value;
   
+  @Getter
+  private final Synapse synapse = new Synapse();
+  
   private final ConcurrentMap<Node, Node> properties = new ConcurrentHashMap<>();
   
-  private final Subject<SetPropertyEvent> setProperty = PublishSubject.create();
+  private final transient Subject<SetPropertyEvent> setProperty = PublishSubject.create();
   
   public Observable<SetPropertyEvent> setProperty() {
     return setProperty;

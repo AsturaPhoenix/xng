@@ -77,16 +77,15 @@ public class Repl {
   private final SortedMap<String, Command> commands = new TreeMap<>();
   
   {
-    commands.put("associate", new Command("creates an association between nodes", args -> {
-      final Node parent, child;
+    commands.put("setProp", new Command("sets a property on a node", args -> {
+      final Node parent, property, child;
 
       parent = resolveNode(args.get(0));
-      child = resolveNode(args.get(args.size() - 1));
-      if (args.size() > 2) {
-        final Node property = resolveNode(args.get(1));
-        parent.setProperty(property, child);
-      } else {
-      }
+      property = resolveNode(args.get(1));
+      child = resolveNode(args.get(2));
+      parent.setProperty(property, child);
+      
+      
       return null;
     }));
     commands.put("help", new Command("displays this help message", args -> {
@@ -136,6 +135,6 @@ public class Repl {
   }
   
   public void sendInput(final String input) {
-    scope = null;
+    
   }
 }

@@ -28,7 +28,8 @@ public class SerializingPersistence {
   }
 
   private void save(final KnowledgeBase kb) throws FileNotFoundException, IOException {
-    try (final ObjectOutputStream oout = new ObjectOutputStream(new FileOutputStream(root.toFile()))) {
+    try (final ObjectOutputStream oout = new ObjectOutputStream(
+        new FileOutputStream(root.toFile()))) {
       oout.writeObject(kb);
     }
   }
@@ -37,8 +38,8 @@ public class SerializingPersistence {
       throws FileNotFoundException, ClassNotFoundException, ClassCastException, IOException {
     final SerializingPersistence persistence = new SerializingPersistence(root);
     final KnowledgeBase kb = persistence.load();
-    kb.change().sample(SAMPLE_PERIOD.toMillis(), TimeUnit.MILLISECONDS).subscribe(x -> persistence.save(kb), null,
-        () -> persistence.save(kb));
+    kb.rxChange().sample(SAMPLE_PERIOD.toMillis(), TimeUnit.MILLISECONDS)
+        .subscribe(x -> persistence.save(kb), null, () -> persistence.save(kb));
     return kb;
   }
 }

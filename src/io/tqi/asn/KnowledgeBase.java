@@ -1,109 +1,233 @@
 package io.tqi.asn;
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
-import lombok.RequiredArgsConstructor;
+import io.reactivex.subjects.ReplaySubject;
+import io.reactivex.subjects.Subject;
+import io.tqi.asn.value.NodeIterator;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
   private static final long serialVersionUID = 4850129606513054849L;
-  
-  @RequiredArgsConstructor
-  private static class NodeActivation implements Serializable {
-    private static final long serialVersionUID = 6132247629304903407L;
-    
-    final Node node;
-    float activation;
-    NodeActivation previous, next;
-  }
 
   private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
   private final Set<Node> nodes = Collections.newSetFromMap(new ConcurrentHashMap<>());
-  private final ConcurrentMap<Node, NodeActivation> activations = new ConcurrentHashMap<>();
-  private NodeActivation mostRecentActivation;
-  
-  private final transient PublishSubject<Node> nodeSeen = PublishSubject.create();
-  private final transient Observable<Node> create = nodeSeen.filter(node -> !nodes.contains(node));
-  
-  public Observable<Node> create() {
-    return create;
-  }
-  
-  private final transient PublishSubject<Object> change = PublishSubject.create();
-  
-  public Observable<Object> change() {
-    return change;
-  }
-  
-  private void attachNodeSubscriber(final Node node) {
-    node.setProperty().subscribe(e -> {
-      nodeSeen.onNext(e.getProperty());
-      nodeSeen.onNext(e.getValue());
-      change.onNext(e);
-    });
-  }
-  
-  private void attachSubscribers() {
-    create().subscribe(node -> {
-      nodes.add(node);
-      change.onNext(node);
-      attachNodeSubscriber(node);
-    });
-  }
-  
-  {
-    attachSubscribers();
-  }
-  
 
-  private void readObject(final ObjectInputStream stream)
-      throws IOException, ClassNotFoundException {
-    stream.defaultReadObject();
-    
-    for (final Node node : nodes) {
-      attachNodeSubscriber(node);
-    }
-    
-    attachSubscribers();
-  }
+  private final Node EXECUTE = getOrCreateNode("execute"), ARGUMENT = getOrCreateNode("argument"),
+      CALLBACK = getOrCreateNode("callback");
 
-  public Node getOrCreateNode(final Serializable value) {
-    return index.computeIfAbsent(value, value_ -> {
-      final Node node = new Node(value_);
-      nodeSeen.onNext(node);
-      return node;
-    });
-  }
-  
-  public void activate(final Node node) {
-    final NodeActivation activation = activations.computeIfAbsent(node, NodeActivation::new);
-    if (activation.previous != null && activation.next != null) {
-      activation.next.previous = activation.previous;
-      activation.previous.next = activation.next;
-    } else if (activation.next != null) {
-      activation.next.previous = null;
-    }
-    
-    activation.previous = mostRecentActivation;
-    if (mostRecentActivation != null) {
-      mostRecentActivation.next = activation;
-    }
-    activation.next = null;
-    activation.activation = 1;
-    
-    mostRecentActivation = activation;
-  }
+  private final Subject<String> rxOutput = PublishSubject.create();
+  private final Subject<Void> rxChange = PublishSubject.create();
 
   @Override
   public void close() {
-    nodeSeen.onComplete();
-    change.onComplete();
+    rxOutput.onComplete();
+    rxChange.onComplete();
+  }
+
+  public Observable<String> rxOutput() {
+    return rxOutput;
+  }
+
+  public Observable<Void> rxChange() {
+    return rxChange;
+  }
+
+  public Node getOrCreateNode(final Serializable label) {
+    return getOrCreateNode(label, null);
+  }
+
+  public Node getOrCreateNode(final Serializable label, final Serializable value) {
+    return index.computeIfAbsent(label, x -> {
+      final Node node = new Node(value);
+      nodes.add(node);
+      node.rxActivate().subscribe(t -> {
+        onNodeActivate(node);
+      });
+      node.rxChange().subscribe(rxChange::onNext);
+      rxChange.onNext(null);
+      return node;
+    });
+  }
+
+  private void onNodeActivate(final Node node) {
+    final Node rawFn = node.getProperty(EXECUTE);
+    if (rawFn != null) {
+      final Observable<Node> resolvedFn = evaluate(rawFn),
+          resolvedArg = evaluate(node.getProperty(ARGUMENT)),
+          resolvedCallback = evaluate(node.getProperty(CALLBACK));
+
+      resolvedArg.subscribe(arg -> {
+        resolvedFn.subscribe(fn -> {
+          final Subject<Node> subject = ReplaySubject.create();
+          // duality: property access
+          final Node asProp = arg.getProperty(fn);
+          if (asProp != null) {
+            subject.onNext(asProp);
+          }
+
+          // duality: subroutine invocation
+          fn.setProperty(ARGUMENT, arg);
+          setObservableCallback(fn, subject);
+          fn.activate();
+
+          resolvedCallback.filter(c -> c != null).subscribe(callback -> {
+            subject.subscribe(result -> {
+              callback.setProperty(ARGUMENT, result);
+              callback.activate();
+            });
+          });
+        });
+      });
+    }
+  }
+
+  private Observable<Node> evaluate(final Node node) {
+    if (node == null) {
+      return Observable.just(null);
+    }
+
+    final Node fn = node.getProperty(EXECUTE);
+    if (fn == null) {
+      return Observable.just(node);
+    } else {
+      final Subject<Node> subject = ReplaySubject.create();
+      setObservableCallback(node, subject);
+      node.activate();
+      return subject;
+    }
+  }
+
+  private void setObservableCallback(final Node routine, final Subject<Node> subject) {
+    final Node callback = new Node(null);
+    callback.rxActivate().subscribe(t -> {
+      evaluate(callback.getProperty(ARGUMENT)).subscribe(subject::onNext);
+    });
+    routine.setProperty(CALLBACK, callback);
+  }
+
+  public void registerBuiltIn(final String name, final Consumer<Node> impl) {
+    registerBuiltIn(name, arg -> {
+      impl.accept(arg);
+      return null;
+    });
+  }
+
+  public void registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
+    final Node node = getOrCreateNode(name);
+    node.rxActivate().subscribe(t -> {
+      final Node result = impl.apply(node.getProperty(ARGUMENT));
+      final Node callback = node.getProperty(CALLBACK);
+      if (callback != null) {
+        callback.setProperty(ARGUMENT, result);
+        callback.activate();
+      }
+    });
+  }
+
+  {
+    registerBuiltIn("splitString", node -> {
+      final Object arg = node.getValue();
+      if (arg instanceof String) {
+        // TODO(rosswang): thread-safe mutable
+        final ArrayList<Node> split = ((String) arg).chars().mapToObj(c -> {
+          // TODO(rosswang): standardize node types
+          return getOrCreateNode(Character.valueOf((char) c));
+        }).collect(Collectors.toCollection(ArrayList::new));
+        return getOrCreateNode(split, split);
+      }
+
+      return null;
+    });
+
+    registerBuiltIn("windowedIterator", node -> {
+      final Object arg = node.getValue();
+      if (arg instanceof List) {
+        // TODO(rosswang): standardize node types
+        @SuppressWarnings("unchecked")
+        final ArrayList<Node> backing = (ArrayList<Node>) arg;
+        final NodeIterator iterator = new NodeIterator(backing);
+        final Node iterNode = new Node(iterator);
+
+        final Node forward = new Node(null), back = new Node(null);
+        iterNode.setProperty(getOrCreateNode("forward"), forward);
+        iterNode.setProperty(getOrCreateNode("back"), back);
+
+        final Node atStartProp = getOrCreateNode("atStart"), atEndProp = getOrCreateNode("atEnd"),
+            onMoveProp = getOrCreateNode("onMove");
+        iterNode.setProperty(atStartProp, new Node(null));
+        iterNode.setProperty(atEndProp, new Node(null));
+        iterNode.setProperty(onMoveProp, new Node(null));
+
+        // TODO(rosswang): revisit whether we should have stateful properties
+        // too
+
+        final Consumer<Node> update = current -> {
+          // Note that the atEnd and atStart property activations also result in
+          // the atEnd and atStart globally indexed nodes being called with the
+          // iterator as an argument.
+          if (!iterator.hasNext()) {
+            iterNode.getProperty(atEndProp).activate();
+          }
+          if (!iterator.hasPrevious()) {
+            iterNode.getProperty(atStartProp).activate();
+          }
+          final Node onMove = iterNode.getProperty(onMoveProp);
+          onMove.setProperty(ARGUMENT, current);
+          current.activate();
+          onMove.activate();
+        };
+
+        forward.rxActivate().subscribe(t -> {
+          update.accept(iterator.next());
+        });
+
+        back.rxActivate().subscribe(t -> {
+          update.accept(iterator.previous());
+        });
+
+        return iterNode;
+      }
+
+      return null;
+    });
+
+    registerBuiltIn("activateTailNGrams", node -> {
+      final Object arg = node.getValue();
+      if (arg instanceof ArrayList) {
+        @SuppressWarnings("unchecked")
+        final ArrayList<Object> listArg = (ArrayList<Object>) arg;
+        activateTailNGrams(listArg);
+      } else if (arg instanceof Collection) {
+        @SuppressWarnings("unchecked")
+        final Collection<Object> collectionArg = (Collection<Object>) arg;
+        activateTailNGrams(new ArrayList<>(collectionArg));
+      }
+    });
+
+    registerBuiltIn("print", node -> {
+      final Object arg = node.getValue();
+      if (arg instanceof String) {
+        rxOutput.onNext((String) arg);
+      }
+    });
+  }
+
+  public void activateTailNGrams(ArrayList<Object> sequence) {
+    while (!sequence.isEmpty()) {
+      getOrCreateNode(sequence, sequence).activate();
+      sequence = new ArrayList<>(sequence.subList(1, sequence.size()));
+    }
   }
 }

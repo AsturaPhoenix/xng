@@ -44,11 +44,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     return rxChange;
   }
 
-  public Node getOrCreateNode(final Serializable label) {
-    return getOrCreateNode(label, null);
+  public Node getOrCreateNode(final String identifier) {
+    return getOrCreateNode(new Identifier(identifier));
   }
 
-  public Node getOrCreateNode(final Serializable label, final Serializable value) {
+  public Node getOrCreateNode(final Identifier identifier) {
+    return internalGetOrCreateNode(identifier, null);
+  }
+
+  public Node getOrCreateValueNode(final Serializable value) {
+    return internalGetOrCreateNode(value, value);
+  }
+
+  private Node internalGetOrCreateNode(final Serializable label, final Serializable value) {
     return index.computeIfAbsent(label, x -> {
       final Node node = new Node(value);
       nodes.add(node);
@@ -61,35 +69,40 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     });
   }
 
-  private void onNodeActivate(final Node node) {
-    final Node rawFn = node.getProperty(EXECUTE);
-    if (rawFn != null) {
-      final Observable<Node> resolvedFn = evaluate(rawFn),
-          resolvedArg = evaluate(node.getProperty(ARGUMENT)),
-          resolvedCallback = evaluate(node.getProperty(CALLBACK));
+  public void invoke(final Node rawFn, final Node rawArg, final Node rawCallback) {
+    final Observable<Node> resolvedFn = evaluate(rawFn), resolvedArg = evaluate(rawArg),
+        resolvedCallback = evaluate(rawCallback);
 
-      resolvedArg.subscribe(arg -> {
-        resolvedFn.subscribe(fn -> {
-          final Subject<Node> subject = ReplaySubject.create();
-          // duality: property access
+    resolvedArg.subscribe(arg -> {
+      resolvedFn.filter(fn -> fn != null).subscribe(fn -> {
+        final Subject<Node> subject = ReplaySubject.create();
+        // duality: property access
+        if (arg != null) {
           final Node asProp = arg.getProperty(fn);
           if (asProp != null) {
             subject.onNext(asProp);
           }
+        }
 
-          // duality: subroutine invocation
-          fn.setProperty(ARGUMENT, arg);
-          setObservableCallback(fn, subject);
-          fn.activate();
+        // duality: subroutine invocation
+        fn.setProperty(ARGUMENT, arg);
+        setObservableCallback(fn, subject);
+        fn.activate();
 
-          resolvedCallback.filter(c -> c != null).subscribe(callback -> {
-            subject.subscribe(result -> {
-              callback.setProperty(ARGUMENT, result);
-              callback.activate();
-            });
+        resolvedCallback.filter(c -> c != null).subscribe(callback -> {
+          subject.subscribe(result -> {
+            callback.setProperty(ARGUMENT, result);
+            callback.activate();
           });
         });
       });
+    });
+  }
+
+  private void onNodeActivate(final Node node) {
+    final Node rawFn = node.getProperty(EXECUTE);
+    if (rawFn != null) {
+      invoke(rawFn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
     }
   }
 
@@ -143,9 +156,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         // TODO(rosswang): thread-safe mutable
         final ArrayList<Node> split = ((String) arg).chars().mapToObj(c -> {
           // TODO(rosswang): standardize node types
-          return getOrCreateNode(Character.valueOf((char) c));
+          return getOrCreateValueNode(Character.valueOf((char) c));
         }).collect(Collectors.toCollection(ArrayList::new));
-        return getOrCreateNode(split, split);
+        return getOrCreateValueNode(split);
       }
 
       return null;
@@ -226,7 +239,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public void activateTailNGrams(ArrayList<Object> sequence) {
     while (!sequence.isEmpty()) {
-      getOrCreateNode(sequence, sequence).activate();
+      getOrCreateValueNode(sequence).activate();
       sequence = new ArrayList<>(sequence.subList(1, sequence.size()));
     }
   }

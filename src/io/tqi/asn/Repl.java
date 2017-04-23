@@ -57,7 +57,7 @@ public class Repl {
           .pick(1).trim(),
       COMMAND_PARSER = IDENTIFIER.seq(SCOPED_IDENTIFIER.or(STRING).star());
 
-  private static final Serializable INPUT_ID = new Identifier("input");
+  private static final Identifier INPUT_ID = new Identifier("input");
 
   @Getter
   private final KnowledgeBase kb;
@@ -109,7 +109,7 @@ public class Repl {
       }
       return scope.computeIfAbsent((Identifier) identifier, Node::new);
     } else {
-      return kb.getOrCreateNode((Serializable) identifier);
+      return kb.getOrCreateValueNode((Serializable) identifier);
     }
   }
 
@@ -137,6 +137,6 @@ public class Repl {
   }
 
   public void sendInput(final String input) {
-
+    kb.invoke(kb.getOrCreateNode(INPUT_ID), kb.getOrCreateValueNode(input), null);
   }
 }

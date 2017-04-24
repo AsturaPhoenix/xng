@@ -25,7 +25,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	private final Set<Node> nodes = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
 	private final transient Subject<String> rxOutput = PublishSubject.create();
-	private final transient Subject<Void> rxChange = PublishSubject.create();
+	private final transient Subject<Object> rxChange = PublishSubject.create();
 
 	private final Node EXECUTE = new Node(), ARGUMENT = new Node(), CALLBACK = new Node();
 
@@ -39,7 +39,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		return rxOutput;
 	}
 
-	public Observable<Void> rxChange() {
+	public Observable<Object> rxChange() {
 		return rxChange;
 	}
 
@@ -63,7 +63,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 				onNodeActivate(node);
 			});
 			node.rxChange().subscribe(rxChange::onNext);
-			rxChange.onNext(null);
+			rxChange.onNext(this);
 			return node;
 		});
 	}

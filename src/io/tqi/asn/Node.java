@@ -12,7 +12,6 @@ import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Getter;
-import lombok.Setter;
 
 public class Node implements Serializable {
 	private static final long serialVersionUID = -4340465118968553513L;
@@ -29,12 +28,11 @@ public class Node implements Serializable {
 	private final Synapse synapse = new Synapse();
 
 	@Getter
-	@Setter
 	private long refactory = DEFAULT_REFRACTORY;
 
 	private transient Subject<Long> rxInput;
 	private transient Observable<Long> rxOutput;
-	private transient Subject<Void> rxChange;
+	private transient Subject<Object> rxChange;
 
 	public Node() {
 		init();
@@ -55,7 +53,7 @@ public class Node implements Serializable {
 
 		synapse.rxActivate().subscribe(t -> activate());
 		rxOutput.subscribe(t -> lastActivation = t);
-		synapse.rxChange().subscribe(t -> rxChange.onNext(null));
+		synapse.rxChange().subscribe(t -> rxChange.onNext(this));
 	}
 
 	private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
@@ -63,12 +61,20 @@ public class Node implements Serializable {
 		init();
 	}
 
-	public Observable<Void> rxChange() {
+	public Observable<Object> rxChange() {
 		return rxChange;
+	}
+
+	public void setRefractory(final long refractory) {
+		this.refactory = refractory;
+		rxChange.onNext(this);
 	}
 
 	public void activate() {
 		rxInput.onNext(System.currentTimeMillis());
+		// Not emitting a change on activate should be okay since as long as
+		// there are no structural changes, there's no absolute need to save.
+		// Any structural changes will result in an rxChange.
 	}
 
 	public Observable<Long> rxActivate() {
@@ -79,7 +85,7 @@ public class Node implements Serializable {
 
 	public void setProperty(final Node property, final Node value) {
 		properties.put(property, value);
-		rxChange.onNext(null);
+		rxChange.onNext(this);
 	}
 
 	public Node getProperty(final Node property) {

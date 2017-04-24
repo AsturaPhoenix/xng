@@ -36,11 +36,11 @@ public class Synapse implements Serializable {
 		}
 	}
 
-	private transient ConcurrentMap<Node, Activation> inputs = new ConcurrentHashMap<>();
+	private transient ConcurrentMap<Node, Activation> inputs;
 
-	private transient Subject<Long> rxInput = PublishSubject.create();
-	private transient Observable<Long> rxOutput = rxInput.filter(t -> getValue(t) >= 1);
-	private transient Subject<Void> rxChange = PublishSubject.create();
+	private transient Subject<Long> rxInput;
+	private transient Observable<Long> rxOutput;
+	private transient Subject<Object> rxChange;
 
 	public Synapse() {
 		init();
@@ -65,7 +65,7 @@ public class Synapse implements Serializable {
 		return rxOutput;
 	}
 
-	public Observable<Void> rxChange() {
+	public Observable<Object> rxChange() {
 		return rxChange;
 	}
 
@@ -85,29 +85,29 @@ public class Synapse implements Serializable {
 		final int size = o.readInt();
 		for (int i = 0; i < size; i++) {
 			final Node node = (Node) o.readObject();
-			final Activation activation = NewActivation(node);
+			final Activation activation = newActivation(node);
 			activation.coefficient = o.readFloat();
 			activation.decayRate = o.readFloat();
 			inputs.put(node, activation);
 		}
 	}
 
-	private Activation NewActivation(final Node source) {
+	private Activation newActivation(final Node source) {
 		return new Activation(source, source.rxActivate().subscribe(rxInput::onNext));
 	}
 
-	public void SetCoefficient(final Node node, final float coefficient) {
-		inputs.computeIfAbsent(node, this::NewActivation).coefficient = coefficient;
-		rxChange.onNext(null);
+	public void setCoefficient(final Node node, final float coefficient) {
+		inputs.computeIfAbsent(node, this::newActivation).coefficient = coefficient;
+		rxChange.onNext(this);
 	}
 
-	public void SetDecayRate(final Node node, final float decayRate) {
-		inputs.computeIfAbsent(node, this::NewActivation).decayRate = decayRate;
-		rxChange.onNext(null);
+	public void setDecayRate(final Node node, final float decayRate) {
+		inputs.computeIfAbsent(node, this::newActivation).decayRate = decayRate;
+		rxChange.onNext(this);
 	}
 
-	public void Dissociate(final Node node) {
+	public void dissociate(final Node node) {
 		inputs.remove(node).subscription.dispose();
-		rxChange.onNext(null);
+		rxChange.onNext(this);
 	}
 }

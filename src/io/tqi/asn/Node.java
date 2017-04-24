@@ -36,6 +36,10 @@ public class Node implements Serializable {
 	private transient Observable<Long> rxOutput;
 	private transient Subject<Void> rxChange;
 
+	public Node() {
+		init();
+	}
+
 	public Node(final Serializable value) {
 		this.value = value;
 		init();

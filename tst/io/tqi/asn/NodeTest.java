@@ -15,7 +15,7 @@ import io.reactivex.Observable;
 public class NodeTest {
 	@Test
 	public void testEmptySerialization() throws Exception {
-		assertNotNull(TestUtil.serialize(new Node(null)));
+		assertNotNull(TestUtil.serialize(new Node()));
 	}
 
 	@Test
@@ -25,7 +25,7 @@ public class NodeTest {
 
 	@Test
 	public void testPropertySerialization() throws Exception {
-		final Node oObj = new Node(null), oPropLabel = new Node("foo"), oPropValue = new Node("bar");
+		final Node oObj = new Node(), oPropLabel = new Node("foo"), oPropValue = new Node("bar");
 		oObj.setProperty(oPropLabel, oPropValue);
 
 		final Node sObj = TestUtil.serialize(oObj);
@@ -42,11 +42,11 @@ public class NodeTest {
 
 	@Test
 	public void testActivation() {
-		testActivation(new Node(null));
+		testActivation(new Node());
 	}
 
 	@Test
 	public void testPostSerializeActivation() throws Exception {
-		testActivation(TestUtil.serialize(new Node(null)));
+		testActivation(TestUtil.serialize(new Node()));
 	}
 }

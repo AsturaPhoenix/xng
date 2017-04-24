@@ -1,6 +1,10 @@
 package io.tqi.asn;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -11,57 +15,74 @@ import lombok.Getter;
 import lombok.Setter;
 
 public class Node implements Serializable {
-  private static final long serialVersionUID = -4340465118968553513L;
+	private static final long serialVersionUID = -4340465118968553513L;
 
-  private static final long DEFAULT_REFRACTORY = 1000 / 60;
+	private static final long DEFAULT_REFRACTORY = 1000 / 60;
 
-  @Getter
-  private Serializable value;
+	@Getter
+	private Serializable value;
 
-  @Getter
-  private long lastActivation;
+	@Getter
+	private long lastActivation;
 
-  public Node(final Serializable value) {
-    this.value = value;
-  }
+	@Getter
+	private final Synapse synapse = new Synapse();
 
-  @Getter
-  private final Synapse synapse = new Synapse();
+	@Getter
+	@Setter
+	private long refactory = DEFAULT_REFRACTORY;
 
-  @Getter
-  @Setter
-  private long refactory = DEFAULT_REFRACTORY;
+	private transient Subject<Long> rxInput;
+	private transient Observable<Long> rxOutput;
+	private transient Subject<Void> rxChange;
 
-  private final transient Subject<Long> rxInput = PublishSubject.create();
-  private final transient Observable<Long> rxOutput = rxInput
-      .filter(t -> t - lastActivation >= refactory);
-  private final transient Subject<Void> rxChange = PublishSubject.create();
+	public Node(final Serializable value) {
+		this.value = value;
+		init();
+	}
 
-  {
-    synapse.rxActivate().subscribe(t -> activate());
-    rxOutput.subscribe(t -> lastActivation = t);
-    synapse.rxChange().subscribe(t -> rxChange.onNext(null));
-  }
+	private void init() {
+		rxInput = PublishSubject.create();
+		// The share is necessary because this node's rxOutput subscription sets
+		// lastActivation, which means filter will only produce a correct result
+		// once per activation.
+		rxOutput = rxInput.filter(t -> t - lastActivation >= refactory).share();
+		rxChange = PublishSubject.create();
 
-  public Observable<Void> rxChange() {
-    return rxChange;
-  }
+		synapse.rxActivate().subscribe(t -> activate());
+		rxOutput.subscribe(t -> lastActivation = t);
+		synapse.rxChange().subscribe(t -> rxChange.onNext(null));
+	}
 
-  public void activate() {
-    rxInput.onNext(System.currentTimeMillis());
-  }
+	private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
+		stream.defaultReadObject();
+		init();
+	}
 
-  public Observable<Long> rxActivate() {
-    return rxOutput;
-  }
+	public Observable<Void> rxChange() {
+		return rxChange;
+	}
 
-  private final ConcurrentMap<Node, Node> properties = new ConcurrentHashMap<>();
+	public void activate() {
+		rxInput.onNext(System.currentTimeMillis());
+	}
 
-  public void setProperty(final Node property, final Node value) {
-    properties.put(property, value);
-  }
+	public Observable<Long> rxActivate() {
+		return rxOutput;
+	}
 
-  public Node getProperty(final Node property) {
-    return properties.get(property);
-  }
+	private final ConcurrentMap<Node, Node> properties = new ConcurrentHashMap<>();
+
+	public void setProperty(final Node property, final Node value) {
+		properties.put(property, value);
+		rxChange.onNext(null);
+	}
+
+	public Node getProperty(final Node property) {
+		return properties.get(property);
+	}
+
+	public Map<Node, Node> getProperties() {
+		return Collections.unmodifiableMap(properties);
+	}
 }

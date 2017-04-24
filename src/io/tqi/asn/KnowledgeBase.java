@@ -24,11 +24,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
   private final Set<Node> nodes = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
+  private final transient Subject<String> rxOutput = PublishSubject.create();
+  private final transient Subject<Void> rxChange = PublishSubject.create();
+
   private final Node EXECUTE = getOrCreateNode("execute"), ARGUMENT = getOrCreateNode("argument"),
       CALLBACK = getOrCreateNode("callback");
-
-  private final Subject<String> rxOutput = PublishSubject.create();
-  private final Subject<Void> rxChange = PublishSubject.create();
 
   @Override
   public void close() {

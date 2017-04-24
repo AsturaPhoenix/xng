@@ -11,6 +11,10 @@ import lombok.RequiredArgsConstructor;
 public final class Console {
   public static void main(String[] mainArgs)
       throws ClassNotFoundException, ClassCastException, IOException {
+	System.out.println("Start low-level commands with ';'.\n"
+			+ "Output is denoted by '*'.\n"
+			+ "System command output is denoted by '!'.");
+	  
     final KnowledgeBase kb = SerializingPersistence
         .loadBound(FileSystems.getDefault().getPath("persistence"));
     final Repl repl = new Repl(kb);

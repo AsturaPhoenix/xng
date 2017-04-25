@@ -43,6 +43,10 @@ public class NodeTest {
 		Observable<Object> monitor;
 
 		EmissionMonitor(final Observable<?> source) {
+			reset(source);
+		}
+
+		void reset(final Observable<?> source) {
 			this.source = source;
 			reset();
 		}
@@ -51,9 +55,12 @@ public class NodeTest {
 			monitor = source.replay().autoConnect(0).map(x -> this);
 		}
 
+		Observable<Object> emissions() {
+			return monitor.takeUntil(Observable.timer(50, TimeUnit.MILLISECONDS));
+		}
+
 		boolean didEmit() {
-			boolean didEmit = monitor.takeUntil(Observable.timer(50, TimeUnit.MILLISECONDS))
-					.blockingFirst(DID_NOT_ACTIVATE) != DID_NOT_ACTIVATE;
+			boolean didEmit = emissions().blockingFirst(DID_NOT_ACTIVATE) != DID_NOT_ACTIVATE;
 			reset();
 			return didEmit;
 		}
@@ -116,5 +123,26 @@ public class NodeTest {
 		assertFalse(monitor.didEmit());
 		nodes[1].activate();
 		assertTrue(monitor.didEmit());
+	}
+
+	@Test
+	public void testRefractory() {
+		final Node node = new Node();
+		final EmissionMonitor monitor = new EmissionMonitor(node.rxActivate());
+		node.activate();
+		node.activate();
+		assertEquals(1, monitor.emissions().toList().blockingGet().size());
+	}
+
+	@Test
+	public void testRefactoryAcrossSerialization() throws Exception {
+		Node node = new Node();
+		final EmissionMonitor monitor = new EmissionMonitor(node.rxActivate());
+		node.activate();
+		monitor.emissions().blockingFirst();
+		node = TestUtil.serialize(node);
+		monitor.reset(node.rxActivate());
+		node.activate();
+		assertFalse(monitor.didEmit());
 	}
 }

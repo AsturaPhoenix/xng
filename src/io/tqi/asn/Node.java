@@ -84,7 +84,11 @@ public class Node implements Serializable {
 	private final ConcurrentMap<Node, Node> properties = new ConcurrentHashMap<>();
 
 	public void setProperty(final Node property, final Node value) {
-		properties.put(property, value);
+		if (value == null) {
+			properties.remove(property);
+		} else {
+			properties.put(property, value);
+		}
 		rxChange.onNext(this);
 	}
 

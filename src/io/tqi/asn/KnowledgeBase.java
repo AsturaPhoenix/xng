@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -69,32 +70,39 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	}
 
 	public void invoke(final Node rawFn, final Node rawArg, final Node rawCallback) {
-		final Observable<Node> resolvedFn = evaluate(rawFn), resolvedArg = evaluate(rawArg),
+		final Observable<Optional<Node>> resolvedFn = evaluate(rawFn), resolvedArg = evaluate(rawArg),
 				resolvedCallback = evaluate(rawCallback);
 
-		resolvedArg.subscribe(arg -> {
-			resolvedFn.filter(fn -> fn != null).subscribe(fn -> {
+		resolvedArg.subscribe(optArg -> {
+			resolvedFn.subscribe(optFn -> optFn.ifPresent(fn -> {
+				// TODO(rosswang): quite unclear whether this should support
+				// null results
 				final Subject<Node> subject = ReplaySubject.create();
 				// duality: property access
-				if (arg != null) {
+				// Property access can't be a normal built-in at this time
+				// because it can potentially happen at an arbitrarily high
+				// frequency.
+				optArg.ifPresent(arg -> {
 					final Node asProp = arg.getProperty(fn);
 					if (asProp != null) {
 						subject.onNext(asProp);
 					}
-				}
+				});
 
 				// duality: subroutine invocation
-				fn.setProperty(ARGUMENT, arg);
-				setObservableCallback(fn, subject);
+				fn.setProperty(ARGUMENT, optArg.orElse(null));
+				setObservableCallback(fn).subscribe(optResult -> optResult.ifPresent(subject::onNext));
 				fn.activate();
 
-				resolvedCallback.filter(c -> c != null).subscribe(callback -> {
+				resolvedCallback.subscribe(optCallback -> optCallback.ifPresent(callback -> {
 					subject.subscribe(result -> {
+						// TODO(rosswang): should prop set be subject to
+						// refractory?
 						callback.setProperty(ARGUMENT, result);
 						callback.activate();
 					});
-				});
-			});
+				}));
+			}));
 		});
 	}
 
@@ -105,28 +113,26 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		}
 	}
 
-	private Observable<Node> evaluate(final Node node) {
+	private Observable<Optional<Node>> evaluate(final Node node) {
 		if (node == null) {
-			return Observable.just(null);
+			return Observable.just(Optional.empty());
 		}
 
 		final Node fn = node.getProperty(EXECUTE);
 		if (fn == null) {
-			return Observable.just(node);
+			return Observable.just(Optional.of(node));
 		} else {
-			final Subject<Node> subject = ReplaySubject.create();
-			setObservableCallback(node, subject);
+			final Subject<Optional<Node>> subject = ReplaySubject.create();
+			setObservableCallback(node).subscribe(subject::onNext);
 			node.activate();
 			return subject;
 		}
 	}
 
-	private void setObservableCallback(final Node routine, final Subject<Node> subject) {
+	private Observable<Optional<Node>> setObservableCallback(final Node routine) {
 		final Node callback = new Node();
-		callback.rxActivate().subscribe(t -> {
-			evaluate(callback.getProperty(ARGUMENT)).subscribe(subject::onNext);
-		});
 		routine.setProperty(CALLBACK, callback);
+		return callback.rxActivate().flatMap(t -> evaluate(callback.getProperty(ARGUMENT)));
 	}
 
 	public void registerBuiltIn(final String name, final Consumer<Node> impl) {

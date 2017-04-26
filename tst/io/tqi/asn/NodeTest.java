@@ -6,13 +6,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Map.Entry;
-import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
 import com.google.common.collect.Iterables;
-
-import io.reactivex.Observable;
 
 public class NodeTest {
 	@Test
@@ -36,38 +33,8 @@ public class NodeTest {
 		assertEquals("bar", prop.getValue().getValue());
 	}
 
-	private static class EmissionMonitor {
-		private static final Object DID_NOT_ACTIVATE = new Object();
-
-		Observable<?> source;
-		Observable<Object> monitor;
-
-		EmissionMonitor(final Observable<?> source) {
-			reset(source);
-		}
-
-		void reset(final Observable<?> source) {
-			this.source = source;
-			reset();
-		}
-
-		void reset() {
-			monitor = source.replay().autoConnect(0).map(x -> this);
-		}
-
-		Observable<Object> emissions() {
-			return monitor.takeUntil(Observable.timer(50, TimeUnit.MILLISECONDS));
-		}
-
-		boolean didEmit() {
-			boolean didEmit = emissions().blockingFirst(DID_NOT_ACTIVATE) != DID_NOT_ACTIVATE;
-			reset();
-			return didEmit;
-		}
-	}
-
 	private static void testActivation(final Node node) {
-		final EmissionMonitor monitor = new EmissionMonitor(node.rxActivate());
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxActivate());
 		node.activate();
 		assertTrue(monitor.didEmit());
 	}
@@ -85,7 +52,7 @@ public class NodeTest {
 	@Test
 	public void testRefractoryChange() {
 		final Node node = new Node();
-		final EmissionMonitor monitor = new EmissionMonitor(node.rxChange());
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxChange());
 		node.setRefractory(42);
 		assertTrue(monitor.didEmit());
 	}
@@ -93,7 +60,7 @@ public class NodeTest {
 	@Test
 	public void testPostSerializeSynapseChange() throws Exception {
 		final Node node = TestUtil.serialize(new Node());
-		final EmissionMonitor monitor = new EmissionMonitor(node.rxChange());
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxChange());
 		node.getSynapse().setDecayRate(new Node(), 1);
 		assertTrue(monitor.didEmit());
 	}
@@ -101,7 +68,7 @@ public class NodeTest {
 	@Test
 	public void testAnd() {
 		final Node a = new Node(), b = new Node(), and = new Node();
-		final EmissionMonitor monitor = new EmissionMonitor(and.rxActivate());
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(and.rxActivate());
 		and.getSynapse().setCoefficient(a, .8f);
 		and.getSynapse().setCoefficient(b, .8f);
 		a.activate();
@@ -118,7 +85,7 @@ public class NodeTest {
 
 		nodes = TestUtil.serialize(nodes);
 
-		final EmissionMonitor monitor = new EmissionMonitor(nodes[2].rxActivate());
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(nodes[2].rxActivate());
 		nodes[0].activate();
 		assertFalse(monitor.didEmit());
 		nodes[1].activate();
@@ -128,7 +95,7 @@ public class NodeTest {
 	@Test
 	public void testRefractory() {
 		final Node node = new Node();
-		final EmissionMonitor monitor = new EmissionMonitor(node.rxActivate());
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxActivate());
 		node.activate();
 		node.activate();
 		assertEquals(1, monitor.emissions().toList().blockingGet().size());
@@ -137,7 +104,7 @@ public class NodeTest {
 	@Test
 	public void testRefactoryAcrossSerialization() throws Exception {
 		Node node = new Node();
-		final EmissionMonitor monitor = new EmissionMonitor(node.rxActivate());
+		final EmissionMonitor<Object> monitor = new EmissionMonitor<>(node.rxActivate());
 		node.activate();
 		monitor.emissions().blockingFirst();
 		node = TestUtil.serialize(node);

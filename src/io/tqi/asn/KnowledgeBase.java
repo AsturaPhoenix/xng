@@ -29,7 +29,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	private transient Subject<String> rxOutput;
 	private transient Subject<Object> rxChange;
 
-	private final Node EXECUTE = new Node(), ARGUMENT = new Node(), CALLBACK = new Node();
+	public final Node EXECUTE = new Node(), ARGUMENT = new Node(), CALLBACK = new Node();
 
 	public KnowledgeBase() {
 		init();
@@ -39,11 +39,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		rxOutput = PublishSubject.create();
 		rxChange = PublishSubject.create();
 
-		registerBuiltIn("getProp", args -> {
+		for (final Node node : nodes) {
+			initNode(node);
+		}
+
+		registerBuiltIn("getProperty", args -> {
 			final Node object = args.getProperty(getOrCreateNode("object")),
 					property = args.getProperty(getOrCreateNode("property"));
 			return object == null || property == null ? null : object.getProperty(property);
-		});
+		}).setRefractory(0);
 
 		registerBuiltIn("splitString", node -> {
 			final Object arg = node.getValue();
@@ -135,6 +139,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		});
 	}
 
+	private void initNode(final Node node) {
+		node.rxActivate().subscribe(t -> {
+			final Node rawFn = node.getProperty(EXECUTE);
+			if (rawFn != null) {
+				invoke(rawFn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
+			}
+		});
+		node.rxChange().subscribe(rxChange::onNext);
+	}
+
 	private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
 		stream.defaultReadObject();
 		init();
@@ -169,14 +183,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	private Node internalGetOrCreateNode(final Serializable label, final Serializable value) {
 		return index.computeIfAbsent(label, x -> {
 			final Node node = new Node(value);
+			initNode(node);
 			nodes.add(node);
-			node.rxActivate().subscribe(t -> {
-				onNodeActivate(node);
-			});
-			node.rxChange().subscribe(rxChange::onNext);
-			rxChange.onNext(this);
 			return node;
 		});
+	}
+
+	// All kb nodes must be created through createNode or a getOrCreate method
+	// to ensure the proper callbacks are set.
+	public Node createNode() {
+		final Node node = new Node();
+		initNode(node);
+		nodes.add(node);
+		return node;
 	}
 
 	public void invoke(final Node rawFn, final Node rawArg, final Node rawCallback) {
@@ -196,13 +215,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 				fn.activate();
 			}));
 		});
-	}
-
-	private void onNodeActivate(final Node node) {
-		final Node rawFn = node.getProperty(EXECUTE);
-		if (rawFn != null) {
-			invoke(rawFn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
-		}
 	}
 
 	private Observable<Optional<Node>> evaluate(final Node node) {
@@ -226,14 +238,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		return callback.rxActivate().map(t -> Optional.ofNullable(callback.getProperty(ARGUMENT)));
 	}
 
-	public void registerBuiltIn(final String name, final Consumer<Node> impl) {
-		registerBuiltIn(name, arg -> {
+	public Node registerBuiltIn(final String name, final Consumer<Node> impl) {
+		return registerBuiltIn(name, arg -> {
 			impl.accept(arg);
 			return null;
 		});
 	}
 
-	public void registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
+	public Node registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
 		final Node node = getOrCreateNode(name);
 		node.rxActivate().subscribe(t -> {
 			final Node result = impl.apply(node.getProperty(ARGUMENT));
@@ -246,6 +258,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 				callback.activate();
 			}
 		});
+		return node;
 	}
 
 	public void activateTailNGrams(ArrayList<Object> sequence) {

@@ -1,5 +1,7 @@
 package io.tqi.asn;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -15,7 +17,6 @@ import java.util.stream.Collectors;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
-import io.reactivex.subjects.ReplaySubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.asn.value.NodeIterator;
 
@@ -25,136 +26,25 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
 	private final Set<Node> nodes = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
-	private final transient Subject<String> rxOutput = PublishSubject.create();
-	private final transient Subject<Object> rxChange = PublishSubject.create();
+	private transient Subject<String> rxOutput;
+	private transient Subject<Object> rxChange;
 
 	private final Node EXECUTE = new Node(), ARGUMENT = new Node(), CALLBACK = new Node();
 
-	@Override
-	public void close() {
-		rxOutput.onComplete();
-		rxChange.onComplete();
+	public KnowledgeBase() {
+		init();
 	}
 
-	public Observable<String> rxOutput() {
-		return rxOutput;
-	}
+	private void init() {
+		rxOutput = PublishSubject.create();
+		rxChange = PublishSubject.create();
 
-	public Observable<Object> rxChange() {
-		return rxChange;
-	}
-
-	public Node getOrCreateNode(final String identifier) {
-		return getOrCreateNode(new Identifier(identifier));
-	}
-
-	public Node getOrCreateNode(final Identifier identifier) {
-		return internalGetOrCreateNode(identifier, null);
-	}
-
-	public Node getOrCreateValueNode(final Serializable value) {
-		return internalGetOrCreateNode(value, value);
-	}
-
-	private Node internalGetOrCreateNode(final Serializable label, final Serializable value) {
-		return index.computeIfAbsent(label, x -> {
-			final Node node = new Node(value);
-			nodes.add(node);
-			node.rxActivate().subscribe(t -> {
-				onNodeActivate(node);
-			});
-			node.rxChange().subscribe(rxChange::onNext);
-			rxChange.onNext(this);
-			return node;
+		registerBuiltIn("getProp", args -> {
+			final Node object = args.getProperty(getOrCreateNode("object")),
+					property = args.getProperty(getOrCreateNode("property"));
+			return object == null || property == null ? null : object.getProperty(property);
 		});
-	}
 
-	public void invoke(final Node rawFn, final Node rawArg, final Node rawCallback) {
-		final Observable<Optional<Node>> resolvedFn = evaluate(rawFn), resolvedArg = evaluate(rawArg),
-				resolvedCallback = evaluate(rawCallback);
-
-		resolvedArg.subscribe(optArg -> {
-			resolvedFn.subscribe(optFn -> optFn.ifPresent(fn -> {
-				// TODO(rosswang): quite unclear whether this should support
-				// null results
-				final Subject<Node> subject = ReplaySubject.create();
-				// duality: property access
-				// Property access can't be a normal built-in at this time
-				// because it can potentially happen at an arbitrarily high
-				// frequency.
-				optArg.ifPresent(arg -> {
-					final Node asProp = arg.getProperty(fn);
-					if (asProp != null) {
-						subject.onNext(asProp);
-					}
-				});
-
-				// duality: subroutine invocation
-				fn.setProperty(ARGUMENT, optArg.orElse(null));
-				setObservableCallback(fn).subscribe(optResult -> optResult.ifPresent(subject::onNext));
-				fn.activate();
-
-				resolvedCallback.subscribe(optCallback -> optCallback.ifPresent(callback -> {
-					subject.subscribe(result -> {
-						// TODO(rosswang): should prop set be subject to
-						// refractory?
-						callback.setProperty(ARGUMENT, result);
-						callback.activate();
-					});
-				}));
-			}));
-		});
-	}
-
-	private void onNodeActivate(final Node node) {
-		final Node rawFn = node.getProperty(EXECUTE);
-		if (rawFn != null) {
-			invoke(rawFn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
-		}
-	}
-
-	private Observable<Optional<Node>> evaluate(final Node node) {
-		if (node == null) {
-			return Observable.just(Optional.empty());
-		}
-
-		final Node fn = node.getProperty(EXECUTE);
-		if (fn == null) {
-			return Observable.just(Optional.of(node));
-		} else {
-			final Subject<Optional<Node>> subject = ReplaySubject.create();
-			setObservableCallback(node).subscribe(subject::onNext);
-			node.activate();
-			return subject;
-		}
-	}
-
-	private Observable<Optional<Node>> setObservableCallback(final Node routine) {
-		final Node callback = new Node();
-		routine.setProperty(CALLBACK, callback);
-		return callback.rxActivate().flatMap(t -> evaluate(callback.getProperty(ARGUMENT)));
-	}
-
-	public void registerBuiltIn(final String name, final Consumer<Node> impl) {
-		registerBuiltIn(name, arg -> {
-			impl.accept(arg);
-			return null;
-		});
-	}
-
-	public void registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
-		final Node node = getOrCreateNode(name);
-		node.rxActivate().subscribe(t -> {
-			final Node result = impl.apply(node.getProperty(ARGUMENT));
-			final Node callback = node.getProperty(CALLBACK);
-			if (callback != null) {
-				callback.setProperty(ARGUMENT, result);
-				callback.activate();
-			}
-		});
-	}
-
-	{
 		registerBuiltIn("splitString", node -> {
 			final Object arg = node.getValue();
 			if (arg instanceof String) {
@@ -241,6 +131,119 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			final Object arg = node.getValue();
 			if (arg instanceof String) {
 				rxOutput.onNext((String) arg);
+			}
+		});
+	}
+
+	private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
+		stream.defaultReadObject();
+		init();
+	}
+
+	@Override
+	public void close() {
+		rxOutput.onComplete();
+		rxChange.onComplete();
+	}
+
+	public Observable<String> rxOutput() {
+		return rxOutput;
+	}
+
+	public Observable<Object> rxChange() {
+		return rxChange;
+	}
+
+	public Node getOrCreateNode(final String identifier) {
+		return getOrCreateNode(new Identifier(identifier));
+	}
+
+	public Node getOrCreateNode(final Identifier identifier) {
+		return internalGetOrCreateNode(identifier, null);
+	}
+
+	public Node getOrCreateValueNode(final Serializable value) {
+		return internalGetOrCreateNode(value, value);
+	}
+
+	private Node internalGetOrCreateNode(final Serializable label, final Serializable value) {
+		return index.computeIfAbsent(label, x -> {
+			final Node node = new Node(value);
+			nodes.add(node);
+			node.rxActivate().subscribe(t -> {
+				onNodeActivate(node);
+			});
+			node.rxChange().subscribe(rxChange::onNext);
+			rxChange.onNext(this);
+			return node;
+		});
+	}
+
+	public void invoke(final Node rawFn, final Node rawArg, final Node rawCallback) {
+		final Observable<Optional<Node>> resolvedFn = evaluate(rawFn), resolvedArg = evaluate(rawArg),
+				resolvedCallback = evaluate(rawCallback);
+
+		resolvedArg.subscribe(optArg -> {
+			resolvedFn.subscribe(optFn -> optFn.ifPresent(fn -> {
+				fn.setProperty(ARGUMENT, optArg);
+				// use setObservableCallback rather than setting the callback
+				// property directly to allow multicast of each single fn exec
+				// to all callbacks
+				setObservableCallback(fn).subscribe(
+						optResult -> resolvedCallback.subscribe(optCallback -> optCallback.ifPresent(callback -> {
+							invoke(callback, optResult.orElse(null), null);
+						})));
+				fn.activate();
+			}));
+		});
+	}
+
+	private void onNodeActivate(final Node node) {
+		final Node rawFn = node.getProperty(EXECUTE);
+		if (rawFn != null) {
+			invoke(rawFn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
+		}
+	}
+
+	private Observable<Optional<Node>> evaluate(final Node node) {
+		if (node == null) {
+			return Observable.just(Optional.empty());
+		}
+
+		final Node fn = node.getProperty(EXECUTE);
+		if (fn == null) {
+			return Observable.just(Optional.of(node));
+		} else {
+			final Observable<Optional<Node>> results = setObservableCallback(node).replay().autoConnect(0);
+			node.activate();
+			return results;
+		}
+	}
+
+	private Observable<Optional<Node>> setObservableCallback(final Node routine) {
+		final Node callback = new Node();
+		routine.setProperty(CALLBACK, callback);
+		return callback.rxActivate().map(t -> Optional.ofNullable(callback.getProperty(ARGUMENT)));
+	}
+
+	public void registerBuiltIn(final String name, final Consumer<Node> impl) {
+		registerBuiltIn(name, arg -> {
+			impl.accept(arg);
+			return null;
+		});
+	}
+
+	public void registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
+		final Node node = getOrCreateNode(name);
+		node.rxActivate().subscribe(t -> {
+			final Node result = impl.apply(node.getProperty(ARGUMENT));
+			// do this raw rather than call invoke because ARGUMENT and CALLBACK
+			// here should already have been evaluated by the invoke call for
+			// the built-in
+			final Node callback = node.getProperty(CALLBACK);
+			if (callback != null) {
+				callback.setProperty(ARGUMENT, result);
+				callback.activate();
 			}
 		});
 	}

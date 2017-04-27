@@ -45,7 +45,7 @@ public class NodeTest {
 	}
 
 	@Test
-	public void testPostSerializeActivation() throws Exception {
+	public void testActivationAfterSerialization() throws Exception {
 		testActivation(TestUtil.serialize(new Node()));
 	}
 
@@ -58,7 +58,7 @@ public class NodeTest {
 	}
 
 	@Test
-	public void testPostSerializeSynapseChange() throws Exception {
+	public void testSynapseChangeAfterSerialization() throws Exception {
 		final Node node = TestUtil.serialize(new Node());
 		final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxChange());
 		node.getSynapse().setDecayRate(new Node(), 1);

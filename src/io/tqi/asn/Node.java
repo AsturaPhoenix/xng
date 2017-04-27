@@ -5,6 +5,7 @@ import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -90,6 +91,10 @@ public class Node implements Serializable {
 			properties.put(property, value);
 		}
 		rxChange.onNext(this);
+	}
+
+	public void setProperty(final Node property, final Optional<Node> value) {
+		setProperty(property, value.orElse(null));
 	}
 
 	public Node getProperty(final Node property) {

@@ -3,11 +3,7 @@ package io.tqi.asn;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import java.util.concurrent.TimeUnit;
-
 import org.junit.Test;
-
-import io.reactivex.Single;
 
 public class KnowledgeBaseTest {
 	@Test
@@ -15,13 +11,19 @@ public class KnowledgeBaseTest {
 		assertNotNull(TestUtil.serialize(new KnowledgeBase()));
 	}
 
+	private static void testPrint(final KnowledgeBase kb) {
+		final EmissionMonitor<String> monitor = new EmissionMonitor<>(kb.rxOutput());
+		kb.invoke(kb.getOrCreateNode("print"), kb.getOrCreateValueNode("foo"), null);
+		assertEquals("foo", monitor.emissions().blockingFirst());
+	}
+
 	@Test
 	public void testPrint() {
-		final Single<String> output;
-		try (final KnowledgeBase kb = new KnowledgeBase()) {
-			output = kb.rxOutput().replay().autoConnect(0).firstOrError().timeout(50, TimeUnit.MILLISECONDS);
-			kb.invoke(kb.getOrCreateNode("print"), kb.getOrCreateValueNode("foo"), null);
-			assertEquals("foo", output.blockingGet());
-		}
+		testPrint(new KnowledgeBase());
+	}
+
+	@Test
+	public void testPrintAfterSerialization() throws Exception {
+		testPrint(TestUtil.serialize(new KnowledgeBase()));
 	}
 }

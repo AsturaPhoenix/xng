@@ -1,4 +1,4 @@
-package io.tqi.asn;
+package io.tqi.ekg;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

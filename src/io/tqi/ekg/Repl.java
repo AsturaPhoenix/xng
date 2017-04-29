@@ -1,4 +1,4 @@
-package io.tqi.asn;
+package io.tqi.ekg;
 
 import static org.petitparser.parser.primitive.CharacterParser.anyOf;
 import static org.petitparser.parser.primitive.CharacterParser.noneOf;

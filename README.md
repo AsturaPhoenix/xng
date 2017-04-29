@@ -1,5 +1,4 @@
-# asn
-Associative Semantic Network
+# Executable Knowledge Graph
 
 # Eclipse
 To develop in Eclipse,

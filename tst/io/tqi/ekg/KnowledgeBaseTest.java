@@ -1,9 +1,12 @@
-package io.tqi.asn;
+package io.tqi.ekg;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import org.junit.Test;
+
+import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.Node;
 
 public class KnowledgeBaseTest {
 	@Test

@@ -1,4 +1,4 @@
-package io.tqi.asn;
+package io.tqi.ekg;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -10,6 +10,8 @@ import java.util.Map.Entry;
 import org.junit.Test;
 
 import com.google.common.collect.Iterables;
+
+import io.tqi.ekg.Node;
 
 public class NodeTest {
 	@Test

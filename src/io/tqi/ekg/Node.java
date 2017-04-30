@@ -13,6 +13,7 @@ import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Getter;
+import lombok.Setter;
 
 public class Node implements Serializable {
 	private static final long serialVersionUID = -4340465118968553513L;
@@ -20,6 +21,7 @@ public class Node implements Serializable {
 	private static final long DEFAULT_REFRACTORY = 1000 / 60;
 
 	@Getter
+	@Setter
 	private Serializable value;
 
 	@Getter

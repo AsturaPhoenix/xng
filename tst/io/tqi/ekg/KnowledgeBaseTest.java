@@ -2,11 +2,12 @@ package io.tqi.ekg;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
+import java.util.ArrayList;
+import java.util.Arrays;
 
 import org.junit.Test;
-
-import io.tqi.ekg.KnowledgeBase;
-import io.tqi.ekg.Node;
 
 public class KnowledgeBaseTest {
 	@Test
@@ -62,5 +63,44 @@ public class KnowledgeBaseTest {
 		setUpPropGet(kb);
 		kb = TestUtil.serialize(kb);
 		assertPropGet(kb);
+	}
+
+	private static void setUpIterator(final KnowledgeBase kb) {
+		final Node content = kb.createNode();
+		content.setValue(new ArrayList<>(Arrays.asList(kb.getOrCreateValueNode("foo"))));
+
+		final Node callback = kb.createNode();
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(callback.rxActivate());
+		kb.invoke(kb.getOrCreateNode("iterator"), content, callback);
+		assertTrue(monitor.didEmit());
+		final Node iterator = callback.getProperty(kb.ARGUMENT);
+		kb.indexNode("test iterator", iterator);
+		final Node onMove = iterator.getProperty(kb.getOrCreateNode("onMove"));
+		onMove.setProperty(kb.EXECUTE, kb.getOrCreateNode("print"));
+	}
+
+	private static void assertIterator(final KnowledgeBase kb) {
+		final Node testIterator = kb.getOrCreateNode("test iterator");
+		final Node onMove = testIterator.getProperty(kb.getOrCreateNode("onMove"));
+
+		final EmissionMonitor<String> outputMonitor = new EmissionMonitor<>(kb.rxOutput());
+		final EmissionMonitor<?> onMoveMonitor = new EmissionMonitor<>(onMove.rxActivate());
+		testIterator.getProperty(kb.getOrCreateNode("forward")).activate();
+		assertTrue(onMoveMonitor.didEmit());
+		assertEquals("foo", onMove.getProperty(kb.ARGUMENT).getValue());
+		assertEquals("foo", outputMonitor.emissions().blockingSingle());
+	}
+
+	@Test
+	public void testIterator() {
+		try (final KnowledgeBase kb = new KnowledgeBase()) {
+			setUpIterator(kb);
+			assertIterator(kb);
+		}
+	}
+
+	@Test
+	public void testFibbonacci() {
+
 	}
 }

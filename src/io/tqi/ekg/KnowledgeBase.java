@@ -43,11 +43,41 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			initNode(node);
 		}
 
+		registerBuiltIn("activateTailNGrams", node -> {
+			final Object arg = node.getValue();
+			if (arg instanceof ArrayList) {
+				@SuppressWarnings("unchecked")
+				final ArrayList<Object> listArg = (ArrayList<Object>) arg;
+				activateTailNGrams(listArg);
+			} else if (arg instanceof Collection) {
+				@SuppressWarnings("unchecked")
+				final Collection<Object> collectionArg = (Collection<Object>) arg;
+				activateTailNGrams(new ArrayList<>(collectionArg));
+			}
+		});
+
 		registerBuiltIn("getProperty", args -> {
 			final Node object = args.getProperty(getOrCreateNode("object")),
 					property = args.getProperty(getOrCreateNode("property"));
 			return object == null || property == null ? null : object.getProperty(property);
 		}).setRefractory(0);
+
+		registerBuiltIn("math.add", node -> {
+			final Node a = node.getProperty(arg(1)), b = node.getProperty(arg(2));
+			if (a.getValue() instanceof Number && b.getValue() instanceof Number) {
+				final Number an = (Number) a.getValue(), bn = (Number) b.getValue();
+				return getOrCreateValueNode(an.doubleValue() + bn.doubleValue());
+			} else {
+				return null;
+			}
+		});
+
+		registerBuiltIn("print", node -> {
+			final Object arg = node.getValue();
+			if (arg instanceof String) {
+				rxOutput.onNext((String) arg);
+			}
+		});
 
 		registerBuiltIn("splitString", node -> {
 			final Object arg = node.getValue();
@@ -63,28 +93,28 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			return null;
 		});
 
-		registerBuiltIn("windowedIterator", node -> {
+		registerBuiltIn("iterator", node -> {
 			final Object arg = node.getValue();
 			if (arg instanceof List) {
 				// TODO(rosswang): standardize node types
 				@SuppressWarnings("unchecked")
 				final ArrayList<Node> backing = (ArrayList<Node>) arg;
 				final NodeIterator iterator = new NodeIterator(backing);
-				final Node iterNode = new Node(iterator);
+				final Node iterNode = createNode();
+				iterNode.setValue(iterator);
 
-				final Node forward = new Node(null), back = new Node(null);
+				final Node forward = createNode(), back = createNode();
 				iterNode.setProperty(getOrCreateNode("forward"), forward);
 				iterNode.setProperty(getOrCreateNode("back"), back);
 
 				final Node atStartProp = getOrCreateNode("atStart"), atEndProp = getOrCreateNode("atEnd"),
 						onMoveProp = getOrCreateNode("onMove");
-				iterNode.setProperty(atStartProp, new Node(null));
-				iterNode.setProperty(atEndProp, new Node(null));
-				iterNode.setProperty(onMoveProp, new Node(null));
+				iterNode.setProperty(atStartProp, createNode());
+				iterNode.setProperty(atEndProp, createNode());
+				iterNode.setProperty(onMoveProp, createNode());
 
 				// TODO(rosswang): revisit whether we should have stateful
-				// properties
-				// too
+				// properties too
 
 				final Consumer<Node> update = current -> {
 					// Note that the atEnd and atStart property activations also
@@ -118,24 +148,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			return null;
 		});
 
-		registerBuiltIn("activateTailNGrams", node -> {
+		registerBuiltIn("toString", node -> {
 			final Object arg = node.getValue();
-			if (arg instanceof ArrayList) {
-				@SuppressWarnings("unchecked")
-				final ArrayList<Object> listArg = (ArrayList<Object>) arg;
-				activateTailNGrams(listArg);
-			} else if (arg instanceof Collection) {
-				@SuppressWarnings("unchecked")
-				final Collection<Object> collectionArg = (Collection<Object>) arg;
-				activateTailNGrams(new ArrayList<>(collectionArg));
-			}
-		});
-
-		registerBuiltIn("print", node -> {
-			final Object arg = node.getValue();
-			if (arg instanceof String) {
-				rxOutput.onNext((String) arg);
-			}
+			return arg == null ? null : arg instanceof String ? node : getOrCreateValueNode(arg.toString());
 		});
 	}
 
@@ -168,6 +183,17 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		return rxChange;
 	}
 
+	/**
+	 * Gets or creates a node representing a positional argument.
+	 * 
+	 * @param ordinal
+	 *            one-based argument index
+	 * @return
+	 */
+	public Node arg(final int ordinal) {
+		return getOrCreateNode("arg_" + ordinal);
+	}
+
 	public Node getOrCreateNode(final String identifier) {
 		return getOrCreateNode(new Identifier(identifier));
 	}
@@ -196,6 +222,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		initNode(node);
 		nodes.add(node);
 		return node;
+	}
+
+	public void indexNode(final String identifier, final Node node) {
+		indexNode(new Identifier(identifier), node);
+	}
+
+	public void indexNode(final Identifier identifier, final Node node) {
+		index.put(identifier, node);
 	}
 
 	public void invoke(final Node rawFn, final Node rawArg, final Node rawCallback) {

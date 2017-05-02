@@ -93,6 +93,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			return null;
 		});
 
+		final Node iterForward = registerBuiltIn("iterator.forward",
+				node -> updateIterator(node, ((NodeIterator) node.getValue()).next())),
+				iterBack = registerBuiltIn("iterator.back",
+						node -> updateIterator(node, ((NodeIterator) node.getValue()).previous()));
+
 		registerBuiltIn("iterator", node -> {
 			final Object arg = node.getValue();
 			if (arg instanceof List) {
@@ -103,9 +108,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 				final Node iterNode = createNode();
 				iterNode.setValue(iterator);
 
-				final Node forward = createNode(), back = createNode();
-				iterNode.setProperty(getOrCreateNode("forward"), forward);
-				iterNode.setProperty(getOrCreateNode("back"), back);
+				final Node iterForwardCall = createNode(), iterBackCall = createNode();
+				iterForwardCall.setProperty(EXECUTE, iterForward);
+				iterForwardCall.setProperty(ARGUMENT, iterNode);
+				iterBackCall.setProperty(EXECUTE, iterBack);
+				iterBackCall.setProperty(ARGUMENT, iterNode);
+
+				iterNode.setProperty(getOrCreateNode("forward"), iterForwardCall);
+				iterNode.setProperty(getOrCreateNode("back"), iterBackCall);
 
 				final Node atStartProp = getOrCreateNode("atStart"), atEndProp = getOrCreateNode("atEnd"),
 						onMoveProp = getOrCreateNode("onMove");
@@ -115,32 +125,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
 				// TODO(rosswang): revisit whether we should have stateful
 				// properties too
-
-				final Consumer<Node> update = current -> {
-					// Note that the atEnd and atStart property activations also
-					// result in
-					// the atEnd and atStart globally indexed nodes being called
-					// with the
-					// iterator as an argument.
-					if (!iterator.hasNext()) {
-						iterNode.getProperty(atEndProp).activate();
-					}
-					if (!iterator.hasPrevious()) {
-						iterNode.getProperty(atStartProp).activate();
-					}
-					final Node onMove = iterNode.getProperty(onMoveProp);
-					onMove.setProperty(ARGUMENT, current);
-					current.activate();
-					onMove.activate();
-				};
-
-				forward.rxActivate().subscribe(t -> {
-					update.accept(iterator.next());
-				});
-
-				back.rxActivate().subscribe(t -> {
-					update.accept(iterator.previous());
-				});
 
 				return iterNode;
 			}
@@ -152,6 +136,25 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			final Object arg = node.getValue();
 			return arg == null ? null : arg instanceof String ? node : getOrCreateValueNode(arg.toString());
 		});
+	}
+
+	private void updateIterator(final Node iterNode, final Node current) {
+		final NodeIterator iterator = (NodeIterator) iterNode.getValue();
+		// Note that the atEnd and atStart property activations also
+		// result in
+		// the atEnd and atStart globally indexed nodes being called
+		// with the
+		// iterator as an argument.
+		if (!iterator.hasNext()) {
+			iterNode.getProperty(getOrCreateNode("atEnd")).activate();
+		}
+		if (!iterator.hasPrevious()) {
+			iterNode.getProperty(getOrCreateNode("atStart")).activate();
+		}
+		final Node onMove = iterNode.getProperty(getOrCreateNode("onMove"));
+		onMove.setProperty(ARGUMENT, current);
+		current.activate();
+		onMove.activate();
 	}
 
 	private void initNode(final Node node) {

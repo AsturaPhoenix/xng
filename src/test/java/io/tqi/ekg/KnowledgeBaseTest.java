@@ -59,10 +59,9 @@ public class KnowledgeBaseTest {
 
 	@Test
 	public void testPrintPropAfterSerialization() throws Exception {
-		KnowledgeBase kb = new KnowledgeBase();
+		final KnowledgeBase kb = new KnowledgeBase();
 		setUpPropGet(kb);
-		kb = TestUtil.serialize(kb);
-		assertPropGet(kb);
+		assertPropGet(TestUtil.serialize(kb));
 	}
 
 	private static void setUpIterator(final KnowledgeBase kb) {
@@ -97,6 +96,13 @@ public class KnowledgeBaseTest {
 			setUpIterator(kb);
 			assertIterator(kb);
 		}
+	}
+
+	@Test
+	public void testIteratorAfterSerialization() throws Exception {
+		final KnowledgeBase kb = new KnowledgeBase();
+		setUpIterator(kb);
+		assertIterator(TestUtil.serialize(kb));
 	}
 
 	@Test

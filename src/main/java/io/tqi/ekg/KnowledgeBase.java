@@ -140,10 +140,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
 	private void updateIterator(final Node iterNode, final Node current) {
 		final NodeIterator iterator = (NodeIterator) iterNode.getValue();
-		// Note that the atEnd and atStart property activations also
-		// result in
-		// the atEnd and atStart globally indexed nodes being called
-		// with the
+		// Note that the atEnd and atStart property activations also result in
+		// the atEnd and atStart globally indexed nodes being called with the
 		// iterator as an argument.
 		if (!iterator.hasNext()) {
 			iterNode.getProperty(getOrCreateNode("atEnd")).activate();

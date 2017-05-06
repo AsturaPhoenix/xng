@@ -11,8 +11,6 @@ import org.junit.Test;
 
 import com.google.common.collect.Iterables;
 
-import io.tqi.ekg.Node;
-
 public class NodeTest {
 	@Test
 	public void testEmptySerialization() throws Exception {
@@ -63,7 +61,7 @@ public class NodeTest {
 	public void testSynapseChangeAfterSerialization() throws Exception {
 		final Node node = TestUtil.serialize(new Node());
 		final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxChange());
-		node.getSynapse().setDecayRate(new Node(), 1);
+		node.getSynapse().setDecayPeriod(new Node(), 1);
 		assertTrue(monitor.didEmit());
 	}
 
@@ -107,11 +105,38 @@ public class NodeTest {
 	public void testRefactoryAcrossSerialization() throws Exception {
 		Node node = new Node();
 		final EmissionMonitor<Object> monitor = new EmissionMonitor<>(node.rxActivate());
+		node.setRefractory(1000);
 		node.activate();
 		monitor.emissions().blockingFirst();
 		node = TestUtil.serialize(node);
 		monitor.reset(node.rxActivate());
 		node.activate();
 		assertFalse(monitor.didEmit());
+	}
+
+	@Test
+	public void testCoincidentInhibition() {
+		final Node up = new Node(), down = new Node(), out = new Node();
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(out.rxActivate());
+		out.getSynapse().setCoefficient(up, 1);
+		out.getSynapse().setCoefficient(down, -1);
+		up.activate();
+		down.activate();
+		assertFalse(monitor.didEmit());
+	}
+
+	@Test
+	public void testShortPullDown() throws Exception {
+		final Node up = new Node(), down = new Node(), out = new Node();
+		final EmissionMonitor<?> monitor = new EmissionMonitor<>(out.rxActivate());
+		out.getSynapse().setCoefficient(up, 2);
+		out.getSynapse().setDecayPeriod(up, 1000);
+		out.getSynapse().setCoefficient(down, -3);
+		out.getSynapse().setDecayPeriod(down, 300);
+		down.activate();
+		up.activate();
+		assertFalse(monitor.didEmit());
+		Thread.sleep(500);
+		assertTrue(monitor.didEmit());
 	}
 }

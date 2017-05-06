@@ -14,6 +14,15 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
+/**
+ * Represents the incoming logical junction of node signals towards a specific
+ * node.
+ * 
+ * Minimal effort is made to preserve activation across serialization boundaries
+ * since behavior while the system is down is discontinuous anyway. In the
+ * future, it is likely that either we will switch to relative time and fully
+ * support serialization or else completely clear activation on deserialization.
+ */
 public class Synapse implements Serializable {
 	private static final long serialVersionUID = 1779165354354490167L;
 
@@ -71,7 +80,7 @@ public class Synapse implements Serializable {
 			return Observable.just(time);
 		} else {
 			final long nextCrit = getNextCriticalPoint(time);
-			return time == Long.MAX_VALUE ? Observable.empty()
+			return nextCrit == Long.MAX_VALUE ? Observable.empty()
 					: Observable.timer(nextCrit - time, TimeUnit.MILLISECONDS).flatMap(x -> evaluate(nextCrit));
 		}
 	}

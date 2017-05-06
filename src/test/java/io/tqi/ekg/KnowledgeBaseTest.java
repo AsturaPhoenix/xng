@@ -107,6 +107,5 @@ public class KnowledgeBaseTest {
 
 	@Test
 	public void testFibbonacci() {
-
 	}
 }

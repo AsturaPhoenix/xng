@@ -102,19 +102,6 @@ public class NodeTest {
 	}
 
 	@Test
-	public void testRefactoryAcrossSerialization() throws Exception {
-		Node node = new Node();
-		final EmissionMonitor<Object> monitor = new EmissionMonitor<>(node.rxActivate());
-		node.setRefractory(1000);
-		node.activate();
-		monitor.emissions().blockingFirst();
-		node = TestUtil.serialize(node);
-		monitor.reset(node.rxActivate());
-		node.activate();
-		assertFalse(monitor.didEmit());
-	}
-
-	@Test
 	public void testCoincidentInhibition() {
 		final Node up = new Node(), down = new Node(), out = new Node();
 		final EmissionMonitor<?> monitor = new EmissionMonitor<>(out.rxActivate());

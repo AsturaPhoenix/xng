@@ -22,6 +22,8 @@ import org.petitparser.parser.primitive.StringParser;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import io.tqi.ekg.value.NumericValue;
+import io.tqi.ekg.value.StringValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -39,10 +41,16 @@ public class Repl {
 		public final Identifier identifier;
 	}
 
-	private static final Parser IDENTIFIER = CharacterParser.of(Character::isJavaIdentifierStart, "identifier expected")
-			.seq(CharacterParser.of(Character::isJavaIdentifierPart, "identifier expected").star()).flatten()
-			.map(Identifier::new).trim(),
-			SCOPED_IDENTIFIER = StringParser.of("::").seq(IDENTIFIER).pick(1).map(GlobalIdentifier::new).or(IDENTIFIER),
+	private static final Parser IDENTIFIER = CharacterParser
+			.of(Character::isJavaIdentifierStart, "identifier expected").seq(
+					CharacterParser.of(Character::isJavaIdentifierPart, "identifier expected").star())
+			.flatten().map(
+					Identifier::new)
+			.trim(),
+			SCOPED_IDENTIFIER = StringParser
+					.of("::").seq(
+							IDENTIFIER)
+					.pick(1).map(GlobalIdentifier::new).or(IDENTIFIER),
 			ESCAPE = anyOf("\\\""),
 			STRING = CharacterParser.of('"')
 					.seq(noneOf("\\\"").or(CharacterParser.of('\\').seq(ESCAPE).pick(1)).star()
@@ -95,16 +103,20 @@ public class Repl {
 		}));
 	}
 
-	private Node resolveNode(final Object identifier) {
-		if (identifier instanceof GlobalIdentifier) {
-			return kb.getOrCreateNode(((GlobalIdentifier) identifier).identifier);
-		} else if (identifier instanceof Identifier) {
+	private Node resolveNode(final Object token) {
+		if (token instanceof GlobalIdentifier) {
+			return kb.getOrCreateNode(((GlobalIdentifier) token).identifier);
+		} else if (token instanceof Identifier) {
 			if (scope == null) {
 				scope = new HashMap<>();
 			}
-			return scope.computeIfAbsent((Identifier) identifier, x -> new Node());
+			return scope.computeIfAbsent((Identifier) token, x -> new Node());
+		} else if (token instanceof String) {
+			return kb.getOrCreateValueNode(new StringValue((String) token));
+		} else if (token instanceof Number) {
+			return kb.getOrCreateValueNode(new NumericValue((Number) token));
 		} else {
-			return kb.getOrCreateValueNode((Serializable) identifier);
+			throw new IllegalArgumentException("Unable to resolve a node for token type " + token.getClass());
 		}
 	}
 

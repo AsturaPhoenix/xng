@@ -12,8 +12,8 @@ import java.util.concurrent.ConcurrentMap;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import io.tqi.ekg.value.NodeValue;
 import lombok.Getter;
-import lombok.Setter;
 
 public class Node implements Serializable {
 	private static final long serialVersionUID = -4340465118968553513L;
@@ -21,8 +21,7 @@ public class Node implements Serializable {
 	private static final long DEFAULT_REFRACTORY = 1000 / 60;
 
 	@Getter
-	@Setter
-	private Serializable value;
+	private final NodeValue value;
 
 	@Getter
 	private long lastActivation;
@@ -38,10 +37,11 @@ public class Node implements Serializable {
 	private transient Subject<Object> rxChange;
 
 	public Node() {
+		this.value = null;
 		init();
 	}
 
-	public Node(final Serializable value) {
+	public Node(final NodeValue value) {
 		this.value = value;
 		init();
 	}

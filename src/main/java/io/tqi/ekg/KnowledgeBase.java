@@ -3,10 +3,7 @@ package io.tqi.ekg;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,7 +15,14 @@ import java.util.stream.Collectors;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import io.tqi.ekg.value.CharValue;
+import io.tqi.ekg.value.ImmutableNodeList;
+import io.tqi.ekg.value.ImmutableValue;
 import io.tqi.ekg.value.NodeIterator;
+import io.tqi.ekg.value.NodeList;
+import io.tqi.ekg.value.NodeValue;
+import io.tqi.ekg.value.NumericValue;
+import io.tqi.ekg.value.StringValue;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
 	private static final long serialVersionUID = 4850129606513054849L;
@@ -45,14 +49,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
 		registerBuiltIn("activateTailNGrams", node -> {
 			final Object arg = node.getValue();
-			if (arg instanceof ArrayList) {
-				@SuppressWarnings("unchecked")
-				final ArrayList<Object> listArg = (ArrayList<Object>) arg;
-				activateTailNGrams(listArg);
-			} else if (arg instanceof Collection) {
-				@SuppressWarnings("unchecked")
-				final Collection<Object> collectionArg = (Collection<Object>) arg;
-				activateTailNGrams(new ArrayList<>(collectionArg));
+			if (arg instanceof NodeList) {
+				activateTailNGrams((NodeList) arg);
 			}
 		});
 
@@ -64,29 +62,30 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
 		registerBuiltIn("math.add", node -> {
 			final Node a = node.getProperty(arg(1)), b = node.getProperty(arg(2));
-			if (a.getValue() instanceof Number && b.getValue() instanceof Number) {
-				final Number an = (Number) a.getValue(), bn = (Number) b.getValue();
-				return getOrCreateValueNode(an.doubleValue() + bn.doubleValue());
+			if (a.getValue() instanceof NumericValue && b.getValue() instanceof NumericValue) {
+				final Number an = ((NumericValue) a.getValue()).getValue(),
+						bn = ((NumericValue) b.getValue()).getValue();
+				return getOrCreateValueNode(new NumericValue(mathAdd(an, bn)));
 			} else {
 				return null;
 			}
 		});
 
 		registerBuiltIn("print", node -> {
-			final Object arg = node.getValue();
-			if (arg instanceof String) {
-				rxOutput.onNext((String) arg);
+			final NodeValue arg = node.getValue();
+			if (arg instanceof StringValue) {
+				rxOutput.onNext(((StringValue) arg).getValue());
 			}
 		});
 
 		registerBuiltIn("splitString", node -> {
-			final Object arg = node.getValue();
-			if (arg instanceof String) {
+			final NodeValue arg = node.getValue();
+			if (arg instanceof StringValue) {
 				// TODO(rosswang): thread-safe mutable
-				final ArrayList<Node> split = ((String) arg).chars().mapToObj(c -> {
-					// TODO(rosswang): standardize node types
-					return getOrCreateValueNode(Character.valueOf((char) c));
-				}).collect(Collectors.toCollection(ArrayList::new));
+				final ImmutableNodeList split = ImmutableNodeList
+						.from(((StringValue) arg).getValue().chars().mapToObj(c -> {
+							return getOrCreateValueNode(new CharValue((char) c));
+						}).collect(Collectors.toList()));
 				return getOrCreateValueNode(split);
 			}
 
@@ -99,14 +98,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 						node -> updateIterator(node, ((NodeIterator) node.getValue()).previous()));
 
 		registerBuiltIn("iterator", node -> {
-			final Object arg = node.getValue();
-			if (arg instanceof List) {
-				// TODO(rosswang): standardize node types
-				@SuppressWarnings("unchecked")
-				final ArrayList<Node> backing = (ArrayList<Node>) arg;
-				final NodeIterator iterator = new NodeIterator(backing);
-				final Node iterNode = createNode();
-				iterNode.setValue(iterator);
+			final NodeValue arg = node.getValue();
+			if (arg instanceof NodeList) {
+				final NodeIterator iterator = new NodeIterator((NodeList) arg);
+				final Node iterNode = createNode(iterator);
 
 				final Node iterForwardCall = createNode(), iterBackCall = createNode();
 				iterForwardCall.setProperty(EXECUTE, iterForward);
@@ -133,8 +128,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		});
 
 		registerBuiltIn("toString", node -> {
-			final Object arg = node.getValue();
-			return arg == null ? null : arg instanceof String ? node : getOrCreateValueNode(arg.toString());
+			final NodeValue arg = node.getValue();
+			return arg == null ? null
+					: arg instanceof StringValue ? node : getOrCreateValueNode(new StringValue(arg.toString()));
 		});
 	}
 
@@ -184,6 +180,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		return rxChange;
 	}
 
+	private Number mathAdd(final Number a, final Number b) {
+		if (a.doubleValue() != a.longValue() || b.doubleValue() != b.longValue()) {
+			return a.doubleValue() + b.doubleValue();
+		} else {
+			return a.longValue() + b.longValue();
+		}
+	}
+
 	/**
 	 * Gets or creates a node representing a positional argument.
 	 * 
@@ -203,11 +207,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		return internalGetOrCreateNode(identifier, null);
 	}
 
-	public Node getOrCreateValueNode(final Serializable value) {
+	public Node getOrCreateValueNode(final ImmutableValue value) {
 		return internalGetOrCreateNode(value, value);
 	}
 
-	private Node internalGetOrCreateNode(final Serializable label, final Serializable value) {
+	public Node getOrCreateValueNode(final String value) {
+		return getOrCreateValueNode(new StringValue(value));
+	}
+
+	public Node getOrCreateValueNode(final Number value) {
+		return getOrCreateValueNode(new NumericValue(value));
+	}
+
+	private Node internalGetOrCreateNode(final Serializable label, final NodeValue value) {
 		return index.computeIfAbsent(label, x -> {
 			final Node node = new Node(value);
 			initNode(node);
@@ -220,6 +232,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	// to ensure the proper callbacks are set.
 	public Node createNode() {
 		final Node node = new Node();
+		initNode(node);
+		nodes.add(node);
+		return node;
+	}
+
+	public Node createNode(final NodeValue value) {
+		final Node node = new Node(value);
 		initNode(node);
 		nodes.add(node);
 		return node;
@@ -296,10 +315,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		return node;
 	}
 
-	public void activateTailNGrams(ArrayList<Object> sequence) {
-		while (!sequence.isEmpty()) {
-			getOrCreateValueNode(sequence).activate();
-			sequence = new ArrayList<>(sequence.subList(1, sequence.size()));
+	public void activateTailNGrams(final NodeList sequence) {
+		ImmutableNodeList nGram = ImmutableNodeList.from(sequence);
+		while (!nGram.isEmpty()) {
+			getOrCreateValueNode(nGram).activate();
+			nGram = new ImmutableNodeList(nGram.subList(1, nGram.size()));
 		}
 	}
 }

@@ -4,10 +4,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-
 import org.junit.Test;
+
+import io.tqi.ekg.value.ImmutableNodeList;
+import io.tqi.ekg.value.StringValue;
 
 public class KnowledgeBaseTest {
 	@Test
@@ -65,8 +65,7 @@ public class KnowledgeBaseTest {
 	}
 
 	private static void setUpIterator(final KnowledgeBase kb) {
-		final Node content = kb.createNode();
-		content.setValue(new ArrayList<>(Arrays.asList(kb.getOrCreateValueNode("foo"))));
+		final Node content = kb.createNode(ImmutableNodeList.from(kb.getOrCreateValueNode("foo")));
 
 		final Node callback = kb.createNode();
 		final EmissionMonitor<?> monitor = new EmissionMonitor<>(callback.rxActivate());
@@ -86,7 +85,7 @@ public class KnowledgeBaseTest {
 		final EmissionMonitor<?> onMoveMonitor = new EmissionMonitor<>(onMove.rxActivate());
 		testIterator.getProperty(kb.getOrCreateNode("forward")).activate();
 		assertTrue(onMoveMonitor.didEmit());
-		assertEquals("foo", onMove.getProperty(kb.ARGUMENT).getValue());
+		assertEquals(new StringValue("foo"), onMove.getProperty(kb.ARGUMENT).getValue());
 		assertEquals("foo", outputMonitor.emissions().blockingSingle());
 	}
 
@@ -107,5 +106,10 @@ public class KnowledgeBaseTest {
 
 	@Test
 	public void testFibbonacci() {
+		try (final KnowledgeBase kb = new KnowledgeBase()) {
+			final Node fib = kb.createNode(), a = kb.createNode(), b = kb.createNode(), c = kb.createNode();
+			fib.setProperty(a, kb.getOrCreateValueNode(0));
+			fib.setProperty(b, kb.getOrCreateValueNode(1));
+		}
 	}
 }

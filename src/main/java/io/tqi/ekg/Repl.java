@@ -105,16 +105,16 @@ public class Repl {
 
 	private Node resolveNode(final Object token) {
 		if (token instanceof GlobalIdentifier) {
-			return kb.getOrCreateNode(((GlobalIdentifier) token).identifier);
+			return kb.node(((GlobalIdentifier) token).identifier);
 		} else if (token instanceof Identifier) {
 			if (scope == null) {
 				scope = new HashMap<>();
 			}
 			return scope.computeIfAbsent((Identifier) token, x -> new Node());
 		} else if (token instanceof String) {
-			return kb.getOrCreateValueNode(new StringValue((String) token));
+			return kb.valueNode(new StringValue((String) token));
 		} else if (token instanceof Number) {
-			return kb.getOrCreateValueNode(new NumericValue((Number) token));
+			return kb.valueNode(new NumericValue((Number) token));
 		} else {
 			throw new IllegalArgumentException("Unable to resolve a node for token type " + token.getClass());
 		}
@@ -144,6 +144,6 @@ public class Repl {
 	}
 
 	public void sendInput(final String input) {
-		kb.invoke(kb.getOrCreateNode(INPUT_ID), kb.getOrCreateValueNode(input), null);
+		kb.invoke(kb.node(INPUT_ID), kb.valueNode(input), null);
 	}
 }

@@ -17,7 +17,7 @@ public class KnowledgeBaseTest {
 
 	private static void testPrint(final KnowledgeBase kb) {
 		final EmissionMonitor<String> monitor = new EmissionMonitor<>(kb.rxOutput());
-		kb.invoke(kb.getOrCreateNode("print"), kb.getOrCreateValueNode("foo"), null);
+		kb.invoke(kb.node("print"), kb.valueNode("foo"), null);
 		assertEquals("foo", monitor.emissions().blockingFirst());
 	}
 
@@ -32,20 +32,20 @@ public class KnowledgeBaseTest {
 	}
 
 	private static void setUpPropGet(final KnowledgeBase kb) {
-		kb.getOrCreateNode("roses").setProperty(kb.getOrCreateNode("color"), kb.getOrCreateValueNode("red"));
+		kb.node("roses").setProperty(kb.node("color"), kb.valueNode("red"));
 
-		final Node arg = kb.createNode();
-		arg.setProperty(kb.getOrCreateNode("object"), kb.getOrCreateNode("roses"));
-		arg.setProperty(kb.getOrCreateNode("property"), kb.getOrCreateNode("color"));
+		final Node arg = kb.node();
+		arg.setProperty(kb.node("object"), kb.node("roses"));
+		arg.setProperty(kb.node("property"), kb.node("color"));
 
-		final Node invocation = kb.getOrCreateNode("roses are");
-		invocation.setProperty(kb.EXECUTE, kb.getOrCreateNode("getProperty"));
+		final Node invocation = kb.node("roses are");
+		invocation.setProperty(kb.EXECUTE, kb.node("getProperty"));
 		invocation.setProperty(kb.ARGUMENT, arg);
 	}
 
 	private static void assertPropGet(final KnowledgeBase kb) {
 		final EmissionMonitor<String> monitor = new EmissionMonitor<>(kb.rxOutput());
-		kb.invoke(kb.getOrCreateNode("print"), kb.getOrCreateNode("roses are"), null);
+		kb.invoke(kb.node("print"), kb.node("roses are"), null);
 		assertEquals("red", monitor.emissions().blockingFirst());
 	}
 
@@ -65,25 +65,25 @@ public class KnowledgeBaseTest {
 	}
 
 	private static void setUpIterator(final KnowledgeBase kb) {
-		final Node content = kb.createNode(ImmutableNodeList.from(kb.getOrCreateValueNode("foo")));
+		final Node content = kb.node(ImmutableNodeList.from(kb.valueNode("foo")));
 
-		final Node callback = kb.createNode();
+		final Node callback = kb.node();
 		final EmissionMonitor<?> monitor = new EmissionMonitor<>(callback.rxActivate());
-		kb.invoke(kb.getOrCreateNode("iterator"), content, callback);
+		kb.invoke(kb.node("iterator"), content, callback);
 		assertTrue(monitor.didEmit());
 		final Node iterator = callback.getProperty(kb.ARGUMENT);
 		kb.indexNode("test iterator", iterator);
-		final Node onMove = iterator.getProperty(kb.getOrCreateNode("onMove"));
-		onMove.setProperty(kb.EXECUTE, kb.getOrCreateNode("print"));
+		final Node onMove = iterator.getProperty(kb.node("onMove"));
+		onMove.setProperty(kb.EXECUTE, kb.node("print"));
 	}
 
 	private static void assertIterator(final KnowledgeBase kb) {
-		final Node testIterator = kb.getOrCreateNode("test iterator");
-		final Node onMove = testIterator.getProperty(kb.getOrCreateNode("onMove"));
+		final Node testIterator = kb.node("test iterator");
+		final Node onMove = testIterator.getProperty(kb.node("onMove"));
 
 		final EmissionMonitor<String> outputMonitor = new EmissionMonitor<>(kb.rxOutput());
 		final EmissionMonitor<?> onMoveMonitor = new EmissionMonitor<>(onMove.rxActivate());
-		testIterator.getProperty(kb.getOrCreateNode("forward")).activate();
+		testIterator.getProperty(kb.node("forward")).activate();
 		assertTrue(onMoveMonitor.didEmit());
 		assertEquals(new StringValue("foo"), onMove.getProperty(kb.ARGUMENT).getValue());
 		assertEquals("foo", outputMonitor.emissions().blockingSingle());
@@ -107,9 +107,9 @@ public class KnowledgeBaseTest {
 	@Test
 	public void testFibbonacci() {
 		try (final KnowledgeBase kb = new KnowledgeBase()) {
-			final Node fib = kb.createNode(), a = kb.createNode(), b = kb.createNode(), c = kb.createNode();
-			fib.setProperty(a, kb.getOrCreateValueNode(0));
-			fib.setProperty(b, kb.getOrCreateValueNode(1));
+			final Node fib = kb.node(), a = kb.node(), b = kb.node(), c = kb.node();
+			fib.setProperty(a, kb.valueNode(0));
+			fib.setProperty(b, kb.valueNode(1));
 		}
 	}
 }

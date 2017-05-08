@@ -55,8 +55,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		});
 
 		registerBuiltIn("getProperty", args -> {
-			final Node object = args.getProperty(getOrCreateNode("object")),
-					property = args.getProperty(getOrCreateNode("property"));
+			final Node object = args.getProperty(node("object")), property = args.getProperty(node("property"));
 			return object == null || property == null ? null : object.getProperty(property);
 		}).setRefractory(0);
 
@@ -65,7 +64,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			if (a.getValue() instanceof NumericValue && b.getValue() instanceof NumericValue) {
 				final Number an = ((NumericValue) a.getValue()).getValue(),
 						bn = ((NumericValue) b.getValue()).getValue();
-				return getOrCreateValueNode(new NumericValue(mathAdd(an, bn)));
+				return valueNode(new NumericValue(mathAdd(an, bn)));
 			} else {
 				return null;
 			}
@@ -84,9 +83,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 				// TODO(rosswang): thread-safe mutable
 				final ImmutableNodeList split = ImmutableNodeList
 						.from(((StringValue) arg).getValue().chars().mapToObj(c -> {
-							return getOrCreateValueNode(new CharValue((char) c));
+							return valueNode(new CharValue((char) c));
 						}).collect(Collectors.toList()));
-				return getOrCreateValueNode(split);
+				return valueNode(split);
 			}
 
 			return null;
@@ -101,22 +100,21 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			final NodeValue arg = node.getValue();
 			if (arg instanceof NodeList) {
 				final NodeIterator iterator = new NodeIterator((NodeList) arg);
-				final Node iterNode = createNode(iterator);
+				final Node iterNode = node(iterator);
 
-				final Node iterForwardCall = createNode(), iterBackCall = createNode();
+				final Node iterForwardCall = node(), iterBackCall = node();
 				iterForwardCall.setProperty(EXECUTE, iterForward);
 				iterForwardCall.setProperty(ARGUMENT, iterNode);
 				iterBackCall.setProperty(EXECUTE, iterBack);
 				iterBackCall.setProperty(ARGUMENT, iterNode);
 
-				iterNode.setProperty(getOrCreateNode("forward"), iterForwardCall);
-				iterNode.setProperty(getOrCreateNode("back"), iterBackCall);
+				iterNode.setProperty(node("forward"), iterForwardCall);
+				iterNode.setProperty(node("back"), iterBackCall);
 
-				final Node atStartProp = getOrCreateNode("atStart"), atEndProp = getOrCreateNode("atEnd"),
-						onMoveProp = getOrCreateNode("onMove");
-				iterNode.setProperty(atStartProp, createNode());
-				iterNode.setProperty(atEndProp, createNode());
-				iterNode.setProperty(onMoveProp, createNode());
+				final Node atStartProp = node("atStart"), atEndProp = node("atEnd"), onMoveProp = node("onMove");
+				iterNode.setProperty(atStartProp, node());
+				iterNode.setProperty(atEndProp, node());
+				iterNode.setProperty(onMoveProp, node());
 
 				// TODO(rosswang): revisit whether we should have stateful
 				// properties too
@@ -129,8 +127,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
 		registerBuiltIn("toString", node -> {
 			final NodeValue arg = node.getValue();
-			return arg == null ? null
-					: arg instanceof StringValue ? node : getOrCreateValueNode(new StringValue(arg.toString()));
+			return arg == null ? null : arg instanceof StringValue ? node : valueNode(new StringValue(arg.toString()));
 		});
 	}
 
@@ -140,12 +137,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		// the atEnd and atStart globally indexed nodes being called with the
 		// iterator as an argument.
 		if (!iterator.hasNext()) {
-			iterNode.getProperty(getOrCreateNode("atEnd")).activate();
+			iterNode.getProperty(node("atEnd")).activate();
 		}
 		if (!iterator.hasPrevious()) {
-			iterNode.getProperty(getOrCreateNode("atStart")).activate();
+			iterNode.getProperty(node("atStart")).activate();
 		}
-		final Node onMove = iterNode.getProperty(getOrCreateNode("onMove"));
+		final Node onMove = iterNode.getProperty(node("onMove"));
 		onMove.setProperty(ARGUMENT, current);
 		current.activate();
 		onMove.activate();
@@ -196,30 +193,30 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	 * @return
 	 */
 	public Node arg(final int ordinal) {
-		return getOrCreateNode("arg_" + ordinal);
+		return node("arg_" + ordinal);
 	}
 
-	public Node getOrCreateNode(final String identifier) {
-		return getOrCreateNode(new Identifier(identifier));
+	public Node node(final String identifier) {
+		return node(new Identifier(identifier));
 	}
 
-	public Node getOrCreateNode(final Identifier identifier) {
-		return internalGetOrCreateNode(identifier, null);
+	public Node node(final Identifier identifier) {
+		return getOrCreateNode(identifier, null);
 	}
 
-	public Node getOrCreateValueNode(final ImmutableValue value) {
-		return internalGetOrCreateNode(value, value);
+	public Node valueNode(final ImmutableValue value) {
+		return getOrCreateNode(value, value);
 	}
 
-	public Node getOrCreateValueNode(final String value) {
-		return getOrCreateValueNode(new StringValue(value));
+	public Node valueNode(final String value) {
+		return valueNode(new StringValue(value));
 	}
 
-	public Node getOrCreateValueNode(final Number value) {
-		return getOrCreateValueNode(new NumericValue(value));
+	public Node valueNode(final Number value) {
+		return valueNode(new NumericValue(value));
 	}
 
-	private Node internalGetOrCreateNode(final Serializable label, final NodeValue value) {
+	private Node getOrCreateNode(final Serializable label, final NodeValue value) {
 		return index.computeIfAbsent(label, x -> {
 			final Node node = new Node(value);
 			initNode(node);
@@ -228,16 +225,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		});
 	}
 
-	// All kb nodes must be created through createNode or a getOrCreate method
+	// All kb nodes must be created through a node(...) or valueNode(...) method
 	// to ensure the proper callbacks are set.
-	public Node createNode() {
+	public Node node() {
 		final Node node = new Node();
 		initNode(node);
 		nodes.add(node);
 		return node;
 	}
 
-	public Node createNode(final NodeValue value) {
+	public Node node(final NodeValue value) {
 		final Node node = new Node(value);
 		initNode(node);
 		nodes.add(node);
@@ -300,7 +297,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	}
 
 	public Node registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
-		final Node node = getOrCreateNode(name);
+		final Node node = node(name);
 		node.rxActivate().subscribe(t -> {
 			final Node result = impl.apply(node.getProperty(ARGUMENT));
 			// do this raw rather than call invoke because ARGUMENT and CALLBACK
@@ -318,7 +315,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	public void activateTailNGrams(final NodeList sequence) {
 		ImmutableNodeList nGram = ImmutableNodeList.from(sequence);
 		while (!nGram.isEmpty()) {
-			getOrCreateValueNode(nGram).activate();
+			valueNode(nGram).activate();
 			nGram = new ImmutableNodeList(nGram.subList(1, nGram.size()));
 		}
 	}

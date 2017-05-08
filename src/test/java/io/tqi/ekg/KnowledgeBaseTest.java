@@ -110,6 +110,11 @@ public class KnowledgeBaseTest {
 			final Node fib = kb.node(), a = kb.node(), b = kb.node(), c = kb.node();
 			fib.setProperty(a, kb.valueNode(0));
 			fib.setProperty(b, kb.valueNode(1));
+
+			final Node print = kb.node(), printArg = kb.node();
+			print.setProperty(kb.EXECUTE, kb.node("print"));
+			print.setProperty(kb.ARGUMENT, printArg);
+			printArg.setProperty(kb.EXECUTE, kb.node("getProperty"));
 		}
 	}
 }

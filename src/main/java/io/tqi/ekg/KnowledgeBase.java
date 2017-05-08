@@ -8,7 +8,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
@@ -35,6 +34,113 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
 	public final Node EXECUTE = new Node(), ARGUMENT = new Node(), CALLBACK = new Node();
 
+	public enum BuiltIn {
+		activateTailNGrams {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				final Object arg = node.getValue();
+				if (arg instanceof NodeList) {
+					kb.activateTailNGrams((NodeList) arg);
+				}
+				return null;
+			}
+		},
+		getProperty {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				final Node object = node.getProperty(kb.node("object")),
+						property = node.getProperty(kb.node("property"));
+				return object == null || property == null ? null : object.getProperty(property);
+			}
+		},
+		iterator {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				final NodeValue arg = node.getValue();
+				if (arg instanceof NodeList) {
+					final NodeIterator iterator = new NodeIterator((NodeList) arg);
+					final Node iterNode = kb.node(iterator);
+
+					final Node iterForwardCall = kb.node(), iterBackCall = kb.node();
+					iterForwardCall.setProperty(kb.EXECUTE, kb.node(iteratorForward));
+					iterForwardCall.setProperty(kb.ARGUMENT, iterNode);
+					iterBackCall.setProperty(kb.EXECUTE, kb.node(iteratorBack));
+					iterBackCall.setProperty(kb.ARGUMENT, iterNode);
+
+					iterNode.setProperty(kb.node("forward"), iterForwardCall);
+					iterNode.setProperty(kb.node("back"), iterBackCall);
+
+					final Node atStartProp = kb.node("atStart"), atEndProp = kb.node("atEnd"),
+							onMoveProp = kb.node("onMove");
+					iterNode.setProperty(atStartProp, kb.node());
+					iterNode.setProperty(atEndProp, kb.node());
+					iterNode.setProperty(onMoveProp, kb.node());
+
+					// TODO(rosswang): revisit whether we should have stateful
+					// properties too
+
+					return iterNode;
+				}
+
+				return null;
+			}
+		},
+		iteratorForward {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				kb.updateIterator(node, ((NodeIterator) node.getValue()).next());
+				return null;
+			}
+		},
+		iteratorBack {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				kb.updateIterator(node, ((NodeIterator) node.getValue()).previous());
+				return null;
+			}
+		},
+		mathAdd {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				final Node a = node.getProperty(kb.arg(1)), b = node.getProperty(kb.arg(2));
+				if (a.getValue() instanceof NumericValue && b.getValue() instanceof NumericValue) {
+					final Number an = ((NumericValue) a.getValue()).getValue(),
+							bn = ((NumericValue) b.getValue()).getValue();
+					return kb.valueNode(new NumericValue(kb.mathAdd(an, bn)));
+				} else {
+					return null;
+				}
+			}
+		},
+		print {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				final NodeValue arg = node.getValue();
+				if (arg instanceof StringValue) {
+					kb.rxOutput.onNext(((StringValue) arg).getValue());
+				}
+				return null;
+			}
+		},
+		splitString {
+			@Override
+			public Node impl(final KnowledgeBase kb, final Node node) {
+				final NodeValue arg = node.getValue();
+				if (arg instanceof StringValue) {
+					// TODO(rosswang): thread-safe mutable
+					final ImmutableNodeList split = ImmutableNodeList
+							.from(((StringValue) arg).getValue().chars().mapToObj(c -> {
+								return kb.valueNode(new CharValue((char) c));
+							}).collect(Collectors.toList()));
+					return kb.valueNode(split);
+				}
+				return null;
+			}
+		};
+
+		public abstract Node impl(final KnowledgeBase kb, final Node node);
+	}
+
 	public KnowledgeBase() {
 		init();
 	}
@@ -47,83 +153,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			initNode(node);
 		}
 
-		registerBuiltIn("activateTailNGrams", node -> {
-			final Object arg = node.getValue();
-			if (arg instanceof NodeList) {
-				activateTailNGrams((NodeList) arg);
-			}
-		});
+		for (final BuiltIn builtIn : BuiltIn.values()) {
+			registerBuiltIn(builtIn.name(), node -> builtIn.impl(this, node));
+		}
 
-		registerBuiltIn("getProperty", args -> {
-			final Node object = args.getProperty(node("object")), property = args.getProperty(node("property"));
-			return object == null || property == null ? null : object.getProperty(property);
-		}).setRefractory(0);
-
-		registerBuiltIn("math.add", node -> {
-			final Node a = node.getProperty(arg(1)), b = node.getProperty(arg(2));
-			if (a.getValue() instanceof NumericValue && b.getValue() instanceof NumericValue) {
-				final Number an = ((NumericValue) a.getValue()).getValue(),
-						bn = ((NumericValue) b.getValue()).getValue();
-				return valueNode(new NumericValue(mathAdd(an, bn)));
-			} else {
-				return null;
-			}
-		});
-
-		registerBuiltIn("print", node -> {
-			final NodeValue arg = node.getValue();
-			if (arg instanceof StringValue) {
-				rxOutput.onNext(((StringValue) arg).getValue());
-			}
-		});
-
-		registerBuiltIn("splitString", node -> {
-			final NodeValue arg = node.getValue();
-			if (arg instanceof StringValue) {
-				// TODO(rosswang): thread-safe mutable
-				final ImmutableNodeList split = ImmutableNodeList
-						.from(((StringValue) arg).getValue().chars().mapToObj(c -> {
-							return valueNode(new CharValue((char) c));
-						}).collect(Collectors.toList()));
-				return valueNode(split);
-			}
-
-			return null;
-		});
-
-		final Node iterForward = registerBuiltIn("iterator.forward",
-				node -> updateIterator(node, ((NodeIterator) node.getValue()).next())),
-				iterBack = registerBuiltIn("iterator.back",
-						node -> updateIterator(node, ((NodeIterator) node.getValue()).previous()));
-
-		registerBuiltIn("iterator", node -> {
-			final NodeValue arg = node.getValue();
-			if (arg instanceof NodeList) {
-				final NodeIterator iterator = new NodeIterator((NodeList) arg);
-				final Node iterNode = node(iterator);
-
-				final Node iterForwardCall = node(), iterBackCall = node();
-				iterForwardCall.setProperty(EXECUTE, iterForward);
-				iterForwardCall.setProperty(ARGUMENT, iterNode);
-				iterBackCall.setProperty(EXECUTE, iterBack);
-				iterBackCall.setProperty(ARGUMENT, iterNode);
-
-				iterNode.setProperty(node("forward"), iterForwardCall);
-				iterNode.setProperty(node("back"), iterBackCall);
-
-				final Node atStartProp = node("atStart"), atEndProp = node("atEnd"), onMoveProp = node("onMove");
-				iterNode.setProperty(atStartProp, node());
-				iterNode.setProperty(atEndProp, node());
-				iterNode.setProperty(onMoveProp, node());
-
-				// TODO(rosswang): revisit whether we should have stateful
-				// properties too
-
-				return iterNode;
-			}
-
-			return null;
-		});
+		node(BuiltIn.getProperty).setRefractory(0);
 
 		registerBuiltIn("toString", node -> {
 			final NodeValue arg = node.getValue();
@@ -194,6 +228,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	 */
 	public Node arg(final int ordinal) {
 		return node("arg_" + ordinal);
+	}
+
+	public Node node(final BuiltIn builtIn) {
+		return node(builtIn.name());
 	}
 
 	public Node node(final String identifier) {
@@ -289,14 +327,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 		return callback.rxActivate().map(t -> Optional.ofNullable(callback.getProperty(ARGUMENT)));
 	}
 
-	public Node registerBuiltIn(final String name, final Consumer<Node> impl) {
-		return registerBuiltIn(name, arg -> {
-			impl.accept(arg);
-			return null;
-		});
-	}
-
-	public Node registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
+	private Node registerBuiltIn(final String name, final UnaryOperator<Node> impl) {
 		final Node node = node(name);
 		node.rxActivate().subscribe(t -> {
 			final Node result = impl.apply(node.getProperty(ARGUMENT));

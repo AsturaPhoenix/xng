@@ -6,10 +6,10 @@ To develop in Eclipse,
 
 Then
 
-2. Import the project in Eclipse from git as a Java project with the name "asn".
-3. Right click project/Configure/Convert to Maven project.
+2. Clone the git repo.
+3. Import the cloned repo in Eclipse as a Maven project.
 
 or
 
-2. Clone the git repo.
-3. Import the cloned repo in Eclipse as a Maven project.
+2. Import the project in Eclipse from git as a Java project with the name "ekg".
+3. Right click project/Configure/Convert to Maven project.

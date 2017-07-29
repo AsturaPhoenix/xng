@@ -60,6 +60,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 			return object == null || property == null ? null : object.getProperty(property);
 		}).setRefractory(0);
 
+		// this can also be used to rename default return values, which are
+		// normally put to the ARGUMENT property of the callback.
+		registerBuiltIn("setProperty", args -> {
+			final Node object = args.getProperty(getOrCreateNode("object")),
+					property = args.getProperty(getOrCreateNode("property"));
+			if (object != null && property != null) {
+				object.setProperty(property, args.getProperty(ARGUMENT));
+			}
+		}).setRefractory(0);
+
 		registerBuiltIn("math.add", node -> {
 			final Node a = node.getProperty(arg(1)), b = node.getProperty(arg(2));
 			if (a.getValue() instanceof NumericValue && b.getValue() instanceof NumericValue) {
@@ -189,7 +199,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 	}
 
 	/**
-	 * Gets or creates a node representing a positional argument.
+	 * Gets or creates a node representing a positional argument. These are
+	 * typically property names under {@code ARGUMENT} nodes.
 	 * 
 	 * @param ordinal
 	 *            one-based argument index

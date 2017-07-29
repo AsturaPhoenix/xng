@@ -110,6 +110,15 @@ public class KnowledgeBaseTest {
 			final Node fib = kb.createNode(), a = kb.createNode(), b = kb.createNode(), c = kb.createNode();
 			fib.setProperty(a, kb.getOrCreateValueNode(0));
 			fib.setProperty(b, kb.getOrCreateValueNode(1));
+			final Node getA = kb.createNode(), getAArgs = kb.createNode();
+			getA.setProperty(kb.EXECUTE, kb.getOrCreateNode("getProperty"));
+			getA.setProperty(kb.ARGUMENT, getAArgs);
+			getAArgs.setProperty(kb.getOrCreateNode("object"), fib);
+			getAArgs.setProperty(kb.getOrCreateNode("property"), a);
+			final Node fibAdd = kb.createNode(), fibAddArgs = kb.createNode();
+			fibAdd.setProperty(kb.EXECUTE, kb.getOrCreateNode("math.add"));
+			fibAdd.setProperty(kb.ARGUMENT, fibAddArgs);
+			fibAddArgs.setProperty(kb.arg(1), getA);
 		}
 	}
 }

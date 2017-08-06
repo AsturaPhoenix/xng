@@ -150,9 +150,10 @@ public class Synapse implements Serializable {
 		return new Activation(source, source.rxActivate().subscribe(rxInput::onNext));
 	}
 
-	public void setCoefficient(final Node node, final float coefficient) {
+	public Synapse setCoefficient(final Node node, final float coefficient) {
 		inputs.computeIfAbsent(node, this::newActivation).coefficient = coefficient;
 		rxChange.onNext(this);
+		return this;
 	}
 
 	/**
@@ -162,9 +163,10 @@ public class Synapse implements Serializable {
 	 *            the linear signal decay period, in milliseconds from
 	 *            activation to 0
 	 */
-	public void setDecayPeriod(final Node node, final long decayPeriod) {
+	public Synapse setDecayPeriod(final Node node, final long decayPeriod) {
 		inputs.computeIfAbsent(node, this::newActivation).decayPeriod = decayPeriod;
 		rxChange.onNext(this);
+		return this;
 	}
 
 	public void dissociate(final Node node) {

@@ -11,8 +11,6 @@ import org.junit.Test;
 
 import com.google.common.collect.Iterables;
 
-import io.tqi.ekg.value.StringValue;
-
 public class NodeTest {
 	@Test
 	public void testEmptySerialization() throws Exception {
@@ -21,19 +19,18 @@ public class NodeTest {
 
 	@Test
 	public void testValueSerialization() throws Exception {
-		assertEquals(new StringValue("foo"), TestUtil.serialize(new Node(new StringValue("foo"))).getValue());
+		assertEquals("foo", TestUtil.serialize(new Node("foo")).getValue());
 	}
 
 	@Test
 	public void testPropertySerialization() throws Exception {
-		final Node oObj = new Node(), oPropLabel = new Node(new StringValue("foo")),
-				oPropValue = new Node(new StringValue("bar"));
+		final Node oObj = new Node(), oPropLabel = new Node("foo"), oPropValue = new Node("bar");
 		oObj.setProperty(oPropLabel, oPropValue);
 
 		final Node sObj = TestUtil.serialize(oObj);
 		final Entry<Node, Node> prop = Iterables.getOnlyElement(sObj.getProperties().entrySet());
-		assertEquals(new StringValue("foo"), prop.getKey().getValue());
-		assertEquals(new StringValue("bar"), prop.getValue().getValue());
+		assertEquals("foo", prop.getKey().getValue());
+		assertEquals("bar", prop.getValue().getValue());
 	}
 
 	private static void testActivation(final Node node) {

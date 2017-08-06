@@ -22,8 +22,6 @@ import org.petitparser.parser.primitive.StringParser;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import io.tqi.ekg.value.NumericValue;
-import io.tqi.ekg.value.StringValue;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -112,9 +110,9 @@ public class Repl {
 			}
 			return scope.computeIfAbsent((Identifier) token, x -> new Node());
 		} else if (token instanceof String) {
-			return kb.valueNode(new StringValue((String) token));
+			return kb.valueNode((String) token);
 		} else if (token instanceof Number) {
-			return kb.valueNode(new NumericValue((Number) token));
+			return kb.valueNode((Number) token);
 		} else {
 			throw new IllegalArgumentException("Unable to resolve a node for token type " + token.getClass());
 		}

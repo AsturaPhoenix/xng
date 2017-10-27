@@ -6,10 +6,12 @@ import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+
+import com.google.common.base.Preconditions;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
@@ -25,11 +27,30 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     private transient Subject<Object> rxChange;
 
     public final Node EXECUTE = node("execute"), ARGUMENT = node("arg"), CALLBACK = node("callback"), CLASS = node(),
-            OBJECT = node("object"), PROPERTY = node("property"), METHOD = node("method"), TRUE = node("true"),
-            FALSE = node("false"), EXCEPTION = node("exception"), SOURCE = node("exception.source"),
-            VALUE = node("value");
+            OBJECT = node("object"), PROPERTY = node("property"), METHOD = node("method"),
+            EXCEPTION = node("exception"), SOURCE = node("source"), DESTINATION = node("destination"),
+            VALUE = node("value"), COEFFICIENT = node("coefficient");
 
     public enum BuiltIn {
+        clearProperties {
+            @Override
+            public Node impl(final KnowledgeBase kb, final Node node) {
+                node.clearProperties();
+                return node;
+            }
+        },
+        copyProperty {
+            @Override
+            public Node impl(final KnowledgeBase kb, final Node node) {
+                final Node source = node.getProperty(kb.SOURCE), dest = node.getProperty(kb.DESTINATION);
+                final Node sourceProp = source.getProperty(kb.PROPERTY), destProp = dest.getProperty(kb.PROPERTY);
+                Preconditions.checkNotNull(sourceProp);
+                Preconditions.checkNotNull(destProp);
+                final Node value = source.getProperty(kb.OBJECT).getProperty(sourceProp);
+                dest.getProperty(kb.OBJECT).setProperty(destProp, value);
+                return value;
+            }
+        },
         /**
          * Takes two args: {@link KnowledgeBase#OBJECT} and "property".
          */
@@ -54,12 +75,17 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                         methodNode = node.getProperty(kb.METHOD);
                 final Object object;
                 final Class<?> clazz;
+
                 if (objectNode != null) {
                     object = objectNode.getValue();
-                    clazz = object.getClass();
 
-                    if (classNode != null && clazz != classNode.getValue()) {
-                        throw new IllegalArgumentException("Provided class does not match object class");
+                    if (classNode != null) {
+                        clazz = (Class<?>) classNode.getValue();
+                        if (!clazz.isAssignableFrom(object.getClass())) {
+                            throw new IllegalArgumentException("Provided class does not match object class");
+                        }
+                    } else {
+                        clazz = object.getClass();
                     }
                 } else {
                     object = null;
@@ -102,9 +128,17 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         print {
             @Override
             public Node impl(final KnowledgeBase kb, final Node node) {
-                final Object arg = node.getValue();
-                kb.rxOutput.onNext((String) arg);
-                return null;
+                kb.rxOutput.onNext(Objects.toString(node.getValue()));
+                return node;
+            }
+        },
+        setCoefficient {
+            @Override
+            public Node impl(final KnowledgeBase kb, final Node node) {
+                final Node dest = node.getProperty(kb.DESTINATION);
+                dest.getSynapse().setCoefficient(node.getProperty(kb.SOURCE),
+                        ((Number) node.getProperty(kb.COEFFICIENT).getValue()).floatValue());
+                return dest;
             }
         },
         /**
@@ -127,7 +161,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                     throw new NullPointerException();
                 }
                 object.setProperty(property, value);
-                return null;
+                return object;
             }
         };
 
@@ -156,13 +190,41 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         // init will catch this
         if (rxChange != null) {
             node.rxActivate().subscribe(t -> {
-                final Node rawFn = node.getProperty(EXECUTE);
-                if (rawFn != null) {
-                    invoke(rawFn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
+                final Node fn = node.getProperty(EXECUTE);
+                if (fn != null) {
+                    invoke(fn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
                 }
             });
             node.rxChange().subscribe(rxChange);
         }
+    }
+
+    public void invoke(final Node fn, final Node arg, final Node callback) {
+        fn.setProperty(ARGUMENT, arg);
+        fn.setProperty(CALLBACK, callback);
+        fn.activate();
+    }
+
+    private Node registerBuiltIn(final BuiltIn builtIn) {
+        // TODO(rosswang): Keep the original built-in impl node indexed separate
+        // from the main index so that we can rebind the impl to the correct
+        // node after deserialization.
+        final Node node = node(builtIn);
+        node.rxActivate().subscribe(t -> {
+            final Node result;
+            try {
+                result = builtIn.impl(KnowledgeBase.this, node.getProperty(ARGUMENT));
+            } catch (final Exception e) {
+                invoke(EXCEPTION, valueNode(e).setProperty(SOURCE, node), null);
+                return;
+            }
+            final Node callback = node.getProperty(CALLBACK);
+            if (callback != null) {
+                invoke(callback, result, null);
+            }
+        });
+        node.setRefractory(0);
+        return node;
     }
 
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
@@ -252,73 +314,5 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     public void indexNode(final Identifier identifier, final Node node) {
         index.put(identifier, node);
-    }
-
-    public void invoke(final Node rawFn, final Node rawArg, final Node rawCallback) {
-        final Observable<Optional<Node>> resolvedFn = evaluate(rawFn), resolvedArg = evaluate(rawArg),
-                resolvedCallback = evaluate(rawCallback);
-
-        resolvedArg.subscribe(optArg -> {
-            resolvedFn.subscribe(optFn -> optFn.ifPresent(fn -> {
-                fn.setProperty(ARGUMENT, optArg);
-                // use setObservableCallback rather than setting the callback
-                // property directly to allow multicast of each single fn exec
-                // to all callbacks
-                setObservableCallback(fn).subscribe(
-                        optResult -> resolvedCallback.subscribe(optCallback -> optCallback.ifPresent(callback -> {
-                            invoke(callback, optResult.orElse(null), null);
-                        })));
-                fn.activate();
-            }));
-        });
-    }
-
-    private Observable<Optional<Node>> evaluate(final Node node) {
-        if (node == null) {
-            return Observable.just(Optional.empty());
-        }
-
-        final Node fn = node.getProperty(EXECUTE);
-        if (fn == null) {
-            return Observable.just(Optional.of(node));
-        } else {
-            final Observable<Optional<Node>> results = setObservableCallback(node).replay().autoConnect(0);
-            node.activate();
-            return results;
-        }
-    }
-
-    private Observable<Optional<Node>> setObservableCallback(final Node routine) {
-        final Node callback = new Node();
-        routine.setProperty(CALLBACK, callback);
-        return callback.rxActivate().map(t -> Optional.ofNullable(callback.getProperty(ARGUMENT)));
-    }
-
-    private Node registerBuiltIn(final BuiltIn builtIn) {
-        // TODO(rosswang): Keep the original built-in impl node indexed separate
-        // from the main index so that we can rebind the impl to the correct
-        // node after deserialization.
-        final Node node = node(builtIn);
-        node.rxActivate().subscribe(t -> {
-            final Node result;
-            try {
-                result = builtIn.impl(KnowledgeBase.this, node.getProperty(ARGUMENT));
-            } catch (final Exception e) {
-                Node eNode = valueNode(e);
-                eNode.setProperty(SOURCE, node);
-                EXCEPTION.setProperty(ARGUMENT, eNode);
-                EXCEPTION.activate();
-                return;
-            }
-            // do this raw rather than call invoke because ARGUMENT and CALLBACK
-            // here should already have been evaluated by the invoke call for
-            // the built-in
-            final Node callback = node.getProperty(CALLBACK);
-            if (callback != null) {
-                callback.setProperty(ARGUMENT, result);
-                callback.activate();
-            }
-        });
-        return node;
     }
 }

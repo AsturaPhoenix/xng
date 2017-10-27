@@ -17,7 +17,7 @@ import lombok.Getter;
 public class Node implements Serializable {
     private static final long serialVersionUID = -4340465118968553513L;
 
-    private static final long DEFAULT_REFRACTORY = 1000 / 60;
+    private static final long DEFAULT_REFRACTORY = 12;
 
     @Getter
     private final Serializable value;
@@ -96,6 +96,12 @@ public class Node implements Serializable {
         return this;
     }
 
+    public Node clearProperties() {
+        properties.clear();
+        rxChange.onNext(this);
+        return this;
+    }
+
     public Node setProperty(final Node property, final Optional<Node> value) {
         return setProperty(property, value.orElse(null));
     }
@@ -111,5 +117,13 @@ public class Node implements Serializable {
     @Override
     public String toString() {
         return value + "@" + Integer.toHexString(hashCode());
+    }
+
+    /**
+     * @return next
+     */
+    public Node then(final Node next) {
+        next.getSynapse().setCoefficient(this, 1);
+        return next;
     }
 }

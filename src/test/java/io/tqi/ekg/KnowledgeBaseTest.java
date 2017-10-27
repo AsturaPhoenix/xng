@@ -5,6 +5,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.util.Iterator;
+import java.util.List;
+
 import org.junit.Test;
 
 import com.google.common.base.Throwables;
@@ -37,18 +40,19 @@ public class KnowledgeBaseTest {
     private static void setUpPropGet(final KnowledgeBase kb) {
         kb.node("roses").setProperty(kb.node("color"), kb.valueNode("red"));
 
-        final Node arg = kb.node();
-        arg.setProperty(kb.node("object"), kb.node("roses"));
-        arg.setProperty(kb.node("property"), kb.node("color"));
-
-        final Node invocation = kb.node("roses are");
-        invocation.setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty));
-        invocation.setProperty(kb.ARGUMENT, arg);
+        // @formatter:off
+        kb.node("roses are")
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.OBJECT, kb.node("roses"))
+                        .setProperty(kb.PROPERTY, kb.node("color")))
+                .setProperty(kb.CALLBACK, kb.node(BuiltIn.print));
+        // @formatter:on
     }
 
     private static void assertPropGet(final KnowledgeBase kb) {
         final EmissionMonitor<String> monitor = new EmissionMonitor<>(kb.rxOutput());
-        kb.invoke(kb.node(BuiltIn.print), kb.node("roses are"), null);
+        kb.node("roses are").activate();
         assertEquals("red", monitor.emissions().blockingFirst());
     }
 
@@ -70,100 +74,246 @@ public class KnowledgeBaseTest {
     @Test
     public void testSetException() {
         try (final KnowledgeBase kb = new KnowledgeBase()) {
-            // kb.EXCEPTION.rxChange().subscribe(x -> {
-            // }, x -> fail());
             final EmissionMonitor<?> monitor = new EmissionMonitor<>(kb.EXCEPTION.rxChange());
-            kb.EXCEPTION.setProperty(kb.node("source"), kb.valueNode(new Exception()));
+            kb.EXCEPTION.setProperty(kb.SOURCE, kb.valueNode(new Exception()));
             assertTrue(monitor.didEmit());
         }
     }
 
     private static void setUpIterator(final KnowledgeBase kb) {
         kb.EXCEPTION.rxActivate().subscribe(x -> {
-            final Node exceptionValueNode = kb.EXCEPTION.getProperty(kb.ARGUMENT);
+            final Node exceptionValueNode = kb.EXCEPTION.getProperty(kb.VALUE);
             if (exceptionValueNode != null) {
                 fail(Throwables.getStackTraceAsString((Throwable) exceptionValueNode.getValue()));
             } else {
-                fail("Exception node activated");
+                fail("Exception node activated: " + Throwables
+                        .getStackTraceAsString((Throwable) kb.EXCEPTION.getProperty(kb.ARGUMENT).getValue()));
             }
         });
 
         final Node content = kb.valueNode(ImmutableList.of("foo"));
 
-        final Node iterator = kb.node();
-
-        // @formatter:off
-        // create an executable node that derives a Java iterator
-        final Node invoke = kb.node()
-                .setProperty(kb.EXECUTE, kb.node(BuiltIn.invoke))
+        // @formatter:off        
+        final Node createNodeAt = kb.node(),
+                setDestCb = kb.node(),
+                createNodeCb = kb.node(),
+                createNodeCbArg = kb.node(),
+                cpCb = kb.node(),
+                cpProp = kb.node();
+        createNodeAt.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.node))
+                .setProperty(kb.CALLBACK, createNodeCb);
+        createNodeAt.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
                 .setProperty(kb.ARGUMENT, kb.node()
-                        .setProperty(kb.OBJECT, kb.node()
-                                .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-                                .setProperty(kb.ARGUMENT, kb.node()
-                                        .setProperty(kb.OBJECT, iterator)
-                                        .setProperty(kb.PROPERTY, kb.ARGUMENT)))
-                        .setProperty(kb.METHOD, kb.valueNode("iterator")));
-        invoke.getSynapse().setCoefficient(iterator, 1);
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, createNodeAt)
+                                .setProperty(kb.ARGUMENT, kb.ARGUMENT))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, createNodeCbArg)
+                                .setProperty(kb.PROPERTY, kb.DESTINATION)))
+                .setProperty(kb.CALLBACK, setDestCb);
+        createNodeAt.then(cpCb)
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, createNodeAt)
+                                .setProperty(kb.PROPERTY, kb.CALLBACK))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, cpProp)
+                                .setProperty(kb.PROPERTY, kb.CALLBACK)));
+        cpProp
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, createNodeCbArg
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, createNodeCb)
+                                .setProperty(kb.PROPERTY, kb.ARGUMENT)))
+                .getSynapse()
+                        .setCoefficient(createNodeCb, .34f)
+                        .setCoefficient(setDestCb, .34f)
+                        .setCoefficient(cpCb, .34f);
 
-        // add appropriate methods for the iterator node
-		final Node createMethods = kb.node();
-		invoke.setProperty(kb.CALLBACK, createMethods);
-		//create onMove
-		kb.node().setProperty(kb.EXECUTE, kb.node(BuiltIn.setProperty))
-		         .setProperty(kb.ARGUMENT, kb.node()
-		                 .setProperty(kb.OBJECT, kb.node()
-		                         .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-		                         .setProperty(kb.ARGUMENT, kb.node()
-		                                 .setProperty(kb.OBJECT, createMethods)
-		                                 .setProperty(kb.PROPERTY, kb.ARGUMENT)))
-			             .setProperty(kb.PROPERTY, kb.node("onMove"))
-			             .setProperty(kb.VALUE, kb.node()
-			                     .setProperty(kb.EXECUTE, kb.node(BuiltIn.node))))
-				.getSynapse().setCoefficient(createMethods, 1);
-		// create forward
-		final Node createForward = kb.node()
-		        .setProperty(kb.EXECUTE, kb.node(BuiltIn.setProperty))
+        final Node iterator = kb.node();
+        
+        final Node cpContentCb = kb.node(), jIterInvokeArg = kb.node(), createMethods = kb.node();
+        iterator.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, iterator)
+                                .setProperty(kb.PROPERTY, kb.ARGUMENT))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, jIterInvokeArg)
+                                .setProperty(kb.PROPERTY, kb.OBJECT)))
+                .setProperty(kb.CALLBACK, cpContentCb);
+        cpContentCb.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.invoke))
+                .setProperty(kb.ARGUMENT, jIterInvokeArg
+                        .setProperty(kb.CLASS, kb.valueNode(List.class))
+                        .setProperty(kb.METHOD, kb.valueNode("iterator")))
+                .setProperty(kb.CALLBACK, createMethods);
+
+        // onMove
+        final Node createOnMoveArg = kb.node(),
+                cpCreateOnMoveArgCb = kb.node(),
+                createForward = kb.node();
+        createMethods.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, createMethods)
+                                .setProperty(kb.PROPERTY, kb.ARGUMENT))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, createOnMoveArg)
+                                .setProperty(kb.PROPERTY, kb.OBJECT)))
+                .setProperty(kb.CALLBACK, cpCreateOnMoveArgCb);
+        cpCreateOnMoveArgCb.then(kb.node())
+                        .setProperty(kb.EXECUTE, createNodeAt)
+                        .setProperty(kb.ARGUMENT, createOnMoveArg
+                                .setProperty(kb.PROPERTY, kb.node("onMove")))
+                        .setProperty(kb.CALLBACK, createForward);
+        
+        final Node createForwardArg = kb.node(),
+                cpCreateForwardArgCb = kb.node(),
+                implementForward = kb.node();
+        createForward.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, createMethods)
+                                .setProperty(kb.PROPERTY, kb.ARGUMENT))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, createForwardArg)
+                                .setProperty(kb.PROPERTY, kb.OBJECT)))
+                .setProperty(kb.CALLBACK, cpCreateForwardArgCb);
+        cpCreateForwardArgCb.then(kb.node())
+                        .setProperty(kb.EXECUTE, createNodeAt)
+                        .setProperty(kb.ARGUMENT, createOnMoveArg
+                                .setProperty(kb.PROPERTY, kb.node("forward")))
+                        .setProperty(kb.CALLBACK, implementForward);
+        
+        final Node forwardImpl = kb.node(),
+                cpNextInvokeArgCb = kb.node(),
+                nextInvokeArg = kb.node(),
+                nextCb = kb.node(),
+                iterClass = kb.valueNode(Iterator.class);
+        forwardImpl.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, forwardImpl)
+                                .setProperty(kb.PROPERTY, kb.ARGUMENT))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, nextInvokeArg)
+                                .setProperty(kb.PROPERTY, kb.OBJECT)))
+                .setProperty(kb.CALLBACK, cpNextInvokeArgCb);
+        cpNextInvokeArgCb.then(kb.node())
+                        .setProperty(kb.EXECUTE, kb.node(BuiltIn.invoke))
+                        .setProperty(kb.ARGUMENT, nextInvokeArg
+                                .setProperty(kb.CLASS, iterClass)
+                                .setProperty(kb.METHOD, kb.valueNode("next")))
+                        .setProperty(kb.CALLBACK, nextCb);
+        
+        final Node cpOnMoveSource = kb.node(),
+                cpOnMoveCb = kb.node(),
+                currentInvokeArg = kb.node(),
+                cpCurrentInvokeArgCb = kb.node(),
+                cpCpOnMoveSourceCb = kb.node(),
+                execOnMove = kb.node();
+        
+        nextCb.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, forwardImpl)
+                                .setProperty(kb.PROPERTY, kb.ARGUMENT))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, currentInvokeArg)
+                                .setProperty(kb.PROPERTY, kb.OBJECT)))
+                .setProperty(kb.CALLBACK, cpCurrentInvokeArgCb);
+        cpCurrentInvokeArgCb.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, forwardImpl)
+                                .setProperty(kb.PROPERTY, kb.ARGUMENT))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, cpOnMoveSource)
+                                .setProperty(kb.PROPERTY, kb.OBJECT)))
+                .setProperty(kb.CALLBACK, cpCpOnMoveSourceCb);
+        cpCpOnMoveSourceCb.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, cpOnMoveSource
+                                .setProperty(kb.PROPERTY, kb.node("onMove")))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, execOnMove)
+                                .setProperty(kb.PROPERTY, kb.EXECUTE)))
+                .setProperty(kb.CALLBACK, cpOnMoveCb);
+        
+        // we could invoke onMove right on the callback to "current", but we also want to forward
+        // the forwardImpl callback to onMove
+        
+        final Node cpCallbackCb = kb.node();
+        cpOnMoveCb.then(kb.node())
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+                .setProperty(kb.ARGUMENT, kb.node()
+                        .setProperty(kb.SOURCE, kb.node()
+                                .setProperty(kb.OBJECT, forwardImpl)
+                                .setProperty(kb.PROPERTY, kb.CALLBACK))
+                        .setProperty(kb.DESTINATION, kb.node()
+                                .setProperty(kb.OBJECT, execOnMove)
+                                .setProperty(kb.PROPERTY, kb.CALLBACK)))
+                .setProperty(kb.CALLBACK, cpCallbackCb);
+        
+        cpCallbackCb
+                .setProperty(kb.EXECUTE, kb.node(BuiltIn.invoke))
+                .setProperty(kb.ARGUMENT, currentInvokeArg
+                        .setProperty(kb.CLASS, iterClass)
+                        .setProperty(kb.METHOD, kb.valueNode("current")))
+                .then(execOnMove);
+        
+		// implement forward by hooking up to forwardImpl
+        final Node setForwardExecuteArg = kb.node()
+                .setProperty(kb.PROPERTY, kb.EXECUTE)
+                .setProperty(kb.VALUE, forwardImpl);
+        final Node implementForwardCb = kb.node();
+		implementForward.then(kb.node())
+		        .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
 		        .setProperty(kb.ARGUMENT, kb.node()
-		                .setProperty(kb.OBJECT, kb.node()
-		                        .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-	                            .setProperty(kb.ARGUMENT, kb.node()
-	                                    .setProperty(kb.OBJECT, createMethods)
-                                        .setProperty(kb.PROPERTY, kb.ARGUMENT)))
-			            .setProperty(kb.PROPERTY, kb.node("forward"))
-				        .setProperty(kb.VALUE, kb.node()
-				                .setProperty(kb.EXECUTE, kb.node(BuiltIn.node))));
-		createForward.getSynapse().setCoefficient(createMethods, 1);
-		// implement forward
-		final Node nextCallback = kb.node();
-		kb.node().setProperty(kb.EXECUTE, kb.node(BuiltIn.invoke))
-		         .setProperty(kb.ARGUMENT, kb.node()
-		                 // This is not sufficient because args are only evaluated at the top level; properties of
-		                 // args are not evaluated. We need to go ahead and stop relying on kb invocation magic.
-		                 .setProperty(kb.OBJECT, kb.node()
-		                         .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-		                         .setProperty(kb.ARGUMENT, kb.node()
-		                                 .setProperty(kb.OBJECT, createMethods)
-		                                 .setProperty(kb.PROPERTY, kb.ARGUMENT)))
-		                 .setProperty(kb.METHOD, kb.valueNode("next")))
-		         .setProperty(kb.CALLBACK, nextCallback);
-		kb.node().setProperty(kb.EXECUTE, kb.node(BuiltIn.setProperty))
-                 .setProperty(kb.ARGUMENT, kb.node()
-                         .setProperty(kb.OBJECT, kb.node()
-                                 .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-                                 .setProperty(kb.ARGUMENT, kb.node()
-                                         .setProperty(kb.OBJECT, kb.node()
-                                                 .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-                                                 .setProperty(kb.ARGUMENT, kb.node()
-                                                         .setProperty(kb.OBJECT, createMethods)
-                                                         .setProperty(kb.PROPERTY, kb.ARGUMENT)))
-                                         .setProperty(kb.PROPERTY, kb.node("onMove"))))
-                         .setProperty(kb.PROPERTY, kb.ARGUMENT)
-                         .setProperty(kb.VALUE, kb.node()
-                                 .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-                                 .setProperty(kb.ARGUMENT, kb.node()
-                                         .setProperty(kb.OBJECT, nextCallback)
-                                         .setProperty(kb.PROPERTY, kb.ARGUMENT))));
-        // @formatter:on
+		                .setProperty(kb.SOURCE, kb.node()
+		                        .setProperty(kb.OBJECT, implementForward)
+		                        .setProperty(kb.PROPERTY, kb.ARGUMENT))
+		                .setProperty(kb.DESTINATION, kb.node()
+		                        .setProperty(kb.OBJECT, setForwardExecuteArg)
+		                        .setProperty(kb.PROPERTY, kb.OBJECT)))
+		        .then(implementForwardCb);
+		
+		final Node setForwardExecuteCb = kb.node();
+		implementForwardCb.then(kb.node())
+		        .setProperty(kb.EXECUTE, kb.node(BuiltIn.setProperty))
+		        .setProperty(kb.ARGUMENT, setForwardExecuteArg)
+		        .setProperty(kb.CALLBACK, setForwardExecuteCb);
+		final Node finalCallback = kb.node(), cpFinalCallbackCb = kb.node();
+		setForwardExecuteCb.then(kb.node())
+		        .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+		        .setProperty(kb.SOURCE, kb.node()
+		                .setProperty(kb.OBJECT, iterator)
+		                .setProperty(kb.PROPERTY, kb.CALLBACK))
+		        .setProperty(kb.DESTINATION, kb.node()
+		                .setProperty(kb.OBJECT, finalCallback)
+		                .setProperty(kb.PROPERTY, kb.EXECUTE))
+		        .setProperty(kb.CALLBACK, cpFinalCallbackCb);
+		cpFinalCallbackCb.then(kb.node())
+		        .setProperty(kb.EXECUTE, kb.node(BuiltIn.copyProperty))
+		        .setProperty(kb.ARGUMENT, kb.node()
+		                .setProperty(kb.SOURCE, kb.node()
+		                        .setProperty(kb.OBJECT, createMethods)
+		                        .setProperty(kb.PROPERTY, kb.ARGUMENT))
+		                .setProperty(kb.DESTINATION, kb.node()
+		                        .setProperty(kb.OBJECT, finalCallback)
+		                        .setProperty(kb.PROPERTY, kb.ARGUMENT)));
+		// @formatter:on
 
         final Node callback = kb.node();
         final EmissionMonitor<?> monitor = new EmissionMonitor<>(callback.rxActivate());

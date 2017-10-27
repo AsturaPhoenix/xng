@@ -28,120 +28,120 @@ import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public class Repl {
-	@AllArgsConstructor
-	private static class Command {
-		public final String description;
-		public final Function<List<Object>, String> impl;
-	}
+    @AllArgsConstructor
+    private static class Command {
+        public final String description;
+        public final Function<List<Object>, String> impl;
+    }
 
-	@RequiredArgsConstructor
-	private static class GlobalIdentifier {
-		public final Identifier identifier;
-	}
+    @RequiredArgsConstructor
+    private static class GlobalIdentifier {
+        public final Identifier identifier;
+    }
 
-	private static final Parser IDENTIFIER = CharacterParser
-			.of(Character::isJavaIdentifierStart, "identifier expected").seq(
-					CharacterParser.of(Character::isJavaIdentifierPart, "identifier expected").star())
-			.flatten().map(
-					Identifier::new)
-			.trim(),
-			SCOPED_IDENTIFIER = StringParser
-					.of("::").seq(
-							IDENTIFIER)
-					.pick(1).map(GlobalIdentifier::new).or(IDENTIFIER),
-			ESCAPE = anyOf("\\\""),
-			STRING = CharacterParser.of('"')
-					.seq(noneOf("\\\"").or(CharacterParser.of('\\').seq(ESCAPE).pick(1)).star()
-							.map((List<Character> chars) -> chars.stream().map(Object::toString)
-									.collect(Collectors.joining())),
-							CharacterParser.of('"'))
-					.pick(1).trim(),
-			COMMAND_PARSER = IDENTIFIER.seq(SCOPED_IDENTIFIER.or(STRING).star());
+    private static final Parser IDENTIFIER = CharacterParser
+            .of(Character::isJavaIdentifierStart, "identifier expected").seq(
+                    CharacterParser.of(Character::isJavaIdentifierPart, "identifier expected").star())
+            .flatten().map(
+                    Identifier::new)
+            .trim(),
+            SCOPED_IDENTIFIER = StringParser
+                    .of("::").seq(
+                            IDENTIFIER)
+                    .pick(1).map(GlobalIdentifier::new).or(IDENTIFIER),
+            ESCAPE = anyOf("\\\""),
+            STRING = CharacterParser.of('"')
+                    .seq(noneOf("\\\"").or(CharacterParser.of('\\').seq(ESCAPE).pick(1)).star()
+                            .map((List<Character> chars) -> chars.stream().map(Object::toString)
+                                    .collect(Collectors.joining())),
+                            CharacterParser.of('"'))
+                    .pick(1).trim(),
+            COMMAND_PARSER = IDENTIFIER.seq(SCOPED_IDENTIFIER.or(STRING).star());
 
-	private static final Identifier INPUT_ID = new Identifier("input");
+    private static final Identifier INPUT_ID = new Identifier("input");
 
-	@Getter
-	private final KnowledgeBase kb;
-	/**
-	 * Ephemeral scope for convenience while demonstrating. This is reset upon
-	 * new input.
-	 */
-	private Map<Serializable, Node> scope;
+    @Getter
+    private final KnowledgeBase kb;
+    /**
+     * Ephemeral scope for convenience while demonstrating. This is reset upon
+     * new input.
+     */
+    private Map<Serializable, Node> scope;
 
-	private final Subject<String> commandOutput = PublishSubject.create();
+    private final Subject<String> commandOutput = PublishSubject.create();
 
-	public Observable<String> commandOutput() {
-		return commandOutput;
-	}
+    public Observable<String> commandOutput() {
+        return commandOutput;
+    }
 
-	public Observable<String> rxOutput() {
-		return kb.rxOutput();
-	}
+    public Observable<String> rxOutput() {
+        return kb.rxOutput();
+    }
 
-	private final SortedMap<String, Command> commands = new TreeMap<>();
+    private final SortedMap<String, Command> commands = new TreeMap<>();
 
-	{
-		commands.put("createNode", new Command("sets a property on a node", args -> {
-			final Node parent, property, child;
+    {
+        commands.put("createNode", new Command("sets a property on a node", args -> {
+            final Node parent, property, child;
 
-			parent = resolveNode(args.get(0));
-			property = resolveNode(args.get(1));
-			child = resolveNode(args.get(2));
-			parent.setProperty(property, child);
+            parent = resolveNode(args.get(0));
+            property = resolveNode(args.get(1));
+            child = resolveNode(args.get(2));
+            parent.setProperty(property, child);
 
-			return null;
-		}));
-		commands.put("help", new Command("displays this help message", args -> {
-			final StringBuilder builder = new StringBuilder();
-			for (final Entry<String, Command> command : commands.entrySet()) {
-				builder.append("  ").append(command.getKey()).append("\n    ").append(command.getValue().description)
-						.append("\n");
-			}
-			return builder.toString();
-		}));
-	}
+            return null;
+        }));
+        commands.put("help", new Command("displays this help message", args -> {
+            final StringBuilder builder = new StringBuilder();
+            for (final Entry<String, Command> command : commands.entrySet()) {
+                builder.append("  ").append(command.getKey()).append("\n    ").append(command.getValue().description)
+                        .append("\n");
+            }
+            return builder.toString();
+        }));
+    }
 
-	private Node resolveNode(final Object token) {
-		if (token instanceof GlobalIdentifier) {
-			return kb.node(((GlobalIdentifier) token).identifier);
-		} else if (token instanceof Identifier) {
-			if (scope == null) {
-				scope = new HashMap<>();
-			}
-			return scope.computeIfAbsent((Identifier) token, x -> new Node());
-		} else if (token instanceof String) {
-			return kb.valueNode((String) token);
-		} else if (token instanceof Number) {
-			return kb.valueNode((Number) token);
-		} else {
-			throw new IllegalArgumentException("Unable to resolve a node for token type " + token.getClass());
-		}
-	}
+    private Node resolveNode(final Object token) {
+        if (token instanceof GlobalIdentifier) {
+            return kb.node(((GlobalIdentifier) token).identifier);
+        } else if (token instanceof Identifier) {
+            if (scope == null) {
+                scope = new HashMap<>();
+            }
+            return scope.computeIfAbsent((Identifier) token, x -> new Node());
+        } else if (token instanceof String) {
+            return kb.valueNode((String) token);
+        } else if (token instanceof Number) {
+            return kb.valueNode((Number) token);
+        } else {
+            throw new IllegalArgumentException("Unable to resolve a node for token type " + token.getClass());
+        }
+    }
 
-	private void getHelp() {
-		commandOutput.onNext(commands.get("help").impl.apply(Collections.emptyList()));
-	}
+    private void getHelp() {
+        commandOutput.onNext(commands.get("help").impl.apply(Collections.emptyList()));
+    }
 
-	public void sendCommand(final String command) {
-		final Result result = COMMAND_PARSER.parse(command);
+    public void sendCommand(final String command) {
+        final Result result = COMMAND_PARSER.parse(command);
 
-		if (result.isFailure()) {
-			commandOutput.onNext(String.format("Invalid command string \"%s\"", command));
-			getHelp();
-		} else {
-			final List<Object> parts = result.get();
-			final String directive = ((Identifier) parts.get(0)).getValue();
-			final Command def = commands.get(directive);
-			if (def == null) {
-				commandOutput.onNext(String.format("Unknown command \"%s\"", directive));
-				getHelp();
-			} else {
-				commandOutput.onNext(def.impl.apply(parts.subList(1, parts.size())));
-			}
-		}
-	}
+        if (result.isFailure()) {
+            commandOutput.onNext(String.format("Invalid command string \"%s\"", command));
+            getHelp();
+        } else {
+            final List<Object> parts = result.get();
+            final String directive = ((Identifier) parts.get(0)).getValue();
+            final Command def = commands.get(directive);
+            if (def == null) {
+                commandOutput.onNext(String.format("Unknown command \"%s\"", directive));
+                getHelp();
+            } else {
+                commandOutput.onNext(def.impl.apply(parts.subList(1, parts.size())));
+            }
+        }
+    }
 
-	public void sendInput(final String input) {
-		kb.invoke(kb.node(INPUT_ID), kb.valueNode(input), null);
-	}
+    public void sendInput(final String input) {
+        kb.node(INPUT_ID).setProperty(kb.VALUE, kb.valueNode(input)).activate();
+    }
 }

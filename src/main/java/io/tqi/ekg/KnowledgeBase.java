@@ -2,12 +2,15 @@ package io.tqi.ekg;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -20,8 +23,16 @@ import io.reactivex.subjects.Subject;
 public class KnowledgeBase implements Serializable, AutoCloseable {
     private static final long serialVersionUID = 4850129606513054849L;
 
+    private static Set<Node> nodeSet() {
+        return Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+    }
+
     private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
-    private final Set<Node> nodes = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    // This set exists to rewire nodes after serialization. Nodes not otherwise
+    // referenced should be garbage collected, so this set is based on a
+    // WeakHashMap.
+    private transient Set<Node> nodes = nodeSet();
 
     private transient Subject<String> rxOutput;
     private transient Subject<Object> rxChange;
@@ -227,8 +238,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         return node;
     }
 
+    private void writeObject(final ObjectOutputStream o) throws IOException {
+        o.defaultWriteObject();
+        o.writeObject(new HashSet<>(nodes));
+    }
+
+    @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
         stream.defaultReadObject();
+        nodes = nodeSet();
+        nodes.addAll((Set<Node>) stream.readObject());
         init();
     }
 
@@ -288,6 +307,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         initNode(node);
         nodes.add(node);
         return node;
+    }
+
+    public Node getNode(final Identifier identifier) {
+        return index.get(identifier);
     }
 
     private Node getOrCreateNode(final Serializable label, final Serializable value) {

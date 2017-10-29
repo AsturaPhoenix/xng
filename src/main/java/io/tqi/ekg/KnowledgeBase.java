@@ -19,6 +19,7 @@ import com.google.common.base.Preconditions;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import io.tqi.ekg.Node.PropertySet;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
     private static final long serialVersionUID = 4850129606513054849L;
@@ -41,6 +42,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             OBJECT = node("object"), PROPERTY = node("property"), METHOD = node("method"),
             EXCEPTION = node("exception"), SOURCE = node("source"), DESTINATION = node("destination"),
             VALUE = node("value"), COEFFICIENT = node("coefficient");
+
+    private final Node propCombos = node();
 
     public enum BuiltIn {
         clearProperties {
@@ -206,7 +209,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                     invoke(fn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
                 }
             });
-            node.rxChange().subscribe(rxChange);
+            node.rxChange().subscribe(change -> {
+                // Properties are a simplification for node combinations, so we
+                // need to create and activate a node representing the
+                // combination in order to use associations correctly.
+                if (change instanceof PropertySet) {
+                    final PropertySet p = (PropertySet) change;
+                    if (!p.getOrCreate && p.value != null) {
+                        propCombos.getOrCreateProperty(p.object, this).getOrCreateProperty(p.property, this)
+                                .getOrCreateProperty(p.value, this).activate();
+                    }
+                }
+
+                rxChange.onNext(change);
+            });
         }
     }
 

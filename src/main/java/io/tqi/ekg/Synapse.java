@@ -59,7 +59,7 @@ public class Synapse implements Serializable {
 
     private transient Subject<Long> rxInput;
     private transient Observable<Long> rxOutput;
-    private transient Subject<Object> rxChange;
+    private transient Subject<Synapse> rxChange;
 
     public Synapse() {
         init();
@@ -121,7 +121,7 @@ public class Synapse implements Serializable {
         return rxOutput;
     }
 
-    public Observable<Object> rxChange() {
+    public Observable<Synapse> rxChange() {
         return rxChange;
     }
 

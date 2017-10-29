@@ -13,6 +13,7 @@ import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 public class Node implements Serializable {
     private static final long serialVersionUID = -4340465118968553513L;
@@ -55,7 +56,7 @@ public class Node implements Serializable {
 
         synapse.rxActivate().subscribe(t -> activate());
         rxOutput.subscribe(t -> lastActivation = t);
-        synapse.rxChange().subscribe(t -> rxChange.onNext(this));
+        synapse.rxChange().subscribe(s -> rxChange.onNext(this));
     }
 
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
@@ -85,13 +86,19 @@ public class Node implements Serializable {
 
     private final ConcurrentMap<Node, Node> properties = new ConcurrentHashMap<>();
 
+    @RequiredArgsConstructor
+    public static class PropertySet {
+        public final Node object, property, value;
+        public final boolean getOrCreate;
+    }
+
     public Node setProperty(final Node property, final Node value) {
         if (value == null) {
             properties.remove(property);
         } else {
             properties.put(property, value);
         }
-        rxChange.onNext(this);
+        rxChange.onNext(new PropertySet(this, property, value, false));
 
         return this;
     }
@@ -108,6 +115,18 @@ public class Node implements Serializable {
 
     public Node getProperty(final Node property) {
         return properties.get(property);
+    }
+
+    public Node getOrCreateProperty(final Node property, final KnowledgeBase kb) {
+        final boolean[] computed = new boolean[1];
+        final Node propNode = properties.computeIfAbsent(property, k -> {
+            computed[0] = true;
+            return kb.node();
+        });
+        if (computed[0]) {
+            rxChange.onNext(new PropertySet(this, property, propNode, true));
+        }
+        return propNode;
     }
 
     public Map<Node, Node> getProperties() {

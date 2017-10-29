@@ -8,6 +8,8 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -29,6 +31,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
 
     private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
+    private final Map<Serializable, Node> valueIndex = Collections.synchronizedMap(new IdentityHashMap<>());
 
     // This set exists to rewire nodes after serialization. Nodes not otherwise
     // referenced should be garbage collected, so this set is based on a
@@ -216,14 +219,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                 if (change instanceof PropertySet) {
                     final PropertySet p = (PropertySet) change;
                     if (!p.getOrCreate && p.value != null) {
-                        propCombos.getOrCreateProperty(p.object, this).getOrCreateProperty(p.property, this)
-                                .getOrCreateProperty(p.value, this).activate();
+                        activatePropertyCombo(p.object, p.property, p.value);
                     }
                 }
 
                 rxChange.onNext(change);
             });
         }
+    }
+
+    private Node activatePropertyCombo(final Node object, final Node property, final Node value) {
+        final Node combo = propCombos.getOrCreateProperty(object, this).getOrCreateProperty(property, this)
+                .getOrCreateProperty(value, this);
+        combo.activate();
+        return combo;
     }
 
     public void invoke(final Node fn, final Node arg, final Node callback) {
@@ -319,10 +328,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
 
     public Node valueNode(final Serializable value) {
-        final Node node = new Node(value);
-        initNode(node);
-        nodes.add(node);
-        return node;
+        return valueIndex.computeIfAbsent(value, x -> {
+            final Node node = new Node(value);
+            initNode(node);
+            nodes.add(node);
+            return node;
+        });
     }
 
     public Node getNode(final Identifier identifier) {

@@ -12,7 +12,6 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -26,17 +25,13 @@ import io.tqi.ekg.Node.PropertySet;
 public class KnowledgeBase implements Serializable, AutoCloseable {
     private static final long serialVersionUID = 4850129606513054849L;
 
-    private static Set<Node> nodeSet() {
-        return Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
-    }
-
     private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
     private final Map<Serializable, Node> valueIndex = Collections.synchronizedMap(new IdentityHashMap<>());
 
     // This set exists to rewire nodes after serialization. Nodes not otherwise
     // referenced should be garbage collected, so this set is based on a
     // WeakHashMap.
-    private transient Set<Node> nodes = nodeSet();
+    private transient NodeQueue nodes = new NodeQueue();
 
     private transient Subject<String> rxOutput;
     private transient Subject<Object> rxChange;
@@ -265,13 +260,17 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     private void writeObject(final ObjectOutputStream o) throws IOException {
         o.defaultWriteObject();
-        o.writeObject(new HashSet<>(nodes));
+        final Set<Node> serNodes = new HashSet<>();
+        for (final Node node : nodes) {
+            serNodes.add(node);
+        }
+        o.writeObject(serNodes);
     }
 
     @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
         stream.defaultReadObject();
-        nodes = nodeSet();
+        nodes = new NodeQueue();
         nodes.addAll((Set<Node>) stream.readObject());
         init();
     }

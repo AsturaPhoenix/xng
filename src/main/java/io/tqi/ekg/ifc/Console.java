@@ -1,4 +1,4 @@
-package io.tqi.ekg;
+package io.tqi.ekg.ifc;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -6,6 +6,9 @@ import java.io.InputStreamReader;
 import java.nio.file.FileSystems;
 import java.util.concurrent.TimeUnit;
 
+import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.Repl;
+import io.tqi.ekg.SerializingPersistence;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 

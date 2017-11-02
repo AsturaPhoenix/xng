@@ -9,39 +9,44 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.ekg.Node.PropertySet;
+import javafx.geometry.Point3D;
 
-public class KnowledgeBase implements Serializable, AutoCloseable {
+public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
     private static final long serialVersionUID = 4850129606513054849L;
 
     private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
     private final Map<Serializable, Node> valueIndex = Collections.synchronizedMap(new IdentityHashMap<>());
 
-    // This set exists to rewire nodes after serialization. Nodes not otherwise
-    // referenced should be garbage collected, so this set is based on a
-    // WeakHashMap.
+    // Nodes not otherwise referenced should be garbage collected, so this
+    // collection holds weak references.
     private transient NodeQueue nodes = new NodeQueue();
 
     private transient Subject<String> rxOutput;
+    private transient Subject<Node> rxNodeAdded;
     private transient Subject<Object> rxChange;
 
-    public final Node EXECUTE = node("execute"), ARGUMENT = node("arg"), CALLBACK = node("callback"), CLASS = node(),
-            OBJECT = node("object"), PROPERTY = node("property"), METHOD = node("method"),
+    public final Node EXECUTE = node("execute"), ARGUMENT = node("arg"), CALLBACK = node("callback"),
+            CLASS = node("class"), OBJECT = node("object"), PROPERTY = node("property"), METHOD = node("method"),
             EXCEPTION = node("exception"), SOURCE = node("source"), DESTINATION = node("destination"),
             VALUE = node("value"), COEFFICIENT = node("coefficient");
 
-    private final Node propCombos = node();
+    private final Node propCombos = node("propertyCombos");
 
     public enum BuiltIn {
         clearProperties {
@@ -195,6 +200,31 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         for (final BuiltIn builtIn : BuiltIn.values()) {
             registerBuiltIn(builtIn);
         }
+
+        final TreeMap<String, Node> sortedIndex = new TreeMap<>();
+
+        for (final Entry<Serializable, Node> entry : index.entrySet()) {
+            final String stringKey = entry.getKey() == null ? null : entry.getKey().toString();
+            if (Strings.isNullOrEmpty(stringKey))
+                continue;
+
+            final Node node = entry.getValue();
+
+            if (node.getComment() == null) {
+                node.setComment(stringKey);
+            }
+
+            if (node.getLocation() == null) {
+                sortedIndex.put(stringKey, node);
+            }
+        }
+
+        int x = 0;
+        for (final Node node : sortedIndex.values()) {
+            node.setLocation(new Point3D(x++, 0, 0));
+        }
+
+        rxNodeAdded = PublishSubject.create();
     }
 
     private void initNode(final Node node) {
@@ -220,6 +250,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
                 rxChange.onNext(change);
             });
+        }
+
+        if (rxNodeAdded != null) {
+            rxNodeAdded.onNext(node);
         }
     }
 
@@ -278,7 +312,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     @Override
     public void close() {
         rxOutput.onComplete();
+        rxNodeAdded.onComplete();
         rxChange.onComplete();
+    }
+
+    public Observable<Node> rxNodeAdded() {
+        return rxNodeAdded;
     }
 
     public Observable<String> rxOutput() {
@@ -363,5 +402,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     public void indexNode(final Identifier identifier, final Node node) {
         index.put(identifier, node);
+    }
+
+    @Override
+    public Iterator<Node> iterator() {
+        return nodes.iterator();
     }
 }

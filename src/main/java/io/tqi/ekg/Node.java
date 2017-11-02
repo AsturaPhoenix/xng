@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentMap;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import javafx.geometry.Point3D;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -36,6 +37,22 @@ public class Node implements Serializable {
     private transient Observable<Long> rxOutput;
     private transient Subject<Object> rxChange;
 
+    @Getter
+    private Point3D location;
+
+    public void setLocation(final Point3D value) {
+        location = value;
+        rxChange.onNext(this);
+    }
+
+    @Getter
+    private String comment;
+
+    public void setComment(final String value) {
+        comment = value;
+        rxChange.onNext(this);
+    }
+
     public Node() {
         this.value = null;
         init();
@@ -44,6 +61,16 @@ public class Node implements Serializable {
     public Node(final Serializable value) {
         this.value = value;
         init();
+    }
+
+    @Override
+    protected void finalize() throws Throwable {
+        try {
+            rxInput.onComplete();
+            rxChange.onComplete();
+        } finally {
+            super.finalize();
+        }
     }
 
     private void init() {

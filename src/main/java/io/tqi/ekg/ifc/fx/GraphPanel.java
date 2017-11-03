@@ -6,15 +6,16 @@ import java.util.List;
 import java.util.WeakHashMap;
 
 import io.tqi.ekg.KnowledgeBase;
-import io.tqi.ekg.Node;
 import javafx.application.Platform;
 import javafx.geometry.Point2D;
 import javafx.geometry.Point3D;
 import javafx.geometry.VPos;
 import javafx.scene.Group;
+import javafx.scene.Node;
 import javafx.scene.PerspectiveCamera;
 import javafx.scene.Scene;
 import javafx.scene.SceneAntialiasing;
+import javafx.scene.input.TouchEvent;
 import javafx.scene.input.TouchPoint;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Ellipse;
@@ -38,6 +39,20 @@ public class GraphPanel {
         final Group billboard, geom;
         final Ellipse body;
         final Text text;
+
+        Point3D dragPt;
+
+        Point3D calcTp(final TouchEvent e) {
+            final TouchPoint pt = e.getTouchPoint();
+            final Point3D bbCamPt = billboard.sceneToLocal(camera.localToScene(Point3D.ZERO));
+            final Point3D bbTp = billboard
+                    .sceneToLocal(((Node) e.getSource()).localToScene(pt.getX(), pt.getY(), pt.getZ()));
+            final Point3D ray = bbTp.subtract(bbCamPt);
+
+            return localToParent(
+                    sceneToLocal(billboard.localToScene(bbTp.getX() - ray.getX() / ray.getZ() * bbTp.getZ(),
+                            bbTp.getY() - ray.getY() / ray.getZ() * bbTp.getZ(), 0)));
+        }
 
         NodeGeom(final io.tqi.ekg.Node node) {
             this.node = new WeakReference<>(node);
@@ -72,11 +87,25 @@ public class GraphPanel {
             }, () -> Platform.runLater(() -> graph.getChildren().remove(this)));
 
             updateBillboard();
+
+            setOnTouchPressed(e -> dragPt = calcTp(e));
+
+            setOnTouchMoved(e -> {
+                final io.tqi.ekg.Node n = this.node.get();
+
+                if (dragPt != null && n != null) {
+                    final Point3D newPt = calcTp(e);
+                    n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
+                    dragPt = newPt;
+                }
+            });
+
+            setOnTouchReleased(e -> dragPt = null);
         }
 
         void updateNode() {
             if (node.get() != null) {
-                final Node n = node.get();
+                final io.tqi.ekg.Node n = node.get();
                 if (n.getValue() == null) {
                     text.setText(n.getComment());
                     body.setFill(Color.ALICEBLUE);
@@ -122,6 +151,7 @@ public class GraphPanel {
     private final Group root, graph;
     private final PerspectiveCamera camera;
     private final List<Point2D> touchPoints = new ArrayList<>();
+    private int navPtCount;
     private final Affine cameraAnchor;
 
     private final WeakHashMap<io.tqi.ekg.Node, NodeGeom> nodes = new WeakHashMap<>();
@@ -154,7 +184,7 @@ public class GraphPanel {
         });
     }
 
-    private void addNode(final Node node) {
+    private void addNode(final io.tqi.ekg.Node node) {
         Platform.runLater(() -> nodes.computeIfAbsent(node, NodeGeom::new));
     }
 
@@ -169,11 +199,19 @@ public class GraphPanel {
             touchPoints.set(t.getId() - 1,
                     new Point2D(t.getSceneX() - scene.getWidth() / 2, t.getSceneY() - scene.getHeight() / 2));
             e.consume();
+
+            if (e.getTarget() == scene) {
+                navPtCount++;
+            }
         });
 
         scene.setOnTouchReleased(e -> {
             touchPoints.set(e.getTouchPoint().getId() - 1, null);
             e.consume();
+
+            if (e.getTarget() == scene) {
+                navPtCount--;
+            }
         });
 
         scene.setOnTouchMoved(e -> {
@@ -181,33 +219,34 @@ public class GraphPanel {
             final Point2D newPt = new Point2D(t.getSceneX() - scene.getWidth() / 2,
                     t.getSceneY() - scene.getHeight() / 2);
 
-            if (e.getTouchCount() == 1) {
-                double screenNorm = 1 / Math.min(scene.getWidth(), scene.getHeight());
-                final Point2D delta = newPt.subtract(touchPoints.get(t.getId() - 1));
-                final Point3D from3 = new Point3D(0, 0, 1 / ROTATION_FACTOR);
-                final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm,
-                        1 / ROTATION_FACTOR);
+            if (navPtCount > 0) {
+                if (e.getTouchCount() == 1) {
+                    double screenNorm = 1 / Math.min(scene.getWidth(), scene.getHeight());
+                    final Point2D delta = newPt.subtract(touchPoints.get(t.getId() - 1));
+                    final Point3D from3 = new Point3D(0, 0, 1 / ROTATION_FACTOR);
+                    final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm,
+                            1 / ROTATION_FACTOR);
 
-                cameraAnchor.appendRotation(to3.angle(from3), Point3D.ZERO, to3.crossProduct(from3).normalize());
-            } else {
-                final Point2D oldPt = touchPoints.get(t.getId() - 1);
-                final Point2D delta = newPt.subtract(oldPt).multiply(-TRANSLATION_FACTOR / e.getTouchCount());
-                cameraAnchor.appendTranslation(delta.getX(), delta.getY());
+                    cameraAnchor.appendRotation(to3.angle(from3), Point3D.ZERO, to3.crossProduct(from3).normalize());
+                } else {
+                    final Point2D oldPt = touchPoints.get(t.getId() - 1);
+                    final Point2D delta = newPt.subtract(oldPt).multiply(-TRANSLATION_FACTOR / e.getTouchCount());
+                    cameraAnchor.appendTranslation(delta.getX(), delta.getY());
 
-                Point2D centroid = new Point2D(0, 0);
+                    Point2D centroid = new Point2D(0, 0);
 
-                for (final TouchPoint pt : e.getTouchPoints()) {
-                    centroid = centroid.add(
-                            new Point2D(pt.getSceneX() - scene.getWidth() / 2, pt.getSceneY() - scene.getHeight() / 2)
-                                    .multiply(1.0 / e.getTouchCount()));
+                    for (final TouchPoint pt : e.getTouchPoints()) {
+                        centroid = centroid.add(new Point2D(pt.getSceneX() - scene.getWidth() / 2,
+                                pt.getSceneY() - scene.getHeight() / 2).multiply(1.0 / e.getTouchCount()));
+                    }
+
+                    final Point2D toOld = oldPt.subtract(centroid), toNew = newPt.subtract(centroid);
+
+                    cameraAnchor.appendTranslation(0, 0, -ZOOM_FACTOR * delta.dotProduct(toOld.normalize()));
+
+                    cameraAnchor.appendRotation(-toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
+                            toOld.crossProduct(toNew).normalize());
                 }
-
-                final Point2D toOld = oldPt.subtract(centroid), toNew = newPt.subtract(centroid);
-
-                cameraAnchor.appendTranslation(0, 0, -ZOOM_FACTOR * delta.dotProduct(toOld.normalize()));
-
-                cameraAnchor.appendRotation(-toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
-                        toOld.crossProduct(toNew).normalize());
             }
 
             touchPoints.set(t.getId() - 1, newPt);

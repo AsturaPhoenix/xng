@@ -7,6 +7,8 @@ import java.util.ConcurrentModificationException;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
+import com.google.common.collect.Iterables;
+
 import lombok.Synchronized;
 
 /**
@@ -30,7 +32,6 @@ public class NodeQueue implements Iterable<Node> {
         NodeQueueIterator() {
             version = NodeQueue.this.version;
             nextLink = head;
-            consumeReleased();
         }
 
         private void consumeReleased() {
@@ -43,21 +44,22 @@ public class NodeQueue implements Iterable<Node> {
 
         @Override
         public boolean hasNext() {
+            // set nextNode lazily to maximize gc window
+            consumeReleased();
             return nextLink != null;
         }
 
         @Override
         public Node next() {
-            if (!hasNext())
-                throw new NoSuchElementException();
-
             synchronized ($lock) {
+                if (!hasNext()) // sets nextNode
+                    throw new NoSuchElementException();
+
                 if (version != NodeQueue.this.version) {
                     throw new ConcurrentModificationException();
                 }
 
                 nextLink = nextLink.next;
-                consumeReleased();
             }
             return nextNode;
         }
@@ -150,5 +152,10 @@ public class NodeQueue implements Iterable<Node> {
             version = new Object();
         }
         return new NodeQueueIterator();
+    }
+
+    @Override
+    public String toString() {
+        return Iterables.toString(this);
     }
 }

@@ -13,6 +13,7 @@ import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import javafx.geometry.Point3D;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -20,6 +21,12 @@ public class Node implements Serializable {
     private static final long serialVersionUID = -4340465118968553513L;
 
     private static final long DEFAULT_REFRACTORY = 12;
+
+    @AllArgsConstructor
+    private static class SPoint implements Serializable {
+        private static final long serialVersionUID = 4405782167116875037L;
+        double x, y, z;
+    }
 
     @Getter
     private final Serializable value;
@@ -37,11 +44,14 @@ public class Node implements Serializable {
     private transient Observable<Long> rxOutput;
     private transient Subject<Object> rxChange;
 
-    @Getter
-    private Point3D location;
+    private SPoint location;
+
+    public Point3D getLocation() {
+        return location == null ? null : new Point3D(location.x, location.y, location.z);
+    }
 
     public void setLocation(final Point3D value) {
-        location = value;
+        location = value == null ? null : new SPoint(value.getX(), value.getY(), value.getZ());
         rxChange.onNext(this);
     }
 
@@ -162,7 +172,7 @@ public class Node implements Serializable {
 
     @Override
     public String toString() {
-        return value + "@" + Integer.toHexString(hashCode());
+        return Integer.toHexString(hashCode()) + ": " + comment + " = " + value + " @ " + getLocation();
     }
 
     /**

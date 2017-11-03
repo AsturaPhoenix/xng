@@ -304,8 +304,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
         stream.defaultReadObject();
+
+        final Set<Node> serNodes = (Set<Node>) stream.readObject();
+        int oldSize = serNodes.size();
+        serNodes.addAll(index.values());
+        if (serNodes.size() > oldSize) {
+            System.out.println(
+                    "WARNING: Serialized node set dropped at least " + (serNodes.size() - oldSize) + " nodes.");
+        }
+
         nodes = new NodeQueue();
-        nodes.addAll((Set<Node>) stream.readObject());
+        nodes.addAll(serNodes);
+
         init();
     }
 

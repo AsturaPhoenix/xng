@@ -5,18 +5,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
 
+import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.tqi.ekg.KnowledgeBase;
 import javafx.application.Platform;
+import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
 import javafx.geometry.Point3D;
 import javafx.geometry.VPos;
 import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.PerspectiveCamera;
-import javafx.scene.Scene;
 import javafx.scene.SceneAntialiasing;
+import javafx.scene.SubScene;
 import javafx.scene.input.TouchEvent;
 import javafx.scene.input.TouchPoint;
+import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Ellipse;
 import javafx.scene.text.Font;
@@ -27,7 +30,7 @@ import javafx.scene.transform.NonInvertibleTransformException;
 import javafx.scene.transform.Scale;
 import javafx.scene.transform.Transform;
 
-public class GraphPanel {
+public class GraphPanel extends StackPane {
     private static final double ROTATION_FACTOR = 2;
     private static final double TRANSLATION_FACTOR = 1.5;
     private static final double ZOOM_FACTOR = 5;
@@ -172,7 +175,7 @@ public class GraphPanel {
         graph.getTransforms().add(new Scale(GRAPH_SCALE, GRAPH_SCALE, GRAPH_SCALE));
         root.getChildren().add(graph);
 
-        kb.rxNodeAdded().subscribe(this::addNode);
+        kb.rxNodeAdded().observeOn(JavaFxScheduler.platform()).subscribe(this::addNode);
         for (final io.tqi.ekg.Node node : kb) {
             addNode(node);
         }
@@ -182,46 +185,59 @@ public class GraphPanel {
                 geom.updateBillboard();
             }
         });
+
+        final SubScene scene = new SubScene(root, 0, 0, true, SceneAntialiasing.BALANCED);
+        scene.setCamera(camera);
+        getChildren().add(scene);
+        scene.widthProperty().bind(widthProperty());
+        scene.heightProperty().bind(heightProperty());
+
+        final Bounds graphBounds = graph.getBoundsInParent();
+        System.out.println(graphBounds);
+        cameraAnchor.setTx((graphBounds.getMaxX() + graphBounds.getMinX()) / 2);
+        cameraAnchor.setTy((graphBounds.getMaxY() + graphBounds.getMinY()) / 2);
+        cameraAnchor.setTz(-Math.max(graphBounds.getWidth(), graphBounds.getHeight()) / 2
+                / Math.tan(Math.toRadians(camera.getFieldOfView())));
+
+        setTouchHandlers();
     }
 
     private void addNode(final io.tqi.ekg.Node node) {
-        Platform.runLater(() -> nodes.computeIfAbsent(node, NodeGeom::new));
+        nodes.computeIfAbsent(node, NodeGeom::new);
     }
 
-    public Scene createScene() {
-        final Scene scene = new Scene(root, 0, 0, true, SceneAntialiasing.BALANCED);
-        scene.setCamera(camera);
-
-        scene.setOnTouchPressed(e -> {
+    private void setTouchHandlers() {
+        setOnTouchPressed(e -> {
             final TouchPoint t = e.getTouchPoint();
             while (touchPoints.size() < t.getId())
                 touchPoints.add(null);
             touchPoints.set(t.getId() - 1,
-                    new Point2D(t.getSceneX() - scene.getWidth() / 2, t.getSceneY() - scene.getHeight() / 2));
-            e.consume();
+                    new Point2D(t.getSceneX() - getWidth() / 2, t.getSceneY() - getHeight() / 2));
 
-            if (e.getTarget() == scene) {
+            if (e.getTarget() == this) {
                 navPtCount++;
             }
+
+            e.consume();
         });
 
-        scene.setOnTouchReleased(e -> {
+        setOnTouchReleased(e -> {
             touchPoints.set(e.getTouchPoint().getId() - 1, null);
-            e.consume();
 
-            if (e.getTarget() == scene) {
+            if (e.getTarget() == this) {
                 navPtCount--;
             }
+
+            e.consume();
         });
 
-        scene.setOnTouchMoved(e -> {
+        setOnTouchMoved(e -> {
             final TouchPoint t = e.getTouchPoint();
-            final Point2D newPt = new Point2D(t.getSceneX() - scene.getWidth() / 2,
-                    t.getSceneY() - scene.getHeight() / 2);
+            final Point2D newPt = new Point2D(t.getSceneX() - getWidth() / 2, t.getSceneY() - getHeight() / 2);
 
             if (navPtCount > 0) {
                 if (e.getTouchCount() == 1) {
-                    double screenNorm = 1 / Math.min(scene.getWidth(), scene.getHeight());
+                    double screenNorm = 1 / Math.min(getWidth(), getHeight());
                     final Point2D delta = newPt.subtract(touchPoints.get(t.getId() - 1));
                     final Point3D from3 = new Point3D(0, 0, 1 / ROTATION_FACTOR);
                     final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm,
@@ -236,8 +252,9 @@ public class GraphPanel {
                     Point2D centroid = new Point2D(0, 0);
 
                     for (final TouchPoint pt : e.getTouchPoints()) {
-                        centroid = centroid.add(new Point2D(pt.getSceneX() - scene.getWidth() / 2,
-                                pt.getSceneY() - scene.getHeight() / 2).multiply(1.0 / e.getTouchCount()));
+                        centroid = centroid
+                                .add(new Point2D(pt.getSceneX() - getWidth() / 2, pt.getSceneY() - getHeight() / 2)
+                                        .multiply(1.0 / e.getTouchCount()));
                     }
 
                     final Point2D toOld = oldPt.subtract(centroid), toNew = newPt.subtract(centroid);
@@ -252,7 +269,5 @@ public class GraphPanel {
             touchPoints.set(t.getId() - 1, newPt);
             e.consume();
         });
-
-        return scene;
     }
 }

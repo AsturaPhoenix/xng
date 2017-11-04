@@ -36,6 +36,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // Nodes not otherwise referenced should be garbage collected, so this
     // collection holds weak references.
     private transient NodeQueue nodes = new NodeQueue();
+    private transient NodePhysics physics;
 
     private transient Subject<String> rxOutput;
     private transient Subject<Node> rxNodeAdded;
@@ -192,6 +193,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private void init() {
         rxOutput = PublishSubject.create();
         rxChange = PublishSubject.create();
+        physics = new NodePhysics();
 
         for (final Node node : nodes) {
             initNode(node);
@@ -250,6 +252,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
                 rxChange.onNext(change);
             });
+            physics.add(node);
         }
 
         if (rxNodeAdded != null) {

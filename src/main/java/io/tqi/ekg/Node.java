@@ -16,6 +16,7 @@ import javafx.geometry.Point3D;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 
 public class Node implements Serializable {
     private static final long serialVersionUID = -4340465118968553513L;
@@ -54,6 +55,10 @@ public class Node implements Serializable {
         location = value == null ? null : new SPoint(value.getX(), value.getY(), value.getZ());
         rxChange.onNext(this);
     }
+
+    @Getter
+    @Setter
+    private boolean pinned;
 
     @Getter
     private String comment;

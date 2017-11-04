@@ -43,6 +43,7 @@ public class GraphPanel extends StackPane {
         final Ellipse body;
         final Text text;
 
+        int dragPtId;
         Point3D dragPt;
 
         Point3D calcTp(final TouchEvent e) {
@@ -91,19 +92,31 @@ public class GraphPanel extends StackPane {
 
             updateBillboard();
 
-            setOnTouchPressed(e -> dragPt = calcTp(e));
+            setOnTouchPressed(e -> {
+                final io.tqi.ekg.Node n = this.node.get();
+                if (dragPtId == 0 && n != null) {
+                    dragPtId = e.getTouchPoint().getId();
+                    dragPt = calcTp(e);
+                    n.setPinned(true);
+                }
+            });
 
             setOnTouchMoved(e -> {
                 final io.tqi.ekg.Node n = this.node.get();
 
-                if (dragPt != null && n != null) {
+                if (dragPtId == e.getTouchPoint().getId() && n != null) {
                     final Point3D newPt = calcTp(e);
                     n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
                     dragPt = newPt;
                 }
             });
 
-            setOnTouchReleased(e -> dragPt = null);
+            setOnTouchReleased(e -> {
+                final io.tqi.ekg.Node n = this.node.get();
+                if (n != null)
+                    n.setPinned(false);
+                dragPtId = 0;
+            });
         }
 
         void updateNode() {
@@ -193,7 +206,6 @@ public class GraphPanel extends StackPane {
         scene.heightProperty().bind(heightProperty());
 
         final Bounds graphBounds = graph.getBoundsInParent();
-        System.out.println(graphBounds);
         cameraAnchor.setTx((graphBounds.getMaxX() + graphBounds.getMinX()) / 2);
         cameraAnchor.setTy((graphBounds.getMaxY() + graphBounds.getMinY()) / 2);
         cameraAnchor.setTz(-Math.max(graphBounds.getWidth(), graphBounds.getHeight()) / 2

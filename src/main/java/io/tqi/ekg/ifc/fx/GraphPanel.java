@@ -176,7 +176,6 @@ public class GraphPanel extends StackPane {
         root = new Group();
 
         cameraAnchor = new Affine();
-        cameraAnchor.setTz(-400);
         camera = new PerspectiveCamera(true);
         camera.setFieldOfView(40);
         camera.setNearClip(1);
@@ -255,7 +254,11 @@ public class GraphPanel extends StackPane {
                     final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm,
                             1 / ROTATION_FACTOR);
 
-                    cameraAnchor.appendRotation(to3.angle(from3), Point3D.ZERO, to3.crossProduct(from3).normalize());
+                    final Point3D vc = getViewCentroid();
+                    final double angle = to3.angle(from3);
+
+                    cameraAnchor.appendRotation(vc.equals(Point3D.ZERO) ? angle : -angle, vc,
+                            to3.crossProduct(from3).normalize());
                 } else {
                     final Point2D oldPt = touchPoints.get(t.getId() - 1);
                     final Point2D delta = newPt.subtract(oldPt).multiply(-TRANSLATION_FACTOR / e.getTouchCount());
@@ -281,5 +284,28 @@ public class GraphPanel extends StackPane {
             touchPoints.set(t.getId() - 1, newPt);
             e.consume();
         });
+    }
+
+    private Point3D getViewCentroid() {
+        final double snorm = Math.tan(Math.toRadians(camera.getFieldOfView())) / Math.min(getWidth(), getHeight());
+        final double xLimit = snorm * getWidth(), yLimit = snorm * getHeight();
+        Point3D centroid = Point3D.ZERO;
+        double n = 0;
+        for (final NodeGeom node : nodes.values()) {
+            final Point3D crpt = camera.sceneToLocal(node.localToScene(Point3D.ZERO));
+            if (crpt.getZ() <= camera.getFarClip() && crpt.getZ() >= camera.getNearClip()) {
+                if (Math.abs(crpt.getX() / crpt.getZ()) <= xLimit && Math.abs(crpt.getY() / crpt.getZ()) <= yLimit) {
+                    double w = 1 / crpt.getZ();
+                    centroid = centroid.add(crpt.multiply(w));
+                    n += w;
+                }
+            }
+        }
+
+        if (n > 0) {
+            centroid = centroid.multiply(1 / n);
+        }
+
+        return centroid;
     }
 }

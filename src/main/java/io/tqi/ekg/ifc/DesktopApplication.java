@@ -1,5 +1,6 @@
 package io.tqi.ekg.ifc;
 
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -15,10 +16,14 @@ import javafx.beans.value.ChangeListener;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.ButtonBase;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToolBar;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.stage.Stage;
 
@@ -66,7 +71,21 @@ public class DesktopApplication extends Application {
 
     private ChangeListener<String> tbTextListener;
 
+    private void initButton(final ButtonBase button, final String res, final String altText) {
+        try {
+            button.setGraphic(new ImageView(new Image(new FileInputStream(res))));
+        } catch (final FileNotFoundException e) {
+            e.printStackTrace();
+            button.setText(altText);
+        }
+    }
+
     private Node createToolbar() {
+        final ToggleButton activate = new ToggleButton();
+        initButton(activate, "res/lightning.png", "Activate");
+        final ToggleButton property = new ToggleButton();
+        initButton(property, "res/details.png", "Property");
+
         final TextField text = new TextField();
         graph.rxSelected().subscribe(node -> {
             if (tbTextListener != null)
@@ -85,7 +104,7 @@ public class DesktopApplication extends Application {
                 text.textProperty().addListener(tbTextListener);
             }
         });
-        return new ToolBar(text);
+        return new ToolBar(activate, property, text);
     }
 
     private Node createConsole() {

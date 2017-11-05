@@ -224,6 +224,8 @@ public class GraphPanel extends StackPane {
 
             node.rxActivate().switchMap(t -> Observable.interval(1000 / 60, TimeUnit.MILLISECONDS)
                     .takeUntil(Observable.timer(1200, TimeUnit.MILLISECONDS))).subscribe(t -> updateColor());
+
+            rxRotateOut.subscribe(e -> updateBillboard());
         }
 
         void updateColor() {
@@ -338,6 +340,10 @@ public class GraphPanel extends StackPane {
         return rxSelectedOut;
     }
 
+    private final Subject<Optional<Void>> rxRotate = PublishSubject.create();
+    private final Observable<Optional<Void>> rxRotateOut = rxRotate.sample(1000 / 60, TimeUnit.MILLISECONDS)
+            .observeOn(JavaFxScheduler.platform()).share();
+
     public GraphPanel(final KnowledgeBase kb) {
         root = new Group();
 
@@ -357,12 +363,6 @@ public class GraphPanel extends StackPane {
         for (final io.tqi.ekg.Node node : kb) {
             node(node);
         }
-
-        cameraAnchor.setOnTransformChanged(e -> {
-            for (final NodeGeom geom : nodes.values()) {
-                geom.updateBillboard();
-            }
-        });
 
         final SubScene scene = new SubScene(root, 0, 0, true, SceneAntialiasing.BALANCED);
         scene.setCamera(camera);
@@ -388,6 +388,10 @@ public class GraphPanel extends StackPane {
     private Point2D preDrag;
 
     private void setTouchHandlers() {
+        setOnMousePressed(e -> {
+            requestFocus();
+        });
+
         setOnTouchPressed(e -> {
             final TouchPoint t = e.getTouchPoint();
             while (touchPoints.size() < t.getId())
@@ -462,6 +466,8 @@ public class GraphPanel extends StackPane {
                         cameraAnchor.appendRotation(-toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
                                 toOld.crossProduct(toNew).normalize());
                     }
+
+                    rxRotate.onNext(Optional.empty());
                 }
 
                 touchPoints.set(t.getId() - 1, newPt);

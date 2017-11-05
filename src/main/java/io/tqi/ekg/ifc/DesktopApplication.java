@@ -11,6 +11,7 @@ import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
 import io.tqi.ekg.ifc.fx.GraphPanel;
 import javafx.application.Application;
+import javafx.beans.value.ChangeListener;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Scene;
@@ -63,19 +64,26 @@ public class DesktopApplication extends Application {
         primaryStage.setOnCloseRequest(e -> kb.close());
     }
 
+    private ChangeListener<String> tbTextListener;
+
     private Node createToolbar() {
         final TextField text = new TextField();
         graph.rxSelected().subscribe(node -> {
+            if (tbTextListener != null)
+                text.textProperty().removeListener(tbTextListener);
             if (!node.isPresent()) {
                 text.setPromptText("Find node");
                 text.clear();
             } else {
                 text.setPromptText("Comment");
                 text.setText(node.get().getComment());
-            }
-        });
-        text.setOnAction(e -> {
+                text.positionCaret(text.getLength());
 
+                tbTextListener = (o, a, b) -> {
+                    node.get().setComment(b);
+                };
+                text.textProperty().addListener(tbTextListener);
+            }
         });
         return new ToolBar(text);
     }

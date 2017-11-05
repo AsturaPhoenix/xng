@@ -126,12 +126,14 @@ public class NodePhysics {
         final double dist = vec.magnitude();
         final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - 1.5, 0), .2));
 
-        if (!a.isPinned()) {
-            a.setLocation(a.getLocation().add(delta));
-        }
+        if (delta.dotProduct(delta) > .001) {
+            if (!a.isPinned()) {
+                a.setLocation(a.getLocation().add(delta));
+            }
 
-        if (!b.isPinned()) {
-            b.setLocation(b.getLocation().subtract(delta));
+            if (!b.isPinned()) {
+                b.setLocation(b.getLocation().subtract(delta));
+            }
         }
     }
 
@@ -169,9 +171,9 @@ public class NodePhysics {
                 }
 
                 final double dist = vec.magnitude();
-                if (dist >= GRID_SIZE)
-                    continue;
-                node.setLocation(node.getLocation().add(vec.normalize().multiply((GRID_SIZE - dist) * .1)));
+                if (dist < GRID_SIZE - .001) {
+                    node.setLocation(node.getLocation().add(vec.normalize().multiply((GRID_SIZE - dist) * .1)));
+                }
             }
         }
     }

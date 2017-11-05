@@ -6,9 +6,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -20,18 +18,37 @@ import java.util.concurrent.ConcurrentMap;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.MapMaker;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.ekg.Node.PropertySet;
 import javafx.geometry.Point3D;
+import lombok.RequiredArgsConstructor;
 
 public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
     private static final long serialVersionUID = 4850129606513054849L;
 
+    @RequiredArgsConstructor
+    private static class IdentityKey implements Serializable {
+        private static final long serialVersionUID = -2428169144581856842L;
+
+        final Serializable value;
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(value);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof IdentityKey && value == ((IdentityKey) obj).value;
+        }
+    }
+
     private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
-    private final Map<Serializable, Node> valueIndex = Collections.synchronizedMap(new IdentityHashMap<>());
+    private final Map<IdentityKey, Node> valueIndex = new MapMaker().weakValues().makeMap();
 
     // Nodes not otherwise referenced should be garbage collected, so this
     // collection holds weak references.
@@ -379,7 +396,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     public Node valueNode(final Serializable value) {
-        return valueIndex.computeIfAbsent(value, x -> {
+        return valueIndex.computeIfAbsent(new IdentityKey(value), x -> {
             final Node node = new Node(value);
             initNode(node);
             nodes.add(node);

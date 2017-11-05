@@ -6,8 +6,8 @@ import java.io.Serializable;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+
+import com.google.common.collect.MapMaker;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
@@ -126,7 +126,7 @@ public class Node implements Serializable {
         return rxOutput;
     }
 
-    private final ConcurrentMap<Node, Node> properties = new ConcurrentHashMap<>();
+    private final Map<Node, Node> properties = new MapMaker().weakKeys().makeMap();
 
     @RequiredArgsConstructor
     public static class PropertySet {

@@ -12,7 +12,6 @@ import java.util.WeakHashMap;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.tqi.ekg.KnowledgeBase;
 import io.tqi.ekg.Synapse.Activation;
-import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
 import javafx.geometry.Point3D;
@@ -80,7 +79,7 @@ public class GraphPanel extends StackPane {
 
         PropConnection(final NodeGeom property, final NodeGeom value) {
             super(value);
-            setColor(Color.BLACK, Color.TRANSPARENT);
+            setColor(Color.TRANSPARENT, Color.BLACK);
             spur = new Connection(property);
             spur.setColor(Color.BLUE, Color.TRANSPARENT);
             getChildren().add(spur);
@@ -149,14 +148,12 @@ public class GraphPanel extends StackPane {
             geom.getChildren().add(connections);
 
             updateNode();
-            node.rxChange().subscribe(o -> {
-                Platform.runLater(this::updateNode);
-            });
+            node.rxChange().observeOn(JavaFxScheduler.platform()).subscribe(o -> updateNode());
 
             graph.getChildren().add(this);
-            node.rxChange().subscribe(x -> {
+            node.rxChange().observeOn(JavaFxScheduler.platform()).subscribe(x -> {
             }, y -> {
-            }, () -> Platform.runLater(() -> graph.getChildren().remove(this)));
+            }, () -> graph.getChildren().remove(this));
 
             updateBillboard();
 
@@ -232,7 +229,7 @@ public class GraphPanel extends StackPane {
 
             for (final Entry<io.tqi.ekg.Node, Activation> edge : n.getSynapse()) {
                 final Connection connection = new Connection(node(edge.getKey()));
-                connection.setColor(Color.TRANSPARENT, Color.RED);
+                connection.setColor(Color.RED, Color.TRANSPARENT);
                 connections.getChildren().add(connection);
                 connection.update();
             }

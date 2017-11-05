@@ -9,6 +9,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
@@ -118,6 +119,9 @@ public class GraphPanel extends StackPane {
         Point2D preDrag;
         boolean selected;
 
+        final DropShadow selGlow = new DropShadow(32, Color.DEEPSKYBLUE);
+        final InnerShadow selInner = new InnerShadow(256, Color.DEEPSKYBLUE);
+
         Point3D calcTp(final TouchEvent e) {
             final TouchPoint pt = e.getTouchPoint();
             final Point3D bbCamPt = billboard.sceneToLocal(camera.localToScene(Point3D.ZERO));
@@ -158,12 +162,11 @@ public class GraphPanel extends StackPane {
             geom.getChildren().add(connections);
 
             updateNode();
-            node.rxChange().observeOn(JavaFxScheduler.platform()).subscribe(o -> updateNode());
 
             graph.getChildren().add(this);
-            node.rxChange().observeOn(JavaFxScheduler.platform()).subscribe(x -> {
-            }, y -> {
-            }, () -> graph.getChildren().remove(this));
+            node.rxChange().sample(1000 / 60, TimeUnit.MILLISECONDS).observeOn(JavaFxScheduler.platform())
+                    .subscribe(x -> updateNode(), y -> {
+                    }, () -> graph.getChildren().remove(this));
 
             updateBillboard();
 
@@ -216,6 +219,11 @@ public class GraphPanel extends StackPane {
                 selected = n.orElse(null) == this.node.get();
                 updateColor();
             });
+
+            selGlow.setInput(selInner);
+
+            node.rxActivate().switchMap(t -> Observable.interval(1000 / 60, TimeUnit.MILLISECONDS)
+                    .takeUntil(Observable.timer(1200, TimeUnit.MILLISECONDS))).subscribe(t -> updateColor());
         }
 
         void updateColor() {
@@ -228,10 +236,17 @@ public class GraphPanel extends StackPane {
                 body.setStroke(Color.CORNFLOWERBLUE);
             }
 
+            if (n != null) {
+                final double activation = Math.max(1000 + n.getLastActivation() - System.currentTimeMillis(), 0)
+                        / 1000.0;
+                if (activation > 0) {
+                    body.setFill(((Color) body.getFill()).interpolate(Color.YELLOW, activation));
+                    body.setStroke(((Color) body.getStroke()).interpolate(Color.YELLOW, activation));
+                }
+            }
+
             if (selected) {
-                final DropShadow glow = new DropShadow(8, Color.YELLOW);
-                glow.setInput(new InnerShadow(128, Color.YELLOW));
-                body.setEffect(glow);
+                body.setEffect(selGlow);
             } else {
                 body.setEffect(null);
             }
@@ -316,9 +331,11 @@ public class GraphPanel extends StackPane {
     private final WeakHashMap<io.tqi.ekg.Node, NodeGeom> nodes = new WeakHashMap<>();
 
     private final Subject<Optional<io.tqi.ekg.Node>> rxSelected = PublishSubject.create();
+    private final Observable<Optional<io.tqi.ekg.Node>> rxSelectedOut = rxSelected.distinctUntilChanged().replay(1)
+            .autoConnect(0);
 
-    private Observable<Optional<io.tqi.ekg.Node>> rxSelected() {
-        return rxSelected.distinctUntilChanged();
+    public Observable<Optional<io.tqi.ekg.Node>> rxSelected() {
+        return rxSelectedOut;
     }
 
     public GraphPanel(final KnowledgeBase kb) {
@@ -360,6 +377,8 @@ public class GraphPanel extends StackPane {
                 / Math.tan(Math.toRadians(camera.getFieldOfView())));
 
         setTouchHandlers();
+
+        rxSelected.onNext(Optional.empty());
     }
 
     private NodeGeom node(final io.tqi.ekg.Node node) {

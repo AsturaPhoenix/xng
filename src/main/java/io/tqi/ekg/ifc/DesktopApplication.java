@@ -27,8 +27,10 @@ public class DesktopApplication extends Application {
         launch(args);
     }
 
-    final KnowledgeBase kb;
-    final Repl repl;
+    private final KnowledgeBase kb;
+    private final Repl repl;
+    private GraphPanel graph;
+    private TextField input;
 
     public DesktopApplication() throws FileNotFoundException, ClassNotFoundException, ClassCastException, IOException {
         this.kb = SerializingPersistence.loadBound(FileSystems.getDefault().getPath("persistence"));
@@ -40,8 +42,10 @@ public class DesktopApplication extends Application {
     public void start(Stage primaryStage) throws Exception {
         primaryStage.setTitle("EKG");
 
+        graph = new GraphPanel(kb);
+
         final Node console = createConsole();
-        final SplitPane splitPane = new SplitPane(new GraphPanel(kb), console);
+        final SplitPane splitPane = new SplitPane(graph, console);
         splitPane.setOrientation(Orientation.VERTICAL);
         splitPane.setDividerPositions(.5);
         SplitPane.setResizableWithParent(console, false);
@@ -54,13 +58,22 @@ public class DesktopApplication extends Application {
 
         primaryStage.setMaximized(true);
         primaryStage.show();
+        input.requestFocus();
 
         primaryStage.setOnCloseRequest(e -> kb.close());
     }
 
     private Node createToolbar() {
         final TextField text = new TextField();
-        text.setPromptText("Find node");
+        graph.rxSelected().subscribe(node -> {
+            if (!node.isPresent()) {
+                text.setPromptText("Find node");
+                text.clear();
+            } else {
+                text.setPromptText("Comment");
+                text.setText(node.get().getComment());
+            }
+        });
         text.setOnAction(e -> {
 
         });
@@ -70,15 +83,15 @@ public class DesktopApplication extends Application {
     private Node createConsole() {
         final TextArea output = new TextArea();
 
-        final TextField input = new TextField();
-        input.setPromptText("input");
+        input = new TextField();
+        input.setPromptText("Input");
         input.setOnAction(e -> {
             output.setText(String.format("%s%s\n", output.getText(), input.getText()));
             repl.sendInput(input.getText());
             input.clear();
         });
 
-        output.setPromptText("no output");
+        output.setPromptText("Output");
         output.setEditable(false);
         repl.commandOutput().observeOn(JavaFxScheduler.platform())
                 .subscribe(s -> output.setText(String.format("%s! %s\n", output.getText(), s)));

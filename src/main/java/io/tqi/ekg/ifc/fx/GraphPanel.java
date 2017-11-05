@@ -6,10 +6,14 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
 
+import io.reactivex.Observable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
+import io.reactivex.subjects.PublishSubject;
+import io.reactivex.subjects.Subject;
 import io.tqi.ekg.KnowledgeBase;
 import io.tqi.ekg.Synapse.Activation;
 import javafx.geometry.Bounds;
@@ -22,6 +26,8 @@ import javafx.scene.PerspectiveCamera;
 import javafx.scene.SceneAntialiasing;
 import javafx.scene.SubScene;
 import javafx.scene.control.Label;
+import javafx.scene.effect.DropShadow;
+import javafx.scene.effect.InnerShadow;
 import javafx.scene.input.TouchEvent;
 import javafx.scene.input.TouchPoint;
 import javafx.scene.layout.StackPane;
@@ -96,6 +102,8 @@ public class GraphPanel extends StackPane {
         }
     }
 
+    private static final int DRAG_START = 8;
+
     private class NodeGeom extends Group {
         final WeakReference<io.tqi.ekg.Node> node;
         final Group billboard, geom;
@@ -107,6 +115,8 @@ public class GraphPanel extends StackPane {
 
         int dragPtId;
         Point3D dragPt;
+        Point2D preDrag;
+        boolean selected;
 
         Point3D calcTp(final TouchEvent e) {
             final TouchPoint pt = e.getTouchPoint();
@@ -163,6 +173,14 @@ public class GraphPanel extends StackPane {
                     dragPtId = e.getTouchPoint().getId();
                     dragPt = calcTp(e);
                     n.setPinned(true);
+
+                    if (e.getTouchCount() == 1) {
+                        preDrag = new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY());
+                    } else {
+                        preDrag = null;
+                    }
+                } else {
+                    preDrag = null;
                 }
             });
 
@@ -170,32 +188,60 @@ public class GraphPanel extends StackPane {
                 final io.tqi.ekg.Node n = this.node.get();
 
                 if (dragPtId == e.getTouchPoint().getId() && n != null) {
-                    final Point3D newPt = calcTp(e);
-                    n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
-                    dragPt = newPt;
+                    if (preDrag == null || new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY())
+                            .distance(preDrag) >= DRAG_START) {
+                        final Point3D newPt = calcTp(e);
+                        n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
+                        dragPt = newPt;
+                        preDrag = null;
+                    }
+                } else {
+                    preDrag = null;
                 }
             });
 
             setOnTouchReleased(e -> {
                 final io.tqi.ekg.Node n = this.node.get();
-                if (n != null)
+                if (dragPtId == e.getTouchPoint().getId() && n != null) {
                     n.setPinned(false);
-                dragPtId = 0;
+                    dragPtId = 0;
+                }
+                if (preDrag != null) {
+                    preDrag = null;
+                    rxSelected.onNext(Optional.of(n));
+                }
+            });
+
+            rxSelected().subscribe(n -> {
+                selected = n.orElse(null) == this.node.get();
+                updateColor();
             });
         }
 
+        void updateColor() {
+            final io.tqi.ekg.Node n = node.get();
+            if (n != null && n.getValue() == null) {
+                body.setFill(Color.ALICEBLUE);
+                body.setStroke(Color.CORNFLOWERBLUE);
+            } else {
+                body.setFill(Color.AQUAMARINE);
+                body.setStroke(Color.CORNFLOWERBLUE);
+            }
+
+            if (selected) {
+                final DropShadow glow = new DropShadow(8, Color.YELLOW);
+                glow.setInput(new InnerShadow(128, Color.YELLOW));
+                body.setEffect(glow);
+            } else {
+                body.setEffect(null);
+            }
+        }
+
         void updateNode() {
-            if (node.get() != null) {
-                final io.tqi.ekg.Node n = node.get();
-                if (n.getValue() == null) {
-                    text.setText(n.getComment());
-                    body.setFill(Color.ALICEBLUE);
-                    body.setStroke(Color.CORNFLOWERBLUE);
-                } else {
-                    text.setText(n.getValue().toString());
-                    body.setFill(Color.AQUAMARINE);
-                    body.setStroke(Color.CORNFLOWERBLUE);
-                }
+            final io.tqi.ekg.Node n = node.get();
+            if (n != null) {
+                text.setText(n.getValue() == null ? n.getComment() : n.getValue().toString());
+                updateColor();
 
                 if (n.getLocation() != null) {
                     setTranslateX(n.getLocation().getX());
@@ -269,6 +315,12 @@ public class GraphPanel extends StackPane {
 
     private final WeakHashMap<io.tqi.ekg.Node, NodeGeom> nodes = new WeakHashMap<>();
 
+    private final Subject<Optional<io.tqi.ekg.Node>> rxSelected = PublishSubject.create();
+
+    private Observable<Optional<io.tqi.ekg.Node>> rxSelected() {
+        return rxSelected.distinctUntilChanged();
+    }
+
     public GraphPanel(final KnowledgeBase kb) {
         root = new Group();
 
@@ -314,6 +366,8 @@ public class GraphPanel extends StackPane {
         return nodes.computeIfAbsent(node, NodeGeom::new);
     }
 
+    private Point2D preDrag;
+
     private void setTouchHandlers() {
         setOnTouchPressed(e -> {
             final TouchPoint t = e.getTouchPoint();
@@ -324,6 +378,9 @@ public class GraphPanel extends StackPane {
 
             if (e.getTarget() == this) {
                 navPtCount++;
+                if (e.getTouchCount() == 1) {
+                    preDrag = new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY());
+                }
             }
 
             e.consume();
@@ -335,50 +392,61 @@ public class GraphPanel extends StackPane {
             if (e.getTarget() == this) {
                 navPtCount--;
             }
+            if (preDrag != null) {
+                preDrag = null;
+                rxSelected.onNext(Optional.empty());
+            }
 
             e.consume();
         });
 
         setOnTouchMoved(e -> {
-            final TouchPoint t = e.getTouchPoint();
-            final Point2D newPt = new Point2D(t.getSceneX() - getWidth() / 2, t.getSceneY() - getHeight() / 2);
-
-            if (navPtCount > 0) {
-                if (e.getTouchCount() == 1) {
-                    double screenNorm = 1 / Math.min(getWidth(), getHeight());
-                    final Point2D delta = newPt.subtract(touchPoints.get(t.getId() - 1));
-                    final Point3D from3 = new Point3D(0, 0, 1 / ROTATION_FACTOR);
-                    final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm,
-                            1 / ROTATION_FACTOR);
-
-                    final Point3D vc = getViewCentroid();
-                    final double angle = to3.angle(from3);
-
-                    cameraAnchor.appendRotation(vc.equals(Point3D.ZERO) ? angle : -angle, vc,
-                            to3.crossProduct(from3).normalize());
-                } else {
-                    final Point2D oldPt = touchPoints.get(t.getId() - 1);
-                    final Point2D delta = newPt.subtract(oldPt).multiply(-TRANSLATION_FACTOR / e.getTouchCount());
-                    cameraAnchor.appendTranslation(delta.getX(), delta.getY());
-
-                    Point2D centroid = new Point2D(0, 0);
-
-                    for (final TouchPoint pt : e.getTouchPoints()) {
-                        centroid = centroid
-                                .add(new Point2D(pt.getSceneX() - getWidth() / 2, pt.getSceneY() - getHeight() / 2)
-                                        .multiply(1.0 / e.getTouchCount()));
-                    }
-
-                    final Point2D toOld = oldPt.subtract(centroid), toNew = newPt.subtract(centroid);
-
-                    cameraAnchor.appendTranslation(0, 0, -ZOOM_FACTOR * delta.dotProduct(toOld.normalize()));
-
-                    cameraAnchor.appendRotation(-toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
-                            toOld.crossProduct(toNew).normalize());
-                }
+            if (preDrag != null && new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY())
+                    .distance(preDrag) >= DRAG_START) {
+                preDrag = null;
             }
 
-            touchPoints.set(t.getId() - 1, newPt);
+            if (preDrag == null) {
+                final TouchPoint t = e.getTouchPoint();
+                final Point2D newPt = new Point2D(t.getSceneX() - getWidth() / 2, t.getSceneY() - getHeight() / 2);
+
+                if (navPtCount > 0) {
+                    if (e.getTouchCount() == 1) {
+                        double screenNorm = 1 / Math.min(getWidth(), getHeight());
+                        final Point2D delta = newPt.subtract(touchPoints.get(t.getId() - 1));
+                        final Point3D from3 = new Point3D(0, 0, 1 / ROTATION_FACTOR);
+                        final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm,
+                                1 / ROTATION_FACTOR);
+
+                        final Point3D vc = getViewCentroid();
+                        final double angle = to3.angle(from3);
+
+                        cameraAnchor.appendRotation(vc.equals(Point3D.ZERO) ? angle : -angle, vc,
+                                to3.crossProduct(from3).normalize());
+                    } else {
+                        final Point2D oldPt = touchPoints.get(t.getId() - 1);
+                        final Point2D delta = newPt.subtract(oldPt).multiply(-TRANSLATION_FACTOR / e.getTouchCount());
+                        cameraAnchor.appendTranslation(delta.getX(), delta.getY());
+
+                        Point2D centroid = new Point2D(0, 0);
+
+                        for (final TouchPoint pt : e.getTouchPoints()) {
+                            centroid = centroid
+                                    .add(new Point2D(pt.getSceneX() - getWidth() / 2, pt.getSceneY() - getHeight() / 2)
+                                            .multiply(1.0 / e.getTouchCount()));
+                        }
+
+                        final Point2D toOld = oldPt.subtract(centroid), toNew = newPt.subtract(centroid);
+
+                        cameraAnchor.appendTranslation(0, 0, -ZOOM_FACTOR * delta.dotProduct(toOld.normalize()));
+
+                        cameraAnchor.appendRotation(-toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
+                                toOld.crossProduct(toNew).normalize());
+                    }
+                }
+
+                touchPoints.set(t.getId() - 1, newPt);
+            }
             e.consume();
         });
     }

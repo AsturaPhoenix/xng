@@ -11,10 +11,13 @@ import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
 import io.tqi.ekg.ifc.fx.GraphPanel;
 import javafx.application.Application;
+import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.ToolBar;
 import javafx.scene.layout.BorderPane;
 import javafx.stage.Stage;
 
@@ -37,10 +40,15 @@ public class DesktopApplication extends Application {
     public void start(Stage primaryStage) throws Exception {
         primaryStage.setTitle("EKG");
 
-        final BorderPane borderPane = new BorderPane();
-        borderPane.setCenter(new GraphPanel(kb));
-        borderPane.setBottom(createConsole());
+        final Node console = createConsole();
+        final SplitPane splitPane = new SplitPane(new GraphPanel(kb), console);
+        splitPane.setOrientation(Orientation.VERTICAL);
+        splitPane.setDividerPositions(.5);
+        SplitPane.setResizableWithParent(console, false);
 
+        final BorderPane borderPane = new BorderPane();
+        borderPane.setTop(createToolbar());
+        borderPane.setCenter(splitPane);
         final Scene scene = new Scene(borderPane);
         primaryStage.setScene(scene);
 
@@ -48,6 +56,15 @@ public class DesktopApplication extends Application {
         primaryStage.show();
 
         primaryStage.setOnCloseRequest(e -> kb.close());
+    }
+
+    private Node createToolbar() {
+        final TextField text = new TextField();
+        text.setPromptText("Find node");
+        text.setOnAction(e -> {
+
+        });
+        return new ToolBar(text);
     }
 
     private Node createConsole() {

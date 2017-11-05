@@ -394,6 +394,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private Node getOrCreateNode(final Serializable label, final Serializable value) {
         return index.computeIfAbsent(label, x -> {
             final Node node = new Node(value);
+            if (label != null)
+                node.setComment(label.toString());
             initNode(node);
             nodes.add(node);
             return node;

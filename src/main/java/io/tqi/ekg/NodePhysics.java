@@ -121,15 +121,17 @@ public class NodePhysics {
         }
     }
 
-    private void attract(final Node mobile, final Node stable, final double k) {
-        final Point3D vec = stable.getLocation().subtract(mobile.getLocation());
+    private void attract(final Node a, final Node b, final double k) {
+        final Point3D vec = b.getLocation().subtract(a.getLocation());
         final double dist = vec.magnitude();
         final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - 1.5, 0), .2));
 
-        if (!mobile.isPinned()) {
-            mobile.setLocation(mobile.getLocation().add(delta));
-        } else if (!stable.isPinned()) {
-            stable.setLocation(stable.getLocation().subtract(delta));
+        if (!a.isPinned()) {
+            a.setLocation(a.getLocation().add(delta));
+        }
+
+        if (!b.isPinned()) {
+            b.setLocation(b.getLocation().subtract(delta));
         }
     }
 

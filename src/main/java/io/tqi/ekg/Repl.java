@@ -55,8 +55,6 @@ public class Repl {
             COMMAND_PARSER = ALIAS.or(COMMAND).end();
     //@formatter:on
 
-    private static final Identifier INPUT_ID = new Identifier("input");
-
     @Getter
     private final KnowledgeBase kb;
 
@@ -130,6 +128,6 @@ public class Repl {
     }
 
     public void sendInput(final String input) {
-        kb.node(INPUT_ID).setProperty(kb.ARGUMENT, kb.valueNode(input)).activate();
+        kb.node("Repl.input").setProperty(kb.ARGUMENT, kb.valueNode(input)).activate();
     }
 }

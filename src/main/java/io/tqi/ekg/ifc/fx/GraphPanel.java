@@ -47,20 +47,17 @@ public class GraphPanel extends StackPane {
     private static final double GRAPH_SCALE = 100;
     private static final double GEOM_SCALE = .15;
 
-    private static final Point3D X = new Point3D(1, 0, 0);
-
     private class Connection extends Group {
         final NodeGeom end;
-        final Line line;
-        final Rotate rotate;
+        final Line line = new Line();
+        final Rotate rotate1 = new Rotate(0, Rotate.Z_AXIS), rotate2 = new Rotate(0, Rotate.Y_AXIS);
 
         Connection(final NodeGeom end) {
             this.end = end;
             end.incoming.add(this);
-            line = new Line();
             line.setStrokeWidth(4);
-            rotate = new Rotate();
-            line.getTransforms().add(rotate);
+            line.getTransforms().add(rotate1);
+            line.getTransforms().add(rotate2);
             getChildren().add(line);
         }
 
@@ -71,9 +68,11 @@ public class GraphPanel extends StackPane {
 
         void update() {
             final Point3D delta = sceneToLocal(end.localToScene(Point3D.ZERO));
+            final double xyMag = Math.sqrt(delta.getX() * delta.getX() + delta.getY() * delta.getY());
             line.setEndX(delta.magnitude());
-            rotate.setAngle(X.angle(delta));
-            rotate.setAxis(X.crossProduct(delta));
+            if (xyMag > 0)
+                rotate1.setAngle(Math.toDegrees(Math.atan2(delta.getY() / xyMag, delta.getX() / xyMag)));
+            rotate2.setAngle(Math.toDegrees(Math.asin(-delta.getZ() / line.getEndX())));
         }
     }
 

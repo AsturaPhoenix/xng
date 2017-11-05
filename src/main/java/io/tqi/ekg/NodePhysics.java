@@ -156,7 +156,7 @@ public class NodePhysics {
             attract(prop.getValue(), node, .05);
         }
 
-        if (!node.isPinned()) {
+        if (!node.isPinned() && node.getLocation() != null) {
             for (final Link otherLink : getNeighborhood(node)) {
                 final Node other = otherLink.get();
                 if (other == null || other == node)

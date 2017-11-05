@@ -16,12 +16,13 @@ import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
 import javafx.geometry.Point3D;
-import javafx.geometry.VPos;
+import javafx.geometry.Pos;
 import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.PerspectiveCamera;
 import javafx.scene.SceneAntialiasing;
 import javafx.scene.SubScene;
+import javafx.scene.control.Label;
 import javafx.scene.input.TouchEvent;
 import javafx.scene.input.TouchPoint;
 import javafx.scene.layout.StackPane;
@@ -32,8 +33,6 @@ import javafx.scene.paint.Stop;
 import javafx.scene.shape.Ellipse;
 import javafx.scene.shape.Line;
 import javafx.scene.text.Font;
-import javafx.scene.text.Text;
-import javafx.scene.text.TextAlignment;
 import javafx.scene.transform.Affine;
 import javafx.scene.transform.NonInvertibleTransformException;
 import javafx.scene.transform.Rotate;
@@ -102,7 +101,7 @@ public class GraphPanel extends StackPane {
         final WeakReference<io.tqi.ekg.Node> node;
         final Group billboard, geom;
         final Ellipse body;
-        final Text text;
+        final Label text;
 
         final Group connections = new Group();
         final Set<Connection> incoming = new HashSet<>();
@@ -135,10 +134,13 @@ public class GraphPanel extends StackPane {
             body.setStrokeWidth(4);
             geom.getChildren().add(body);
 
-            text = new Text();
+            text = new Label();
             text.setFont(new Font(50));
-            text.setTextAlignment(TextAlignment.CENTER);
-            text.setTextOrigin(VPos.CENTER);
+            text.setLayoutX(-250);
+            text.setLayoutY(-50);
+            text.setAlignment(Pos.CENTER);
+            text.setPrefWidth(500);
+            text.setPrefHeight(100);
             text.setTranslateZ(-4);
             geom.getChildren().add(text);
 
@@ -197,8 +199,6 @@ public class GraphPanel extends StackPane {
                     body.setFill(Color.AQUAMARINE);
                     body.setStroke(Color.CORNFLOWERBLUE);
                 }
-
-                text.setTranslateX(-text.getLayoutBounds().getWidth() / 2);
 
                 if (n.getLocation() != null) {
                     setTranslateX(n.getLocation().getX());

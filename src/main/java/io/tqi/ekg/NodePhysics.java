@@ -6,12 +6,14 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Iterables;
 
 import io.reactivex.Observable;
+import io.tqi.ekg.Synapse.Activation;
 import javafx.geometry.Point3D;
 
 public class NodePhysics {
@@ -119,8 +121,42 @@ public class NodePhysics {
         }
     }
 
+    private void attract(final Node mobile, final Node stable, final double k) {
+        final Point3D vec = stable.getLocation().subtract(mobile.getLocation());
+        final double dist = vec.magnitude();
+        final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - 1.5, 0), .2));
+
+        if (!mobile.isPinned()) {
+            mobile.setLocation(mobile.getLocation().add(delta));
+        } else if (!stable.isPinned()) {
+            stable.setLocation(stable.getLocation().subtract(delta));
+        }
+    }
+
     private void process(final Node node) {
-        if (node.getLocation() != null && !node.isPinned()) {
+        if (!node.getProperties().isEmpty() && node.getLocation() == null) {
+            node.setLocation(Point3D.ZERO);
+        }
+
+        for (final Entry<Node, Activation> assoc : node.getSynapse()) {
+            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient());
+        }
+
+        for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
+            if (prop.getValue() == null)
+                continue;
+
+            if (prop.getKey().getLocation() == null) {
+                prop.getKey().setLocation(node.getLocation().add(-.25, 1, 0));
+            }
+            if (prop.getValue().getLocation() == null) {
+                prop.getValue().setLocation(node.getLocation().add(0, 1, 0));
+            }
+            attract(prop.getKey(), node, .02);
+            attract(prop.getValue(), node, .05);
+        }
+
+        if (!node.isPinned()) {
             for (final Link otherLink : getNeighborhood(node)) {
                 final Node other = otherLink.get();
                 if (other == null || other == node)

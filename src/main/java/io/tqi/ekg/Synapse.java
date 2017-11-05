@@ -6,6 +6,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.WeakHashMap;
@@ -15,6 +16,7 @@ import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import lombok.Getter;
 
 /**
  * Represents the incoming logical junction of node signals towards a specific
@@ -25,32 +27,34 @@ import io.reactivex.subjects.Subject;
  * future, it is likely that either we will switch to relative time and fully
  * support serialization or else completely clear activation on deserialization.
  */
-public class Synapse implements Serializable {
+public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activation>> {
     private static final long serialVersionUID = 1779165354354490167L;
 
     private static final long DEBOUNCE_PERIOD = 16;
 
-    private static class Activation {
+    public static class Activation {
         static final long DEFAULT_DECAY_PERIOD = 30000;
 
-        float coefficient;
-        long decayPeriod; // linear for now
-        final WeakReference<Node> node;
-        final Disposable subscription;
+        @Getter
+        private float coefficient;
+        @Getter
+        private long decayPeriod; // linear for now
+        private final WeakReference<Node> node;
+        private final Disposable subscription;
 
-        Activation(final Node node, final Disposable subscription) {
+        private Activation(final Node node, final Disposable subscription) {
             this.coefficient = 1;
             decayPeriod = DEFAULT_DECAY_PERIOD;
             this.node = new WeakReference<>(node);
             this.subscription = subscription;
         }
 
-        float getValue(final long time) {
+        public float getValue(final long time) {
             long dt = time - node.get().getLastActivation();
             return dt >= decayPeriod ? 0 : coefficient * (1 - dt / (float) decayPeriod);
         }
 
-        long getZero() {
+        private long getZero() {
             return node.get().getLastActivation() + decayPeriod;
         }
     }
@@ -174,5 +178,10 @@ public class Synapse implements Serializable {
     public void dissociate(final Node node) {
         inputs.remove(node).subscription.dispose();
         rxChange.onNext(this);
+    }
+
+    @Override
+    public Iterator<Entry<Node, Activation>> iterator() {
+        return inputs.entrySet().iterator();
     }
 }

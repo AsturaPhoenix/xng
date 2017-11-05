@@ -2,11 +2,16 @@ package io.tqi.ekg.ifc.fx;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map.Entry;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.Synapse.Activation;
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
@@ -21,12 +26,17 @@ import javafx.scene.input.TouchEvent;
 import javafx.scene.input.TouchPoint;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.LinearGradient;
+import javafx.scene.paint.Stop;
 import javafx.scene.shape.Ellipse;
+import javafx.scene.shape.Line;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextAlignment;
 import javafx.scene.transform.Affine;
 import javafx.scene.transform.NonInvertibleTransformException;
+import javafx.scene.transform.Rotate;
 import javafx.scene.transform.Scale;
 import javafx.scene.transform.Transform;
 
@@ -37,11 +47,66 @@ public class GraphPanel extends StackPane {
     private static final double GRAPH_SCALE = 100;
     private static final double GEOM_SCALE = .15;
 
+    private static final Point3D X = new Point3D(1, 0, 0);
+
+    private class Connection extends Group {
+        final NodeGeom end;
+        final Line line;
+        final Rotate rotate;
+
+        Connection(final NodeGeom end) {
+            this.end = end;
+            end.incoming.add(this);
+            line = new Line();
+            line.setStrokeWidth(4);
+            rotate = new Rotate();
+            line.getTransforms().add(rotate);
+            getChildren().add(line);
+        }
+
+        void setColor(final Color color1, Color color2) {
+            line.setStroke(new LinearGradient(0, 0, .05, 0, true, CycleMethod.REPEAT, new Stop(0, color1),
+                    new Stop(1, color2)));
+        }
+
+        void update() {
+            final Point3D delta = sceneToLocal(end.localToScene(Point3D.ZERO));
+            line.setEndX(delta.magnitude());
+            rotate.setAngle(X.angle(delta));
+            rotate.setAxis(X.crossProduct(delta));
+        }
+    }
+
+    private class PropConnection extends Connection {
+        final Connection spur;
+
+        PropConnection(final NodeGeom property, final NodeGeom value) {
+            super(value);
+            setColor(Color.BLACK, Color.TRANSPARENT);
+            spur = new Connection(property);
+            spur.setColor(Color.BLUE, Color.TRANSPARENT);
+            getChildren().add(spur);
+        }
+
+        @Override
+        void update() {
+            super.update();
+            final Point3D midpt = sceneToLocal(end.localToScene(Point3D.ZERO)).multiply(.5);
+            spur.setTranslateX(midpt.getX());
+            spur.setTranslateY(midpt.getY());
+            spur.setTranslateZ(midpt.getZ());
+            spur.update();
+        }
+    }
+
     private class NodeGeom extends Group {
         final WeakReference<io.tqi.ekg.Node> node;
         final Group billboard, geom;
         final Ellipse body;
         final Text text;
+
+        final Group connections = new Group();
+        final Set<Connection> incoming = new HashSet<>();
 
         int dragPtId;
         Point3D dragPt;
@@ -79,6 +144,8 @@ public class GraphPanel extends StackPane {
             geom.getChildren().add(text);
 
             geom.getTransforms().add(new Scale(GEOM_SCALE, GEOM_SCALE, GEOM_SCALE));
+
+            geom.getChildren().add(connections);
 
             updateNode();
             node.rxChange().subscribe(o -> {
@@ -138,12 +205,44 @@ public class GraphPanel extends StackPane {
                     setTranslateX(n.getLocation().getX());
                     setTranslateY(n.getLocation().getY());
                     setTranslateZ(n.getLocation().getZ());
+
+                    updateConnections();
+                    for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
+                        final Connection c = it.next();
+                        if (c.getScene() == null)
+                            it.remove();
+                        else
+                            c.update();
+                    }
+
                     setVisible(true);
                 } else {
                     setVisible(false);
                 }
             } else {
-                setVisible(false);
+                graph.getChildren().remove(this);
+            }
+        }
+
+        void updateConnections() {
+            final io.tqi.ekg.Node n = node.get();
+            if (n == null)
+                return;
+
+            connections.getChildren().clear();
+
+            for (final Entry<io.tqi.ekg.Node, Activation> edge : n.getSynapse()) {
+                final Connection connection = new Connection(node(edge.getKey()));
+                connection.setColor(Color.TRANSPARENT, Color.RED);
+                connections.getChildren().add(connection);
+                connection.update();
+            }
+            for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : n.getProperties().entrySet()) {
+                if (prop.getValue() == null)
+                    continue;
+                final Connection connection = new PropConnection(node(prop.getKey()), node(prop.getValue()));
+                connections.getChildren().add(connection);
+                connection.update();
             }
         }
 
@@ -161,6 +260,8 @@ public class GraphPanel extends StackPane {
             } catch (final NonInvertibleTransformException e) {
                 throw new RuntimeException(e);
             }
+
+            updateConnections();
         }
     }
 
@@ -187,9 +288,9 @@ public class GraphPanel extends StackPane {
         graph.getTransforms().add(new Scale(GRAPH_SCALE, GRAPH_SCALE, GRAPH_SCALE));
         root.getChildren().add(graph);
 
-        kb.rxNodeAdded().observeOn(JavaFxScheduler.platform()).subscribe(this::addNode);
+        kb.rxNodeAdded().observeOn(JavaFxScheduler.platform()).subscribe(this::node);
         for (final io.tqi.ekg.Node node : kb) {
-            addNode(node);
+            node(node);
         }
 
         cameraAnchor.setOnTransformChanged(e -> {
@@ -213,8 +314,8 @@ public class GraphPanel extends StackPane {
         setTouchHandlers();
     }
 
-    private void addNode(final io.tqi.ekg.Node node) {
-        nodes.computeIfAbsent(node, NodeGeom::new);
+    private NodeGeom node(final io.tqi.ekg.Node node) {
+        return nodes.computeIfAbsent(node, NodeGeom::new);
     }
 
     private void setTouchHandlers() {

@@ -1,4 +1,4 @@
-package io.tqi.ekg.ifc;
+package io.tqi.ekg.ifc.fx;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -10,7 +10,6 @@ import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.tqi.ekg.KnowledgeBase;
 import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
-import io.tqi.ekg.ifc.fx.GraphPanel;
 import javafx.application.Application;
 import javafx.beans.value.ChangeListener;
 import javafx.geometry.Orientation;

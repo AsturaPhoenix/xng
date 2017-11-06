@@ -121,10 +121,10 @@ public class NodePhysics {
         }
     }
 
-    private void attract(final Node a, final Node b, final double k) {
+    private void attract(final Node a, final Node b, final double k, final double zx) {
         final Point3D vec = b.getLocation().subtract(a.getLocation());
         final double dist = vec.magnitude();
-        final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - 1.5, 0), .2));
+        final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - zx, 0), .2));
 
         if (delta.dotProduct(delta) > .001) {
             if (!a.isPinned()) {
@@ -143,7 +143,7 @@ public class NodePhysics {
         }
 
         for (final Entry<Node, Activation> assoc : node.getSynapse()) {
-            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient());
+            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient(), 1.5);
         }
 
         for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
@@ -156,8 +156,8 @@ public class NodePhysics {
             if (prop.getValue().getLocation() == null) {
                 prop.getValue().setLocation(node.getLocation().add(0, 1, 0));
             }
-            attract(prop.getKey(), node, .02);
-            attract(prop.getValue(), node, .05);
+            attract(prop.getKey(), node, .02, 5);
+            attract(prop.getValue(), node, .05, 1.5);
         }
 
         if (!node.isPinned() && node.getLocation() != null) {

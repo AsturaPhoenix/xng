@@ -10,6 +10,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+
+import com.google.common.base.Strings;
 
 import io.reactivex.Observable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
@@ -46,22 +49,33 @@ import lombok.Getter;
 
 public class GraphPanel extends StackPane {
     private static final double ROTATION_FACTOR = 2;
-    private static final double TRANSLATION_FACTOR = 12;
+    private static final double GRAPH_SCALE = 100;
+    private static final double TRANSLATION_FACTOR = GRAPH_SCALE / 55;
     private static final double ZOOM_FACTOR = 5;
-    private static final double GRAPH_SCALE = 650;
+
+    private static final double NODE_MAJ_RAD = .45;
+    private static final double NODE_MIN_RAD = .15;
+
+    public interface Selectable {
+        void select();
+
+        void deselect();
+    }
 
     private class Connection extends Group {
         final NodeGeom end;
+        final Group lineBillboard = new Group();
         final Line line = new Line();
         final Rotate rotate1 = new Rotate(0, Rotate.Z_AXIS), rotate2 = new Rotate(0, Rotate.Y_AXIS);
 
         Connection(final NodeGeom end) {
             this.end = end;
             end.incoming.add(this);
-            line.setStrokeWidth(4);
-            line.getTransforms().add(rotate1);
-            line.getTransforms().add(rotate2);
-            getChildren().add(line);
+            line.setStrokeWidth(.01 * GRAPH_SCALE);
+            lineBillboard.getTransforms().add(rotate1);
+            lineBillboard.getTransforms().add(rotate2);
+            lineBillboard.getChildren().add(line);
+            getChildren().add(lineBillboard);
         }
 
         void setColor(final Color color1, Color color2) {
@@ -81,18 +95,43 @@ public class GraphPanel extends StackPane {
 
     private class PropConnection extends Connection {
         final Connection spur;
+        final Label caption = new Label();
+        final Scale flip = new Scale();
 
         PropConnection(final NodeGeom property, final NodeGeom value) {
             super(value);
             setColor(Color.TRANSPARENT, Color.BLACK);
             spur = new Connection(property);
-            spur.setColor(Color.BLUE, Color.TRANSPARENT);
+            spur.setColor(Color.BLUE.deriveColor(0, 1, 1, .1), Color.TRANSPARENT);
             getChildren().add(spur);
+
+            caption.setFont(new Font(.08 * GRAPH_SCALE));
+            caption.setAlignment(Pos.CENTER);
+            caption.getTransforms().add(flip);
+            lineBillboard.getChildren().add(caption);
         }
 
         @Override
         void update() {
             super.update();
+            final String text = spur.end.text.getText();
+            if (Strings.isNullOrEmpty(text)) {
+                caption.setVisible(false);
+            } else {
+                caption.setText(text);
+                if (rotate1.getAngle() > -90 && rotate1.getAngle() <= 90) {
+                    flip.setX(1);
+                    flip.setY(1);
+                    flip.setZ(1);
+                } else {
+                    flip.setPivotX(line.getEndX() / 2);
+                    flip.setX(-1);
+                    flip.setY(-1);
+                    flip.setZ(-1);
+                }
+                caption.setPrefWidth(line.getEndX());
+                caption.setVisible(true);
+            }
             final Point3D midpt = sceneToLocal(end.localToScene(Point3D.ZERO)).multiply(.5);
             spur.setTranslateX(midpt.getX());
             spur.setTranslateY(midpt.getY());
@@ -103,7 +142,7 @@ public class GraphPanel extends StackPane {
 
     private static final int DRAG_START = 8;
 
-    private class NodeGeom extends Group {
+    private class NodeGeom extends Group implements Selectable {
         final WeakReference<io.tqi.ekg.Node> node;
         final Ellipse body;
         final Label text;
@@ -112,11 +151,13 @@ public class GraphPanel extends StackPane {
         final Group connections = new Group();
         final Set<Connection> incoming = new HashSet<>();
 
-        final InnerShadow selEffect = new InnerShadow(256, Color.DEEPSKYBLUE);
+        final InnerShadow selEffect = new InnerShadow(GRAPH_SCALE / 4, Color.DEEPSKYBLUE);
 
         int dragPtId;
         Point3D dragPt;
         Point2D preDrag;
+
+        boolean selected;
 
         Point3D calcTp(final TouchEvent e) {
             final TouchPoint pt = e.getTouchPoint();
@@ -145,18 +186,18 @@ public class GraphPanel extends StackPane {
 
             getChildren().add(geom);
 
-            body = new Ellipse(280, 80);
-            body.setStrokeWidth(4);
+            body = new Ellipse(NODE_MAJ_RAD * GRAPH_SCALE, NODE_MIN_RAD * GRAPH_SCALE);
+            body.setStrokeWidth(.01 * GRAPH_SCALE);
             body.setTranslateZ(-1);
             geom.getChildren().add(body);
 
             text = new Label();
-            text.setFont(new Font(50));
-            text.setLayoutX(-250);
-            text.setLayoutY(-50);
+            text.setFont(new Font(.08 * GRAPH_SCALE));
+            text.setLayoutX(-body.getRadiusX());
+            text.setLayoutY(-body.getRadiusY());
             text.setAlignment(Pos.CENTER);
-            text.setPrefWidth(500);
-            text.setPrefHeight(100);
+            text.setPrefWidth(2 * body.getRadiusX());
+            text.setPrefHeight(2 * body.getRadiusY());
             text.setTranslateZ(-4);
             geom.getChildren().add(text);
 
@@ -207,8 +248,8 @@ public class GraphPanel extends StackPane {
                 final io.tqi.ekg.Node n = this.node.get();
 
                 if (n != null) {
-                    if (preDrag == null || new Point2D(e.getScreenX(), e.getScreenY())
-                            .distance(preDrag) >= DRAG_START) {
+                    if (preDrag == null
+                            || new Point2D(e.getScreenX(), e.getScreenY()).distance(preDrag) >= DRAG_START) {
                         final Point3D newPt = calcTp(e);
                         n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
                         dragPt = newPt;
@@ -245,7 +286,11 @@ public class GraphPanel extends StackPane {
                 }
                 if (preDrag != null) {
                     preDrag = null;
-                    rxSelected.onNext(Optional.of(n));
+                    if (n == null) {
+                        touched(null, null);
+                    } else {
+                        touched(this, n);
+                    }
                 }
             });
 
@@ -257,7 +302,11 @@ public class GraphPanel extends StackPane {
                 }
                 if (preDrag != null) {
                     preDrag = null;
-                    rxSelected.onNext(Optional.of(n));
+                    if (n == null) {
+                        touched(null, null);
+                    } else {
+                        touched(this, n);
+                    }
                 }
             });
 
@@ -288,17 +337,30 @@ public class GraphPanel extends StackPane {
                 }
             }
 
-            if (selected == node.get()) {
+            if (selected) {
                 geom.setEffect(selEffect);
             } else {
                 geom.setEffect(null);
             }
         }
 
+        @Override
+        public void select() {
+            selected = true;
+            updateColor();
+        }
+
+        @Override
+        public void deselect() {
+            selected = false;
+            updateColor();
+        }
+
         void updateNode() {
             final io.tqi.ekg.Node n = node.get();
             if (n != null) {
                 text.setText(n.getValue() == null ? n.getComment() : n.getValue().toString());
+                body.setRadiusX((Strings.isNullOrEmpty(text.getText()) ? NODE_MIN_RAD : NODE_MAJ_RAD) * GRAPH_SCALE);
                 updateColor();
 
                 if (n.getLocation() != null) {
@@ -366,18 +428,46 @@ public class GraphPanel extends StackPane {
 
     private final WeakHashMap<io.tqi.ekg.Node, NodeGeom> nodes = new WeakHashMap<>();
 
-    private final Subject<Optional<io.tqi.ekg.Node>> rxSelected = PublishSubject.create();
-    private final Observable<Optional<io.tqi.ekg.Node>> rxSelectedOut = rxSelected.replay(1).autoConnect(0);
+    private Selectable selectedUi;
+    @Getter
+    private Object selected;
 
-    public Observable<Optional<io.tqi.ekg.Node>> rxSelected() {
+    private Subject<Optional<Object>> rxSelected = PublishSubject.create();
+    private Observable<Optional<Object>> rxSelectedOut = rxSelected.replay(1).autoConnect(0);
+
+    public Observable<Optional<Object>> rxSelected() {
         return rxSelectedOut;
     }
 
-    @Getter
-    private io.tqi.ekg.Node selected;
+    private Predicate<Object> selectFn;
+
+    public void setSelectFn(final Predicate<Object> selectFn) {
+        this.selectFn = selectFn;
+        if (selectedUi != null) {
+            if (selectFn != null && !selectFn.test(selected)) {
+                selectedUi.deselect();
+                selectedUi = null;
+                selected = null;
+            }
+        }
+    }
+
+    private void touched(final Selectable ui, final Object data) {
+        if (selectedUi != null) {
+            selectedUi.deselect();
+            selectedUi = null;
+            selected = null;
+        }
+        if (ui != null && (selectFn == null || selectFn.test(data))) {
+            selectedUi = ui;
+            selected = data;
+            selectedUi.select();
+        }
+        rxSelected.onNext(Optional.ofNullable(selected));
+    }
 
     private final Subject<Optional<Void>> rxCam = PublishSubject.create();
-    private final Observable<Optional<Void>> rxCamOut = rxCam.sample(1000 / 120, TimeUnit.MILLISECONDS)
+    private final Observable<Optional<Void>> rxCamOut = rxCam.sample(1000 / 60, TimeUnit.MILLISECONDS)
             .observeOn(JavaFxScheduler.platform()).share();
 
     public GraphPanel(final KnowledgeBase kb) {
@@ -426,7 +516,6 @@ public class GraphPanel extends StackPane {
         graphTransform
                 .setTz(Math.max(maxX - minX, maxY - minY) / 2 / Math.tan(Math.toRadians(camera.getFieldOfView())));
 
-        rxSelected.onNext(Optional.empty());
         for (final NodeGeom geom : nodes.values()) {
             geom.updatePosition();
         }
@@ -438,21 +527,11 @@ public class GraphPanel extends StackPane {
         scene.heightProperty().bind(heightProperty());
 
         setTouchHandlers();
-
-        rxSelected().distinctUntilChanged().subscribe(n -> {
-            final NodeGeom oldSel = node(selected);
-            selected = n.orElse(null);
-            final NodeGeom newSel = node(selected);
-
-            if (oldSel != null)
-                oldSel.updateColor();
-            if (newSel != null)
-                newSel.updateColor();
-        });
     }
 
     private NodeGeom node(final io.tqi.ekg.Node node) {
-        return node == null ? null : nodes.computeIfAbsent(node, NodeGeom::new);
+        assert (node != null);
+        return nodes.computeIfAbsent(node, NodeGeom::new);
     }
 
     private Point2D preDrag;
@@ -487,7 +566,7 @@ public class GraphPanel extends StackPane {
             }
             if (preDrag != null) {
                 preDrag = null;
-                rxSelected.onNext(Optional.empty());
+                touched(null, null);
             }
 
             e.consume();

@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.FileSystems;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.disposables.Disposable;
@@ -82,7 +84,7 @@ public class DesktopApplication extends Application {
         }
     }
 
-    private Disposable activator;
+    private Disposable selectAction;
 
     private Node createToolbar() {
         final ToggleButton activate = new ToggleButton();
@@ -91,33 +93,75 @@ public class DesktopApplication extends Application {
         initButton(property, "res/details.png", "Property");
 
         activate.setOnAction(e -> {
+            if (selectAction != null) {
+                selectAction.dispose();
+                selectAction = null;
+            }
+            property.setSelected(false);
+
             if (activate.isSelected()) {
-                final io.tqi.ekg.Node selected = graph.getSelected();
-                if (selected == null) {
-                    activator = graph.rxSelected().subscribe(n -> n.ifPresent(io.tqi.ekg.Node::activate));
-                } else {
-                    selected.activate();
+                graph.setSelectFn(o -> {
+                    if (o instanceof io.tqi.ekg.Node) {
+                        ((io.tqi.ekg.Node) o).activate();
+                        return true;
+                    } else {
+                        return false;
+                    }
+                });
+                if (graph.getSelected() != null) {
                     activate.setSelected(false);
+                    graph.setSelectFn(null);
                 }
-            } else if (activator != null) {
-                activator.dispose();
+            } else {
+                graph.setSelectFn(null);
+            }
+        });
+
+        property.setOnAction(e -> {
+            if (selectAction != null) {
+                selectAction.dispose();
+                selectAction = null;
+            }
+            activate.setSelected(false);
+
+            if (property.isSelected()) {
+                final List<io.tqi.ekg.Node> args = new ArrayList<>();
+                graph.setSelectFn(o -> {
+                    if (o instanceof io.tqi.ekg.Node) {
+                        args.add((io.tqi.ekg.Node) o);
+
+                        if (args.size() == 3) {
+                            args.get(0).setProperty(args.get(1), args.get(2));
+
+                            property.setSelected(false);
+                            graph.setSelectFn(null);
+                        }
+
+                        return true;
+                    } else {
+                        return false;
+                    }
+                });
+            } else {
+                graph.setSelectFn(null);
             }
         });
 
         final TextField text = new TextField();
-        graph.rxSelected().subscribe(node -> {
+        graph.rxSelected().subscribe(opt -> {
             if (tbTextListener != null)
                 text.textProperty().removeListener(tbTextListener);
-            if (!node.isPresent()) {
+            if (!opt.isPresent()) {
                 text.setPromptText("Find node");
                 text.clear();
-            } else {
+            } else if (opt.get() instanceof io.tqi.ekg.Node) {
+                final io.tqi.ekg.Node node = (io.tqi.ekg.Node) opt.get();
                 text.setPromptText("Comment");
-                text.setText(node.get().getComment());
+                text.setText(node.getComment());
                 text.positionCaret(text.getLength());
 
                 tbTextListener = (o, a, b) -> {
-                    node.get().setComment(b);
+                    node.setComment(b);
                 };
                 text.textProperty().addListener(tbTextListener);
             }

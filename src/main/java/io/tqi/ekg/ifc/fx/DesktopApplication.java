@@ -3,9 +3,12 @@ package io.tqi.ekg.ifc.fx;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.file.FileSystems;
 import java.util.concurrent.TimeUnit;
 
+import io.reactivex.disposables.Disposable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.tqi.ekg.KnowledgeBase;
 import io.tqi.ekg.Repl;
@@ -79,11 +82,27 @@ public class DesktopApplication extends Application {
         }
     }
 
+    private Disposable activator;
+
     private Node createToolbar() {
         final ToggleButton activate = new ToggleButton();
         initButton(activate, "res/lightning.png", "Activate");
         final ToggleButton property = new ToggleButton();
         initButton(property, "res/details.png", "Property");
+
+        activate.setOnAction(e -> {
+            if (activate.isSelected()) {
+                final io.tqi.ekg.Node selected = graph.getSelected();
+                if (selected == null) {
+                    activator = graph.rxSelected().subscribe(n -> n.ifPresent(io.tqi.ekg.Node::activate));
+                } else {
+                    selected.activate();
+                    activate.setSelected(false);
+                }
+            } else if (activator != null) {
+                activator.dispose();
+            }
+        });
 
         final TextField text = new TextField();
         graph.rxSelected().subscribe(node -> {
@@ -123,6 +142,15 @@ public class DesktopApplication extends Application {
                 .subscribe(s -> output.setText(String.format("%s! %s\n", output.getText(), s)));
         repl.rxOutput().buffer(repl.rxOutput().debounce(1, TimeUnit.SECONDS)).observeOn(JavaFxScheduler.platform())
                 .subscribe(s -> output.setText(String.format("%s* %s\n", output.getText(), String.join("", s))));
+
+        System.setOut(new PrintStream(new OutputStream() {
+            @Override
+            public void write(int b) {
+                if (output.getText().isEmpty() || output.getText().endsWith("\n"))
+                    output.appendText("! ");
+                output.appendText(Character.toString((char) b));
+            }
+        }));
 
         final BorderPane borderPane = new BorderPane();
         borderPane.setTop(input);

@@ -41,6 +41,7 @@ import javafx.scene.transform.Affine;
 import javafx.scene.transform.NonInvertibleTransformException;
 import javafx.scene.transform.Rotate;
 import javafx.scene.transform.Scale;
+import lombok.Getter;
 
 public class GraphPanel extends StackPane {
     private static final double ROTATION_FACTOR = 2;
@@ -115,7 +116,6 @@ public class GraphPanel extends StackPane {
         int dragPtId;
         Point3D dragPt;
         Point2D preDrag;
-        boolean selected;
 
         Point3D calcTp(final TouchEvent e) {
             final TouchPoint pt = e.getTouchPoint();
@@ -205,11 +205,6 @@ public class GraphPanel extends StackPane {
                 }
             });
 
-            rxSelected().subscribe(n -> {
-                selected = n.orElse(null) == this.node.get();
-                updateColor();
-            });
-
             node.rxActivate()
                     .switchMap(t -> Observable.interval(1000 / 60, TimeUnit.MILLISECONDS)
                             .takeUntil(Observable.timer(1200, TimeUnit.MILLISECONDS)))
@@ -237,7 +232,7 @@ public class GraphPanel extends StackPane {
                 }
             }
 
-            if (selected) {
+            if (selected == node.get()) {
                 geom.setEffect(selEffect);
             } else {
                 geom.setEffect(null);
@@ -316,12 +311,14 @@ public class GraphPanel extends StackPane {
     private final WeakHashMap<io.tqi.ekg.Node, NodeGeom> nodes = new WeakHashMap<>();
 
     private final Subject<Optional<io.tqi.ekg.Node>> rxSelected = PublishSubject.create();
-    private final Observable<Optional<io.tqi.ekg.Node>> rxSelectedOut = rxSelected.distinctUntilChanged().replay(1)
-            .autoConnect(0);
+    private final Observable<Optional<io.tqi.ekg.Node>> rxSelectedOut = rxSelected.replay(1).autoConnect(0);
 
     public Observable<Optional<io.tqi.ekg.Node>> rxSelected() {
         return rxSelectedOut;
     }
+
+    @Getter
+    private io.tqi.ekg.Node selected;
 
     private final Subject<Optional<Void>> rxCam = PublishSubject.create();
     private final Observable<Optional<Void>> rxCamOut = rxCam.sample(1000 / 120, TimeUnit.MILLISECONDS)
@@ -342,7 +339,7 @@ public class GraphPanel extends StackPane {
         // Stagger node creation or else JavaFX may NPE on cache buffer
         // creation...
         Observable.fromIterable(kb).concatWith(kb.rxNodeAdded())
-                .zipWith(Observable.interval(1, TimeUnit.MILLISECONDS), (n, t) -> n)
+                .zipWith(Observable.interval(2, TimeUnit.MILLISECONDS), (n, t) -> n)
                 .observeOn(JavaFxScheduler.platform()).subscribe(this::node);
         double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
@@ -385,10 +382,21 @@ public class GraphPanel extends StackPane {
         scene.heightProperty().bind(heightProperty());
 
         setTouchHandlers();
+
+        rxSelected().distinctUntilChanged().subscribe(n -> {
+            final NodeGeom oldSel = node(selected);
+            selected = n.orElse(null);
+            final NodeGeom newSel = node(selected);
+
+            if (oldSel != null)
+                oldSel.updateColor();
+            if (newSel != null)
+                newSel.updateColor();
+        });
     }
 
     private NodeGeom node(final io.tqi.ekg.Node node) {
-        return nodes.computeIfAbsent(node, NodeGeom::new);
+        return node == null ? null : nodes.computeIfAbsent(node, NodeGeom::new);
     }
 
     private Point2D preDrag;

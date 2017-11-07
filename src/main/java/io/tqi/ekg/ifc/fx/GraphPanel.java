@@ -27,6 +27,7 @@ import javafx.scene.SceneAntialiasing;
 import javafx.scene.SubScene;
 import javafx.scene.control.Label;
 import javafx.scene.effect.InnerShadow;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.input.TouchEvent;
 import javafx.scene.input.TouchPoint;
 import javafx.scene.layout.StackPane;
@@ -119,7 +120,15 @@ public class GraphPanel extends StackPane {
 
         Point3D calcTp(final TouchEvent e) {
             final TouchPoint pt = e.getTouchPoint();
-            final Point3D sceneRawTp = ((Node) e.getSource()).localToScene(pt.getX(), pt.getY(), pt.getZ());
+            return calcTp((Node) e.getSource(), pt.getX(), pt.getY(), pt.getZ());
+        }
+
+        Point3D calcTp(final MouseEvent e) {
+            return calcTp((Node) e.getSource(), e.getX(), e.getY(), e.getZ());
+        }
+
+        Point3D calcTp(final Node source, final double x, final double y, final double z) {
+            final Point3D sceneRawTp = source.localToScene(x, y, z);
             final double sceneDist = getTranslateZ();
 
             final Point3D sceneTp = sceneRawTp.multiply(sceneDist / sceneRawTp.getZ());
@@ -160,6 +169,20 @@ public class GraphPanel extends StackPane {
                     .subscribe(x -> updateNode(), y -> {
                     }, () -> root.getChildren().remove(this));
 
+            geom.setOnMousePressed(e -> {
+                if (e.isSynthesized())
+                    return;
+
+                final io.tqi.ekg.Node n = this.node.get();
+                if (n != null) {
+                    dragPt = calcTp(e);
+                    n.setPinned(true);
+                    preDrag = new Point2D(e.getScreenX(), e.getScreenY());
+                } else {
+                    preDrag = null;
+                }
+            });
+
             geom.setOnTouchPressed(e -> {
                 final io.tqi.ekg.Node n = this.node.get();
                 if (dragPtId == 0 && n != null) {
@@ -170,6 +193,25 @@ public class GraphPanel extends StackPane {
                     if (e.getTouchCount() == 1) {
                         preDrag = new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY());
                     } else {
+                        preDrag = null;
+                    }
+                } else {
+                    preDrag = null;
+                }
+            });
+
+            geom.setOnMouseDragged(e -> {
+                if (e.isSynthesized())
+                    return;
+
+                final io.tqi.ekg.Node n = this.node.get();
+
+                if (n != null) {
+                    if (preDrag == null || new Point2D(e.getScreenX(), e.getScreenY())
+                            .distance(preDrag) >= DRAG_START) {
+                        final Point3D newPt = calcTp(e);
+                        n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
+                        dragPt = newPt;
                         preDrag = null;
                     }
                 } else {
@@ -190,6 +232,20 @@ public class GraphPanel extends StackPane {
                     }
                 } else {
                     preDrag = null;
+                }
+            });
+
+            geom.setOnMouseReleased(e -> {
+                if (e.isSynthesized())
+                    return;
+
+                final io.tqi.ekg.Node n = this.node.get();
+                if (n != null) {
+                    n.setPinned(false);
+                }
+                if (preDrag != null) {
+                    preDrag = null;
+                    rxSelected.onNext(Optional.of(n));
                 }
             });
 

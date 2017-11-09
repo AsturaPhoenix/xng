@@ -209,7 +209,7 @@ public class GraphPanel extends StackPane {
             text.setAlignment(Pos.CENTER);
             text.setPrefWidth(2 * body.getRadiusX());
             text.setPrefHeight(2 * body.getRadiusY());
-            text.setTranslateZ(-.55);
+            text.setTranslateZ(-.6);
             geom.getChildren().add(text);
 
             getChildren().add(connections);
@@ -598,16 +598,16 @@ public class GraphPanel extends StackPane {
         });
 
         setOnMouseDragged(e -> {
-            if (e.isSynthesized())
-                return;
-
-            if (tappable.onActualMouseDragged(e)) {
+            if (!e.isSynthesized() && e.getTarget() == this && tappable.onActualMouseDragged(e)) {
                 final TouchMove tm = recordMove(0, e.getScreenX(), e.getScreenY());
-                if (e.isPrimaryButtonDown()) {
+                if (e.isPrimaryButtonDown() && !e.isControlDown() && !e.isShiftDown()) {
                     onTranslateDrag(tm.delta);
                 }
-                if (e.isSecondaryButtonDown()) {
+                if (e.isSecondaryButtonDown() || e.isControlDown()) {
                     onRotateDrag(tm.delta);
+                }
+                if (e.isMiddleButtonDown() || e.isShiftDown()) {
+                    graphTransform.prependTranslation(0, 0, ZOOM_FACTOR * tm.delta.getY());
                 }
                 rxCam.onNext(Optional.empty());
             }

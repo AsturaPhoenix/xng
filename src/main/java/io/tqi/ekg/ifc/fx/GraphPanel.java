@@ -29,6 +29,7 @@ import javafx.scene.PerspectiveCamera;
 import javafx.scene.SceneAntialiasing;
 import javafx.scene.SubScene;
 import javafx.scene.control.Label;
+import javafx.scene.effect.DropShadow;
 import javafx.scene.effect.InnerShadow;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.input.TouchEvent;
@@ -51,7 +52,7 @@ public class GraphPanel extends StackPane {
     private static final double ROTATION_FACTOR = 2;
     private static final double GRAPH_SCALE = 100;
     private static final double TRANSLATION_FACTOR = GRAPH_SCALE / 55;
-    private static final double ZOOM_FACTOR = 5;
+    private static final double ZOOM_FACTOR = GRAPH_SCALE / 11;
 
     private static final double NODE_MAJ_RAD = .45;
     private static final double NODE_MIN_RAD = .15;
@@ -93,10 +94,11 @@ public class GraphPanel extends StackPane {
         }
     }
 
-    private class PropConnection extends Connection {
+    private class PropConnection extends Connection implements Selectable {
         final Connection spur;
         final Label caption = new Label();
         final Scale flip = new Scale();
+        final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 10, Color.DEEPSKYBLUE);
 
         PropConnection(final NodeGeom property, final NodeGeom value) {
             super(value);
@@ -138,9 +140,17 @@ public class GraphPanel extends StackPane {
             spur.setTranslateZ(midpt.getZ());
             spur.update();
         }
-    }
 
-    private static final int DRAG_START = 8;
+        @Override
+        public void select() {
+            setEffect(selGlow);
+        }
+
+        @Override
+        public void deselect() {
+            setEffect(null);
+        }
+    }
 
     private class NodeGeom extends Group implements Selectable {
         final WeakReference<io.tqi.ekg.Node> node;
@@ -153,9 +163,10 @@ public class GraphPanel extends StackPane {
 
         final InnerShadow selEffect = new InnerShadow(GRAPH_SCALE / 4, Color.DEEPSKYBLUE);
 
+        final Tappable tappable = new Tappable();
+
         int dragPtId;
         Point3D dragPt;
-        Point2D preDrag;
 
         boolean selected;
 
@@ -188,7 +199,7 @@ public class GraphPanel extends StackPane {
 
             body = new Ellipse(NODE_MAJ_RAD * GRAPH_SCALE, NODE_MIN_RAD * GRAPH_SCALE);
             body.setStrokeWidth(.01 * GRAPH_SCALE);
-            body.setTranslateZ(-1);
+            body.setTranslateZ(-.5);
             geom.getChildren().add(body);
 
             text = new Label();
@@ -198,7 +209,7 @@ public class GraphPanel extends StackPane {
             text.setAlignment(Pos.CENTER);
             text.setPrefWidth(2 * body.getRadiusX());
             text.setPrefHeight(2 * body.getRadiusY());
-            text.setTranslateZ(-4);
+            text.setTranslateZ(-.55);
             geom.getChildren().add(text);
 
             getChildren().add(connections);
@@ -218,9 +229,9 @@ public class GraphPanel extends StackPane {
                 if (n != null) {
                     dragPt = calcTp(e);
                     n.setPinned(true);
-                    preDrag = new Point2D(e.getScreenX(), e.getScreenY());
+                    tappable.onActualMousePressed(e);
                 } else {
-                    preDrag = null;
+                    tappable.cancelTap();
                 }
             });
 
@@ -230,14 +241,9 @@ public class GraphPanel extends StackPane {
                     dragPtId = e.getTouchPoint().getId();
                     dragPt = calcTp(e);
                     n.setPinned(true);
-
-                    if (e.getTouchCount() == 1) {
-                        preDrag = new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY());
-                    } else {
-                        preDrag = null;
-                    }
+                    tappable.onTouchPressed(e);
                 } else {
-                    preDrag = null;
+                    tappable.cancelTap();
                 }
             });
 
@@ -248,15 +254,13 @@ public class GraphPanel extends StackPane {
                 final io.tqi.ekg.Node n = this.node.get();
 
                 if (n != null) {
-                    if (preDrag == null
-                            || new Point2D(e.getScreenX(), e.getScreenY()).distance(preDrag) >= DRAG_START) {
+                    if (tappable.onActualMouseDragged(e)) {
                         final Point3D newPt = calcTp(e);
                         n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
                         dragPt = newPt;
-                        preDrag = null;
                     }
                 } else {
-                    preDrag = null;
+                    tappable.cancelTap();
                 }
             });
 
@@ -264,15 +268,13 @@ public class GraphPanel extends StackPane {
                 final io.tqi.ekg.Node n = this.node.get();
 
                 if (dragPtId == e.getTouchPoint().getId() && n != null) {
-                    if (preDrag == null || new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY())
-                            .distance(preDrag) >= DRAG_START) {
+                    if (tappable.onTouchMoved(e)) {
                         final Point3D newPt = calcTp(e);
                         n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
                         dragPt = newPt;
-                        preDrag = null;
                     }
                 } else {
-                    preDrag = null;
+                    tappable.cancelTap();
                 }
             });
 
@@ -284,13 +286,8 @@ public class GraphPanel extends StackPane {
                 if (n != null) {
                     n.setPinned(false);
                 }
-                if (preDrag != null) {
-                    preDrag = null;
-                    if (n == null) {
-                        touched(null, null);
-                    } else {
-                        touched(this, n);
-                    }
+                if (tappable.onReleased()) {
+                    touched(n == null ? null : this, n);
                 }
             });
 
@@ -300,13 +297,8 @@ public class GraphPanel extends StackPane {
                     n.setPinned(false);
                     dragPtId = 0;
                 }
-                if (preDrag != null) {
-                    preDrag = null;
-                    if (n == null) {
-                        touched(null, null);
-                    } else {
-                        touched(this, n);
-                    }
+                if (tappable.onReleased()) {
+                    touched(n == null ? null : this, n);
                 }
             });
 
@@ -526,7 +518,11 @@ public class GraphPanel extends StackPane {
         scene.widthProperty().bind(widthProperty());
         scene.heightProperty().bind(heightProperty());
 
+        touchPoints.add(null);
+
         setTouchHandlers();
+
+        rxSelected.onNext(Optional.empty());
     }
 
     private NodeGeom node(final io.tqi.ekg.Node node) {
@@ -534,83 +530,111 @@ public class GraphPanel extends StackPane {
         return nodes.computeIfAbsent(node, NodeGeom::new);
     }
 
-    private Point2D preDrag;
+    private static class TouchMove {
+        final Point2D oldPt, newPt, delta;
+
+        public TouchMove(final Point2D oldPt, final double x, final double y) {
+            this.oldPt = oldPt;
+            newPt = new Point2D(x, y);
+            delta = newPt.subtract(oldPt);
+        }
+    }
+
+    private TouchMove recordMove(final int ptId, final double x, final double y) {
+        final TouchMove tm = new TouchMove(touchPoints.get(ptId), x, y);
+        touchPoints.set(ptId, tm.newPt);
+        return tm;
+    }
 
     private void setTouchHandlers() {
+        final Tappable tappable = new Tappable();
+
         setOnMousePressed(e -> {
             requestFocus();
+
+            if (e.isSynthesized())
+                return;
+
+            touchPoints.set(0, new Point2D(e.getScreenX(), e.getScreenY()));
+
+            if (e.getTarget() == this) {
+                tappable.onActualMousePressed(e);
+            }
+
+            e.consume();
         });
 
         setOnTouchPressed(e -> {
             final TouchPoint t = e.getTouchPoint();
             while (touchPoints.size() < t.getId())
                 touchPoints.add(null);
-            touchPoints.set(t.getId() - 1,
-                    new Point2D(t.getSceneX() - getWidth() / 2, t.getSceneY() - getHeight() / 2));
+            touchPoints.set(t.getId() - 1, new Point2D(t.getScreenX(), t.getScreenY()));
 
             if (e.getTarget() == this) {
                 navPtCount++;
-                if (e.getTouchCount() == 1) {
-                    preDrag = new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY());
-                }
+                tappable.onTouchPressed(e);
             }
 
+            e.consume();
+        });
+
+        setOnMouseReleased(e -> {
+            if (!e.isSynthesized() && e.getTarget() == this) {
+                if (tappable.onReleased()) {
+                    touched(null, null);
+                }
+            }
             e.consume();
         });
 
         setOnTouchReleased(e -> {
-            touchPoints.set(e.getTouchPoint().getId() - 1, null);
-
             if (e.getTarget() == this) {
                 navPtCount--;
+                if (tappable.onReleased()) {
+                    touched(null, null);
+                }
             }
-            if (preDrag != null) {
-                preDrag = null;
-                touched(null, null);
-            }
+            e.consume();
+        });
 
+        setOnMouseDragged(e -> {
+            if (e.isSynthesized())
+                return;
+
+            if (tappable.onActualMouseDragged(e)) {
+                final TouchMove tm = recordMove(0, e.getScreenX(), e.getScreenY());
+                if (e.isPrimaryButtonDown()) {
+                    onTranslateDrag(tm.delta);
+                }
+                if (e.isSecondaryButtonDown()) {
+                    onRotateDrag(tm.delta);
+                }
+                rxCam.onNext(Optional.empty());
+            }
             e.consume();
         });
 
         setOnTouchMoved(e -> {
-            if (preDrag != null && new Point2D(e.getTouchPoint().getScreenX(), e.getTouchPoint().getScreenY())
-                    .distance(preDrag) >= DRAG_START) {
-                preDrag = null;
-            }
-
-            if (preDrag == null) {
+            if (tappable.onTouchMoved(e)) {
                 final TouchPoint t = e.getTouchPoint();
-                final Point2D newPt = new Point2D(t.getSceneX() - getWidth() / 2, t.getSceneY() - getHeight() / 2);
+                final TouchMove tm = recordMove(t.getId() - 1, t.getScreenX(), t.getScreenY());
 
                 if (navPtCount > 0) {
                     if (e.getTouchCount() == 1) {
-                        double screenNorm = 1 / Math.min(getWidth(), getHeight());
-                        final Point2D delta = newPt.subtract(touchPoints.get(t.getId() - 1));
-                        final Point3D from3 = new Point3D(0, 0, 1 / ROTATION_FACTOR);
-                        final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm,
-                                1 / ROTATION_FACTOR);
-
-                        final Point3D vc = getViewCentroid();
-                        final double angle = to3.angle(from3);
-
-                        graphTransform.prependRotation(vc.equals(Point3D.ZERO) ? -angle : angle, vc,
-                                to3.crossProduct(from3).normalize());
+                        onRotateDrag(tm.delta);
                     } else {
-                        final Point2D oldPt = touchPoints.get(t.getId() - 1);
-                        final Point2D delta = newPt.subtract(oldPt).multiply(TRANSLATION_FACTOR / e.getTouchCount());
-                        graphTransform.prependTranslation(delta.getX(), delta.getY());
+                        final double normFactor = 1.0 / e.getTouchCount();
+                        onTranslateDrag(tm.delta.multiply(normFactor));
 
                         Point2D centroid = new Point2D(0, 0);
 
                         for (final TouchPoint pt : e.getTouchPoints()) {
-                            centroid = centroid
-                                    .add(new Point2D(pt.getSceneX() - getWidth() / 2, pt.getSceneY() - getHeight() / 2)
-                                            .multiply(1.0 / e.getTouchCount()));
+                            centroid = centroid.add(new Point2D(pt.getScreenX(), pt.getScreenY()).multiply(normFactor));
                         }
 
-                        final Point2D toOld = centroid.subtract(oldPt), toNew = centroid.subtract(newPt);
+                        final Point2D toOld = centroid.subtract(tm.oldPt), toNew = centroid.subtract(tm.newPt);
 
-                        graphTransform.prependTranslation(0, 0, ZOOM_FACTOR * delta.dotProduct(toOld.normalize()));
+                        graphTransform.prependTranslation(0, 0, ZOOM_FACTOR * tm.delta.dotProduct(toOld.normalize()));
 
                         graphTransform.prependRotation(toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
                                 toOld.crossProduct(toNew).normalize());
@@ -618,11 +642,26 @@ public class GraphPanel extends StackPane {
 
                     rxCam.onNext(Optional.empty());
                 }
-
-                touchPoints.set(t.getId() - 1, newPt);
             }
             e.consume();
         });
+    }
+
+    private void onRotateDrag(final Point2D delta) {
+        double screenNorm = 1 / Math.min(getWidth(), getHeight());
+        final Point3D from3 = new Point3D(0, 0, 1 / ROTATION_FACTOR);
+        final Point3D to3 = new Point3D(delta.getX() * screenNorm, delta.getY() * screenNorm, 1 / ROTATION_FACTOR);
+
+        final Point3D vc = getViewCentroid();
+        final double angle = to3.angle(from3);
+
+        graphTransform.prependRotation(vc.equals(Point3D.ZERO) ? -angle : angle, vc,
+                to3.crossProduct(from3).normalize());
+    }
+
+    private void onTranslateDrag(final Point2D delta) {
+        final Point2D adjusted = delta.multiply(TRANSLATION_FACTOR);
+        graphTransform.prependTranslation(adjusted.getX(), adjusted.getY());
     }
 
     private Point3D getViewCentroid() {

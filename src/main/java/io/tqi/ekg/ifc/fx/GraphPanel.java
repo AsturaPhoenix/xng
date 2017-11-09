@@ -2,9 +2,11 @@ package io.tqi.ekg.ifc.fx;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
@@ -46,7 +48,9 @@ import javafx.scene.transform.Affine;
 import javafx.scene.transform.NonInvertibleTransformException;
 import javafx.scene.transform.Rotate;
 import javafx.scene.transform.Scale;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 public class GraphPanel extends StackPane {
     private static final double ROTATION_FACTOR = 2;
@@ -61,6 +65,18 @@ public class GraphPanel extends StackPane {
         void select();
 
         void deselect();
+    }
+
+    @RequiredArgsConstructor
+    @EqualsAndHashCode
+    private static class Association {
+        final io.tqi.ekg.Node source, dest;
+    }
+
+    @RequiredArgsConstructor
+    @EqualsAndHashCode
+    private static class Property {
+        final io.tqi.ekg.Node object, property, value;
     }
 
     private class Connection extends Group {
@@ -94,23 +110,54 @@ public class GraphPanel extends StackPane {
         }
     }
 
+    private class AssocConnection extends Connection implements Selectable {
+        final Association rep;
+        final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
+
+        AssocConnection(final io.tqi.ekg.Node source, final NodeGeom dest) {
+            super(dest);
+            rep = new Association(source, dest.node.get());
+            setColor(Color.RED, Color.TRANSPARENT);
+
+            selGlow.setSpread(.7);
+
+            setOnMouseClicked(e -> touched(this, rep));
+        }
+
+        @Override
+        public void select() {
+            line.setEffect(selGlow);
+        }
+
+        @Override
+        public void deselect() {
+            line.setEffect(null);
+        }
+    }
+
     private class PropConnection extends Connection implements Selectable {
+        final Property rep;
         final Connection spur;
         final Label caption = new Label();
         final Scale flip = new Scale();
-        final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 10, Color.DEEPSKYBLUE);
+        final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
-        PropConnection(final NodeGeom property, final NodeGeom value) {
+        PropConnection(final io.tqi.ekg.Node object, final NodeGeom property, final NodeGeom value) {
             super(value);
+            rep = new Property(object, property.node.get(), value.node.get());
             setColor(Color.TRANSPARENT, Color.BLACK);
             spur = new Connection(property);
-            spur.setColor(Color.BLUE.deriveColor(0, 1, 1, .1), Color.TRANSPARENT);
+            spur.setColor(Color.BLUE.interpolate(Color.TRANSPARENT, .9), Color.TRANSPARENT);
             getChildren().add(spur);
 
             caption.setFont(new Font(.08 * GRAPH_SCALE));
             caption.setAlignment(Pos.CENTER);
             caption.getTransforms().add(flip);
             lineBillboard.getChildren().add(caption);
+
+            selGlow.setSpread(.7);
+
+            setOnMouseClicked(e -> touched(this, rep));
         }
 
         @Override
@@ -143,12 +190,17 @@ public class GraphPanel extends StackPane {
 
         @Override
         public void select() {
-            setEffect(selGlow);
+            // can't just set effect on group; interferes with perspective
+            line.setEffect(selGlow);
+            caption.setEffect(selGlow);
+            spur.line.setEffect(selGlow);
         }
 
         @Override
         public void deselect() {
-            setEffect(null);
+            line.setEffect(null);
+            caption.setEffect(null);
+            spur.line.setEffect(null);
         }
     }
 
@@ -159,6 +211,7 @@ public class GraphPanel extends StackPane {
 
         final Group geom = new Group();
         final Group connections = new Group();
+        final Map<Object, Connection> outgoing = new HashMap<>();
         final Set<Connection> incoming = new HashSet<>();
 
         final InnerShadow selEffect = new InnerShadow(GRAPH_SCALE / 4, Color.DEEPSKYBLUE);
@@ -380,20 +433,36 @@ public class GraphPanel extends StackPane {
             if (n == null)
                 return;
 
-            connections.getChildren().clear();
+            final Set<Object> oldKeys = new HashSet<>(outgoing.keySet());
 
             for (final Entry<io.tqi.ekg.Node, Activation> edge : n.getSynapse()) {
-                final Connection connection = new Connection(node(edge.getKey()));
-                connection.setColor(Color.RED, Color.TRANSPARENT);
-                connections.getChildren().add(connection);
-                connection.update();
+                final Association key = new Association(n, edge.getKey());
+                outgoing.computeIfAbsent(key, k -> {
+                    final Connection connection = new AssocConnection(n, node(edge.getKey()));
+                    connections.getChildren().add(connection);
+                    return connection;
+                }).update();
+                oldKeys.remove(key);
             }
             for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : n.getProperties().entrySet()) {
                 if (prop.getValue() == null)
                     continue;
-                final Connection connection = new PropConnection(node(prop.getKey()), node(prop.getValue()));
-                connections.getChildren().add(connection);
-                connection.update();
+                final Property key = new Property(n, prop.getKey(), prop.getValue());
+                outgoing.computeIfAbsent(key, k -> {
+                    final Connection connection = new PropConnection(n, node(prop.getKey()), node(prop.getValue()));
+                    connections.getChildren().add(connection);
+                    connection.update();
+                    return connection;
+                }).update();
+                oldKeys.remove(key);
+            }
+
+            for (Object key : oldKeys) {
+                final Connection disc = outgoing.remove(key);
+                if (disc instanceof PropConnection) {
+                    ((PropConnection) disc).spur.end.incoming.remove(disc);
+                }
+                disc.end.incoming.remove(disc);
             }
         }
 

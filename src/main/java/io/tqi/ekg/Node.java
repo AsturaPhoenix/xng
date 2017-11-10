@@ -180,6 +180,10 @@ public class Node implements Serializable {
         return Integer.toHexString(hashCode()) + ": " + comment + " = " + value + " @ " + getLocation();
     }
 
+    public String displayString() {
+        return value == null ? comment : value.toString();
+    }
+
     /**
      * @return next
      */

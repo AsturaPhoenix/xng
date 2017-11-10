@@ -176,8 +176,11 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
     }
 
     public void dissociate(final Node node) {
-        inputs.remove(node).subscription.dispose();
-        rxChange.onNext(this);
+        final Activation activation = inputs.remove(node);
+        if (activation != null) {
+            activation.subscription.dispose();
+            rxChange.onNext(this);
+        }
     }
 
     @Override

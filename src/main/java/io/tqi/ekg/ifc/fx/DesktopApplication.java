@@ -8,6 +8,7 @@ import java.io.PrintStream;
 import java.nio.file.FileSystems;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.disposables.Disposable;
@@ -20,12 +21,14 @@ import javafx.beans.value.ChangeListener;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBase;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToolBar;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
@@ -82,6 +85,7 @@ public class DesktopApplication extends Application {
             e.printStackTrace();
             button.setText(altText);
         }
+        button.setTooltip(new Tooltip(altText));
     }
 
     private Disposable selectAction;
@@ -90,7 +94,10 @@ public class DesktopApplication extends Application {
         final ToggleButton activate = new ToggleButton();
         initButton(activate, "res/lightning.png", "Activate");
         final ToggleButton property = new ToggleButton();
-        initButton(property, "res/details.png", "Property");
+        initButton(property, "res/details.png", "Create property");
+        final Tooltip propTt = new Tooltip();
+        final Button delete = new Button();
+        initButton(delete, "res/delete.png", "Delete");
 
         activate.setOnAction(e -> {
             if (selectAction != null) {
@@ -130,12 +137,24 @@ public class DesktopApplication extends Application {
                     if (o instanceof io.tqi.ekg.Node) {
                         args.add((io.tqi.ekg.Node) o);
 
-                        if (args.size() == 3) {
-                            args.get(0).setProperty(args.get(1), args.get(2));
+                        final StringBuilder ttBuilder = new StringBuilder().append(args.get(0).displayString())
+                                .append('.');
+                        if (args.size() == 1) {
+                            ttBuilder.append("<property...>");
+                        } else {
+                            ttBuilder.append(args.get(1).displayString()).append(" = ");
+                            if (args.size() == 2) {
+                                ttBuilder.append("<value...>");
+                            } else {
+                                ttBuilder.append(args.get(2).displayString());
+                                args.get(0).setProperty(args.get(1), args.get(2));
 
-                            property.setSelected(false);
-                            graph.setSelectFn(null);
+                                property.setSelected(false);
+                                graph.setSelectFn(null);
+                            }
                         }
+
+                        propTt.setText(ttBuilder.toString());
 
                         return true;
                     } else {
@@ -147,6 +166,20 @@ public class DesktopApplication extends Application {
             }
         });
 
+        property.selectedProperty().addListener((o, oldValue, newValue) -> {
+            if (newValue) {
+                propTt.setText("<object...>");
+                propTt.show(graph.getScene().getWindow());
+            } else {
+                propTt.hide();
+            }
+        });
+
+        graph.setOnMouseMoved(e -> {
+            propTt.setX(e.getScreenX() + 32);
+            propTt.setY(e.getScreenY() + 16);
+        });
+
         final TextField text = new TextField();
         graph.rxSelected().subscribe(opt -> {
             if (tbTextListener != null)
@@ -154,19 +187,37 @@ public class DesktopApplication extends Application {
             if (!opt.isPresent()) {
                 text.setPromptText("Find node");
                 text.clear();
-            } else if (opt.get() instanceof io.tqi.ekg.Node) {
-                final io.tqi.ekg.Node node = (io.tqi.ekg.Node) opt.get();
-                text.setPromptText("Comment");
-                text.setText(node.getComment());
-                text.positionCaret(text.getLength());
+                delete.setDisable(true);
+            } else {
+                delete.setDisable(false);
+                if (opt.get() instanceof io.tqi.ekg.Node) {
+                    final io.tqi.ekg.Node node = (io.tqi.ekg.Node) opt.get();
+                    text.setPromptText("Comment");
+                    text.setText(node.getComment());
+                    text.positionCaret(text.getLength());
 
-                tbTextListener = (o, a, b) -> {
-                    node.setComment(b);
-                };
-                text.textProperty().addListener(tbTextListener);
+                    tbTextListener = (o, a, b) -> {
+                        node.setComment(b);
+                    };
+                    text.textProperty().addListener(tbTextListener);
+
+                    delete.setOnAction(e -> System.out.println("Not implemented"));
+                } else if (opt.get() instanceof GraphPanel.Property) {
+                    delete.setOnAction(e -> {
+                        final GraphPanel.Property prop = (GraphPanel.Property) opt.get();
+                        prop.object.setProperty(prop.property, Optional.empty());
+                    });
+                } else if (opt.get() instanceof GraphPanel.Association) {
+                    delete.setOnAction(e -> {
+                        final GraphPanel.Association assoc = (GraphPanel.Association) opt.get();
+                        assoc.dest.getSynapse().dissociate(assoc.source);
+                    });
+                } else {
+                    delete.setOnAction(e -> System.out.println("Not implemented"));
+                }
             }
         });
-        return new ToolBar(activate, property, text);
+        return new ToolBar(activate, property, delete, text);
     }
 
     private Node createConsole() {

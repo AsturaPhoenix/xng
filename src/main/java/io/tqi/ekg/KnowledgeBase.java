@@ -342,7 +342,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
      * 
      * @param ordinal
      *            one-based argument index
-     * @return
+     * @return "arg<i>n</i>"
      */
     public Node arg(final int ordinal) {
         return node("arg" + ordinal);
@@ -355,7 +355,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
      * 
      * @param ordinal
      *            one-based argument index
-     * @return
+     * @return "param<i>n</i>"
      */
     public Node param(final int ordinal) {
         return node("param" + ordinal);

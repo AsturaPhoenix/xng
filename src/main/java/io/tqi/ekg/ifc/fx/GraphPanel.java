@@ -70,14 +70,14 @@ public class GraphPanel extends StackPane {
 
     @RequiredArgsConstructor
     @EqualsAndHashCode
-    private static class Association {
-        final io.tqi.ekg.Node source, dest;
+    public static class Association {
+        public final io.tqi.ekg.Node source, dest;
     }
 
     @RequiredArgsConstructor
     @EqualsAndHashCode
-    private static class Property {
-        final io.tqi.ekg.Node object, property, value;
+    public static class Property {
+        public final io.tqi.ekg.Node object, property, value;
     }
 
     private class Connection extends Group {
@@ -121,9 +121,9 @@ public class GraphPanel extends StackPane {
         final Association rep;
         final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
-        AssocConnection(final io.tqi.ekg.Node source, final NodeGeom dest) {
-            super(dest);
-            rep = new Association(source, dest.node.get());
+        AssocConnection(final NodeGeom source, final io.tqi.ekg.Node dest) {
+            super(source);
+            rep = new Association(source.node.get(), dest);
             setColor(Color.RED, Color.TRANSPARENT);
 
             selGlow.setSpread(.7);
@@ -274,8 +274,6 @@ public class GraphPanel extends StackPane {
 
             getChildren().add(connections);
 
-            updateNode();
-
             root.getChildren().add(this);
             node.rxChange().sample(1000 / 60, TimeUnit.MILLISECONDS).observeOn(JavaFxScheduler.platform())
                     .subscribe(x -> updateNode(), y -> {
@@ -411,7 +409,7 @@ public class GraphPanel extends StackPane {
         void updateNode() {
             final io.tqi.ekg.Node n = node.get();
             if (n != null) {
-                text.setText(n.getValue() == null ? n.getComment() : n.getValue().toString());
+                text.setText(n.displayString());
                 body.setRadiusX((Strings.isNullOrEmpty(text.getText()) ? NODE_MIN_RAD : NODE_MAJ_RAD) * GRAPH_SCALE);
                 updateColor();
 
@@ -443,9 +441,9 @@ public class GraphPanel extends StackPane {
             final Set<Object> oldKeys = new HashSet<>(outgoing.keySet());
 
             for (final Entry<io.tqi.ekg.Node, Activation> edge : n.getSynapse()) {
-                final Association key = new Association(n, edge.getKey());
+                final Association key = new Association(edge.getKey(), n);
                 outgoing.computeIfAbsent(key, k -> {
-                    final Connection connection = new AssocConnection(n, node(edge.getKey()));
+                    final Connection connection = new AssocConnection(node(edge.getKey()), n);
                     connections.getChildren().add(connection);
                     return connection;
                 }).update();
@@ -470,6 +468,10 @@ public class GraphPanel extends StackPane {
                     ((PropConnection) disc).spur.end.incoming.remove(disc);
                 }
                 disc.end.incoming.remove(disc);
+                connections.getChildren().remove(disc);
+                if (selectedUi == disc) {
+                    touched(null, null);
+                }
             }
         }
 
@@ -490,6 +492,7 @@ public class GraphPanel extends StackPane {
 
     private final Group root;
     private final PerspectiveCamera camera;
+    private final StackPane touch;
     private final List<Point2D> touchPoints = new ArrayList<>();
     private int navPtCount;
     private final Affine graphTransform;
@@ -588,9 +591,12 @@ public class GraphPanel extends StackPane {
             geom.updatePosition();
         }
 
+        touch = new StackPane();
+        getChildren().add(touch);
+
         final SubScene scene = new SubScene(root, 0, 0, true, SceneAntialiasing.BALANCED);
         scene.setCamera(camera);
-        getChildren().add(scene);
+        touch.getChildren().add(scene);
         scene.widthProperty().bind(widthProperty());
         scene.heightProperty().bind(heightProperty());
 
@@ -603,7 +609,15 @@ public class GraphPanel extends StackPane {
 
     private NodeGeom node(final io.tqi.ekg.Node node) {
         assert (node != null);
-        return nodes.computeIfAbsent(node, NodeGeom::new);
+        final boolean[] created = new boolean[1];
+        final NodeGeom geom = nodes.computeIfAbsent(node, n -> {
+            created[0] = true;
+            return new NodeGeom(n);
+        });
+        if (created[0]) {
+            geom.updateNode();
+        }
+        return geom;
     }
 
     private static class TouchMove {
@@ -625,7 +639,7 @@ public class GraphPanel extends StackPane {
     private void setTouchHandlers() {
         final Tappable tappable = new Tappable();
 
-        setOnMousePressed(e -> {
+        touch.setOnMousePressed(e -> {
             requestFocus();
 
             if (e.isSynthesized())
@@ -633,48 +647,42 @@ public class GraphPanel extends StackPane {
 
             touchPoints.set(0, new Point2D(e.getScreenX(), e.getScreenY()));
 
-            if (e.getTarget() == this) {
+            if (e.getTarget() == touch) {
                 tappable.onActualMousePressed(e);
             }
-
-            e.consume();
         });
 
-        setOnTouchPressed(e -> {
+        touch.setOnTouchPressed(e -> {
             final TouchPoint t = e.getTouchPoint();
             while (touchPoints.size() < t.getId())
                 touchPoints.add(null);
             touchPoints.set(t.getId() - 1, new Point2D(t.getScreenX(), t.getScreenY()));
 
-            if (e.getTarget() == this) {
+            if (e.getTarget() == touch) {
                 navPtCount++;
                 tappable.onTouchPressed(e);
             }
-
-            e.consume();
         });
 
-        setOnMouseReleased(e -> {
-            if (!e.isSynthesized() && e.getTarget() == this) {
+        touch.setOnMouseReleased(e -> {
+            if (!e.isSynthesized() && e.getTarget() == touch) {
                 if (tappable.onReleased()) {
                     touched(null, null);
                 }
             }
-            e.consume();
         });
 
-        setOnTouchReleased(e -> {
-            if (e.getTarget() == this) {
+        touch.setOnTouchReleased(e -> {
+            if (e.getTarget() == touch) {
                 navPtCount--;
                 if (tappable.onReleased()) {
                     touched(null, null);
                 }
             }
-            e.consume();
         });
 
-        setOnMouseDragged(e -> {
-            if (!e.isSynthesized() && e.getTarget() == this && tappable.onActualMouseDragged(e)) {
+        touch.setOnMouseDragged(e -> {
+            if (!e.isSynthesized() && e.getTarget() == touch && tappable.onActualMouseDragged(e)) {
                 final TouchMove tm = recordMove(0, e.getScreenX(), e.getScreenY());
                 if (e.isPrimaryButtonDown() && !e.isControlDown() && !e.isShiftDown()) {
                     onTranslateDrag(tm.delta);
@@ -687,10 +695,9 @@ public class GraphPanel extends StackPane {
                 }
                 rxCam.onNext(Optional.empty());
             }
-            e.consume();
         });
 
-        setOnTouchMoved(e -> {
+        touch.setOnTouchMoved(e -> {
             if (tappable.onTouchMoved(e)) {
                 final TouchPoint t = e.getTouchPoint();
                 final TouchMove tm = recordMove(t.getId() - 1, t.getScreenX(), t.getScreenY());
@@ -719,7 +726,6 @@ public class GraphPanel extends StackPane {
                     rxCam.onNext(Optional.empty());
                 }
             }
-            e.consume();
         });
     }
 

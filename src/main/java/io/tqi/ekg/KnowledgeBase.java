@@ -23,7 +23,6 @@ import com.google.common.collect.MapMaker;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import io.tqi.ekg.Node.PropertySet;
 import javafx.geometry.Point3D;
 import lombok.RequiredArgsConstructor;
 
@@ -63,8 +62,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
             CLASS = node("class"), OBJECT = node("object"), PROPERTY = node("property"), METHOD = node("method"),
             EXCEPTION = node("exception"), SOURCE = node("source"), DESTINATION = node("destination"),
             VALUE = node("value"), COEFFICIENT = node("coefficient");
-
-    private final Node propCombos = node("propertyCombos");
 
     public enum BuiltIn {
         clearProperties {
@@ -256,32 +253,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                     invoke(fn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
                 }
             });
-            node.rxChange().subscribe(change -> {
-                // Properties are a simplification for node combinations, so we
-                // need to create and activate a node representing the
-                // combination in order to use associations correctly.
-                if (change instanceof PropertySet) {
-                    final PropertySet p = (PropertySet) change;
-                    if (!p.getOrCreate && p.value != null) {
-                        activatePropertyCombo(p.object, p.property, p.value);
-                    }
-                }
-
-                rxChange.onNext(change);
-            });
+            node.rxChange().subscribe(rxChange::onNext);
             physics.add(node);
         }
 
         if (rxNodeAdded != null) {
             rxNodeAdded.onNext(node);
         }
-    }
-
-    private Node activatePropertyCombo(final Node object, final Node property, final Node value) {
-        final Node combo = propCombos.getOrCreateProperty(object, this).getOrCreateProperty(property, this)
-                .getOrCreateProperty(value, this);
-        combo.activate();
-        return combo;
     }
 
     public void invoke(final Node fn, final Node arg, final Node callback) {

@@ -45,6 +45,7 @@ import javafx.scene.shape.Ellipse;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
+import javafx.scene.text.Text;
 import javafx.scene.transform.Affine;
 import javafx.scene.transform.NonInvertibleTransformException;
 import javafx.scene.transform.Rotate;
@@ -585,7 +586,7 @@ public class GraphPanel extends StackPane {
         graphTransform.setTx(-(maxX + minX) / 2);
         graphTransform.setTy(-(maxY + minY) / 2);
         graphTransform
-                .setTz(Math.max(maxX - minX, maxY - minY) / 2 / Math.tan(Math.toRadians(camera.getFieldOfView())));
+                .setTz(-minZ + 3 * GRAPH_SCALE + Math.min(maxX - minX, maxY - minY) / Math.tan(Math.toRadians(camera.getFieldOfView())));
 
         for (final NodeGeom geom : nodes.values()) {
             geom.updatePosition();
@@ -742,7 +743,7 @@ public class GraphPanel extends StackPane {
     }
 
     private void onTranslateDrag(final Point2D delta) {
-        final Point2D adjusted = delta.multiply(TRANSLATION_FACTOR);
+        final Point2D adjusted = delta.multiply(TRANSLATION_FACTOR * 900 / Math.min(getWidth(), getHeight()));
         graphTransform.prependTranslation(adjusted.getX(), adjusted.getY());
     }
 

@@ -43,6 +43,7 @@ import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.Stop;
 import javafx.scene.shape.Ellipse;
 import javafx.scene.shape.Line;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.transform.Affine;
 import javafx.scene.transform.NonInvertibleTransformException;
@@ -83,14 +84,19 @@ public class GraphPanel extends StackPane {
         final NodeGeom end;
         final Group lineBillboard = new Group();
         final Line line = new Line();
+        final Rectangle touchTarget = new Rectangle();
         final Rotate rotate1 = new Rotate(0, Rotate.Z_AXIS), rotate2 = new Rotate(0, Rotate.Y_AXIS);
 
         Connection(final NodeGeom end) {
             this.end = end;
             end.incoming.add(this);
             line.setStrokeWidth(.01 * GRAPH_SCALE);
+            touchTarget.setHeight(.1 * GRAPH_SCALE);
+            touchTarget.setY(-touchTarget.getHeight() / 2);
+            touchTarget.setFill(Color.TRANSPARENT);
             lineBillboard.getTransforms().add(rotate1);
             lineBillboard.getTransforms().add(rotate2);
+            lineBillboard.getChildren().add(touchTarget);
             lineBillboard.getChildren().add(line);
             getChildren().add(lineBillboard);
         }
@@ -104,6 +110,7 @@ public class GraphPanel extends StackPane {
             final Point3D delta = sceneToLocal(end.localToScene(Point3D.ZERO));
             final double xyMag = Math.sqrt(delta.getX() * delta.getX() + delta.getY() * delta.getY());
             line.setEndX(delta.magnitude());
+            touchTarget.setWidth(line.getEndX());
             if (xyMag > 0)
                 rotate1.setAngle(Math.toDegrees(Math.atan2(delta.getY() / xyMag, delta.getX() / xyMag)));
             rotate2.setAngle(Math.toDegrees(Math.asin(-delta.getZ() / line.getEndX())));

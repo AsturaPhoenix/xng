@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 import io.tqi.ekg.KnowledgeBase.BuiltIn;
+import io.tqi.ekg.KnowledgeBase.Common;
 
 public class KnowledgeBaseTest {
     @Test
@@ -35,11 +36,11 @@ public class KnowledgeBaseTest {
 
         // @formatter:off
         kb.node("roses are")
-                .setProperty(kb.EXECUTE, kb.node(BuiltIn.getProperty))
-                .setProperty(kb.ARGUMENT, kb.node()
-                        .setProperty(kb.OBJECT, kb.node("roses"))
-                        .setProperty(kb.PROPERTY, kb.node("color")))
-                .setProperty(kb.CALLBACK, kb.node(BuiltIn.print));
+                .setProperty(kb.node(Common.execute), kb.node(BuiltIn.getProperty))
+                .setProperty(kb.node(Common.argument), kb.node()
+                        .setProperty(kb.node(Common.object), kb.node("roses"))
+                        .setProperty(kb.node(Common.property), kb.node("color")))
+                .setProperty(kb.node(Common.callback), kb.node(BuiltIn.print));
         // @formatter:on
     }
 
@@ -67,8 +68,8 @@ public class KnowledgeBaseTest {
     @Test
     public void testSetException() {
         try (final KnowledgeBase kb = new KnowledgeBase()) {
-            final EmissionMonitor<?> monitor = new EmissionMonitor<>(kb.EXCEPTION.rxChange());
-            kb.EXCEPTION.setProperty(kb.SOURCE, kb.valueNode(new Exception()));
+            final EmissionMonitor<?> monitor = new EmissionMonitor<>(kb.node(Common.exception).rxChange());
+            kb.node(Common.exception).setProperty(kb.node(Common.source), kb.valueNode(new Exception()));
             assertTrue(monitor.didEmit());
         }
     }

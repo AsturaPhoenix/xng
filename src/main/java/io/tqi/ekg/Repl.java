@@ -16,6 +16,7 @@ import org.petitparser.parser.primitive.CharacterParser;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import io.tqi.ekg.KnowledgeBase.Common;
 import lombok.Getter;
 import lombok.Value;
 
@@ -66,7 +67,7 @@ public class Repl {
 
         commandOutputNode = kb.node("Repl.commandOutput");
         commandOutputNode.rxActivate().subscribe(t -> {
-            final Node retval = commandOutputNode.getProperty(kb.ARGUMENT);
+            final Node retval = commandOutputNode.getProperty(kb.node(Common.argument));
             if (retval != null && retval.getValue() != null)
                 commandOutput.onNext(retval.getValue().toString());
         });
@@ -102,7 +103,7 @@ public class Repl {
                 final Map.Entry<?, ?> alias = (Map.Entry<?, ?>) result.get();
                 final Node cb = kb.node();
                 cb.rxActivate().subscribe(t -> {
-                    kb.indexNode((Identifier) alias.getKey(), cb.getProperty(kb.ARGUMENT));
+                    kb.indexNode((Identifier) alias.getKey(), cb.getProperty(kb.node(Common.argument)));
                 });
                 executeCommand((List<?>) alias.getValue(), cb);
             } else {
@@ -128,6 +129,6 @@ public class Repl {
     }
 
     public void sendInput(final String input) {
-        kb.node("Repl.input").setProperty(kb.ARGUMENT, kb.valueNode(input)).activate();
+        kb.node("Repl.input").setProperty(kb.node(Common.argument), kb.valueNode(input)).activate();
     }
 }

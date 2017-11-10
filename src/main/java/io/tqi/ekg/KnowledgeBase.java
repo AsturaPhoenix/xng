@@ -58,10 +58,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private transient Subject<Node> rxNodeAdded;
     private transient Subject<Object> rxChange;
 
-    public final Node EXECUTE = node("execute"), ARGUMENT = node("arg"), CALLBACK = node("callback"),
-            CLASS = node("class"), OBJECT = node("object"), PROPERTY = node("property"), METHOD = node("method"),
-            EXCEPTION = node("exception"), SOURCE = node("source"), DESTINATION = node("destination"),
-            VALUE = node("value"), COEFFICIENT = node("coefficient");
+    public enum Common {
+        execute, argument("arg"), callback, clazz(
+                "class"), object, property, method, exception, source, destination, value, coefficient, newNode;
+
+        public final Identifier identifier;
+
+        private Common() {
+            identifier = new Identifier(name());
+        }
+
+        private Common(final String identifier) {
+            this.identifier = new Identifier(identifier);
+        }
+    }
 
     public enum BuiltIn {
         clearProperties {
@@ -74,12 +84,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         copyProperty {
             @Override
             public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node source = node.getProperty(kb.SOURCE), dest = node.getProperty(kb.DESTINATION);
-                final Node sourceProp = source.getProperty(kb.PROPERTY), destProp = dest.getProperty(kb.PROPERTY);
+                final Node source = node.getProperty(kb.node(Common.source)),
+                        dest = node.getProperty(kb.node(Common.destination));
+                final Node sourceProp = source.getProperty(kb.node(Common.property)),
+                        destProp = dest.getProperty(kb.node(Common.property));
                 Preconditions.checkNotNull(sourceProp);
                 Preconditions.checkNotNull(destProp);
-                final Node value = source.getProperty(kb.OBJECT).getProperty(sourceProp);
-                dest.getProperty(kb.OBJECT).setProperty(destProp, value);
+                final Node value = source.getProperty(kb.node(Common.object)).getProperty(sourceProp);
+                dest.getProperty(kb.node(Common.object)).setProperty(destProp, value);
                 return value;
             }
         },
@@ -89,7 +101,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         getProperty {
             @Override
             public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node object = node.getProperty(kb.OBJECT), property = node.getProperty(kb.PROPERTY);
+                final Node object = node.getProperty(kb.node(Common.object)),
+                        property = node.getProperty(kb.node(Common.property));
                 return object.getProperty(property);
             }
         },
@@ -103,8 +116,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         invoke {
             @Override
             public Node impl(final KnowledgeBase kb, final Node node) throws Exception {
-                final Node classNode = node.getProperty(kb.CLASS), objectNode = node.getProperty(kb.OBJECT),
-                        methodNode = node.getProperty(kb.METHOD);
+                final Node classNode = node.getProperty(kb.node(Common.clazz)),
+                        objectNode = node.getProperty(kb.node(Common.object)),
+                        methodNode = node.getProperty(kb.node(Common.method));
                 final Object object;
                 final Class<?> clazz;
 
@@ -167,9 +181,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         setCoefficient {
             @Override
             public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node dest = node.getProperty(kb.DESTINATION);
-                dest.getSynapse().setCoefficient(node.getProperty(kb.SOURCE),
-                        ((Number) node.getProperty(kb.COEFFICIENT).getValue()).floatValue());
+                final Node dest = node.getProperty(kb.node(Common.destination));
+                dest.getSynapse().setCoefficient(node.getProperty(kb.node(Common.source)),
+                        ((Number) node.getProperty(kb.node(Common.coefficient)).getValue()).floatValue());
                 return dest;
             }
         },
@@ -187,8 +201,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         setProperty {
             @Override
             public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node object = node.getProperty(kb.OBJECT), property = node.getProperty(kb.PROPERTY),
-                        value = node.getProperty(kb.VALUE);
+                final Node object = node.getProperty(kb.node(Common.object)),
+                        property = node.getProperty(kb.node(Common.property)),
+                        value = node.getProperty(kb.node(Common.value));
                 if (property == null) {
                     throw new NullPointerException();
                 }
@@ -241,6 +256,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         }
 
         rxNodeAdded = PublishSubject.create();
+        rxNodeAdded.subscribe(n -> {
+            invoke(node(Common.newNode), n, null);
+        });
     }
 
     private void initNode(final Node node) {
@@ -248,9 +266,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         // init will catch this
         if (rxChange != null) {
             node.rxActivate().subscribe(t -> {
-                final Node fn = node.getProperty(EXECUTE);
+                final Node fn = node.getProperty(node(Common.execute));
                 if (fn != null) {
-                    invoke(fn, node.getProperty(ARGUMENT), node.getProperty(CALLBACK));
+                    invoke(fn, node.getProperty(node(Common.argument)), node.getProperty(node(Common.callback)));
                 }
             });
             node.rxChange().subscribe(rxChange::onNext);
@@ -263,8 +281,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     public void invoke(final Node fn, final Node arg, final Node callback) {
-        fn.setProperty(ARGUMENT, arg);
-        fn.setProperty(CALLBACK, callback);
+        fn.setProperty(node(Common.argument), arg);
+        fn.setProperty(node(Common.callback), callback);
         fn.activate();
     }
 
@@ -276,12 +294,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         node.rxActivate().subscribe(t -> {
             final Node result;
             try {
-                result = builtIn.impl(KnowledgeBase.this, node.getProperty(ARGUMENT));
+                result = builtIn.impl(KnowledgeBase.this, node.getProperty(node(Common.argument)));
             } catch (final Exception e) {
-                invoke(EXCEPTION, valueNode(e).setProperty(SOURCE, node), null);
+                invoke(node(Common.exception), valueNode(e).setProperty(node(Common.source), node), null);
                 return;
             }
-            final Node callback = node.getProperty(CALLBACK);
+            final Node callback = node.getProperty(node(Common.callback));
             if (callback != null) {
                 invoke(callback, result, null);
             }
@@ -313,6 +331,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
         nodes = new NodeQueue();
         nodes.addAll(serNodes);
+
+        // create any new Common nodes
+        for (final Common common : Common.values()) {
+            node(common);
+        }
 
         init();
     }
@@ -361,6 +384,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         return node("param" + ordinal);
     }
 
+    public Node node(final Common common) {
+        return node(common.identifier);
+    }
+
     public Node node(final BuiltIn builtIn) {
         return node("BuiltIn." + builtIn.name());
     }
@@ -387,14 +414,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     private Node getOrCreateNode(final Serializable label, final Serializable value) {
-        return index.computeIfAbsent(label, x -> {
-            final Node node = new Node(value);
+        final boolean[] created = new boolean[1];
+        final Node node = index.computeIfAbsent(label, x -> {
+            final Node newNode = new Node(value);
             if (label != null)
-                node.setComment(label.toString());
-            initNode(node);
-            nodes.add(node);
-            return node;
+                newNode.setComment(label.toString());
+            created[0] = true;
+            nodes.add(newNode);
+            return newNode;
         });
+        if (created[0])
+            initNode(node);
+        return node;
     }
 
     // All kb nodes must be created through a node(...) or valueNode(...) method

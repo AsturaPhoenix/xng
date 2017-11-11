@@ -25,6 +25,7 @@ import io.tqi.ekg.Synapse.Activation;
 import javafx.geometry.Point2D;
 import javafx.geometry.Point3D;
 import javafx.geometry.Pos;
+import javafx.geometry.VPos;
 import javafx.scene.Group;
 import javafx.scene.Node;
 import javafx.scene.PerspectiveCamera;
@@ -46,6 +47,7 @@ import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
+import javafx.scene.text.TextAlignment;
 import javafx.scene.transform.Affine;
 import javafx.scene.transform.NonInvertibleTransformException;
 import javafx.scene.transform.Rotate;
@@ -81,7 +83,99 @@ public class GraphPanel extends StackPane {
         public final io.tqi.ekg.Node object, property, value;
     }
 
-    private class Connection extends Group {
+    private static class Caption extends Group {
+        static Boolean label;
+        static Observable<?> pumpkinTimer = Observable.timer(500, TimeUnit.MILLISECONDS).replay(1).autoConnect(0);
+
+        Node node;
+        {
+            initNode();
+
+            if (label == null) {
+                pumpkinTimer.subscribe(t -> checkFallback());
+            }
+        }
+
+        void checkFallback() {
+            if (label == null) {
+                final Label ideal = (Label) node;
+                if (!Strings.isNullOrEmpty(ideal.getText()) && ideal.getWidth() == 0) {
+                    fallBack();
+                }
+            } else if (!label && node instanceof Label) {
+                fallBack();
+            }
+        }
+
+        void fallBack() {
+            final Label ideal = (Label) node;
+            label = false;
+            initNode();
+            setFont(ideal.getFont());
+            setText(ideal.getText());
+            if (ideal.getPrefWidth() != USE_COMPUTED_SIZE)
+                setPrefWidth(ideal.getPrefWidth());
+            if (ideal.getPrefHeight() != USE_COMPUTED_SIZE)
+                setPrefHeight(ideal.getPrefHeight());
+        }
+
+        void initNode() {
+            if (label != Boolean.FALSE) {
+                final Label l = new Label();
+                l.setAlignment(Pos.CENTER);
+                node = l;
+            } else {
+                final Text text = new Text();
+                text.setTextOrigin(VPos.TOP);
+                text.setTextAlignment(TextAlignment.CENTER);
+                node = text;
+            }
+            getChildren().setAll(node);
+        }
+
+        void setFont(final Font font) {
+            if (node instanceof Label) {
+                ((Label) node).setFont(font);
+            } else {
+                ((Text) node).setFont(font);
+            }
+        }
+
+        void setText(final String value) {
+            if (node instanceof Label) {
+                ((Label) node).setText(value);
+            } else {
+                ((Text) node).setText(value);
+            }
+        }
+
+        String getText() {
+            if (node instanceof Label) {
+                return ((Label) node).getText();
+            } else {
+                return ((Text) node).getText();
+            }
+        }
+
+        void setPrefWidth(final double prefWidth) {
+            if (node instanceof Label) {
+                ((Label) node).setPrefWidth(prefWidth);
+            } else {
+                ((Text) node).setWrappingWidth(prefWidth);
+            }
+        }
+
+        void setPrefHeight(final double prefHeight) {
+            if (node instanceof Label) {
+                ((Label) node).setPrefHeight(prefHeight);
+            } else {
+                ((Text) node).setTextOrigin(VPos.CENTER);
+                ((Text) node).setY(prefHeight / 2);
+            }
+        }
+    }
+
+    private static class Connection extends Group {
         final NodeGeom end;
         final Group lineBillboard = new Group();
         final Line line = new Line();
@@ -146,7 +240,7 @@ public class GraphPanel extends StackPane {
     private class PropConnection extends Connection implements Selectable {
         final Property rep;
         final Connection spur;
-        final Label caption = new Label();
+        final Caption caption = new Caption();
         final Scale flip = new Scale();
         final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
@@ -159,7 +253,6 @@ public class GraphPanel extends StackPane {
             getChildren().add(spur);
 
             caption.setFont(new Font(.08 * GRAPH_SCALE));
-            caption.setAlignment(Pos.CENTER);
             caption.getTransforms().add(flip);
             lineBillboard.getChildren().add(caption);
 
@@ -215,7 +308,7 @@ public class GraphPanel extends StackPane {
     private class NodeGeom extends Group implements Selectable {
         final WeakReference<io.tqi.ekg.Node> node;
         final Ellipse body;
-        final Label text;
+        final Caption text;
 
         final Group geom = new Group();
         final Group connections = new Group();
@@ -263,14 +356,12 @@ public class GraphPanel extends StackPane {
             body.setTranslateZ(-.5);
             geom.getChildren().add(body);
 
-            text = new Label();
+            text = new Caption();
             text.setFont(new Font(.08 * GRAPH_SCALE));
-            text.setLayoutX(-body.getRadiusX());
-            text.setLayoutY(-body.getRadiusY());
-            text.setAlignment(Pos.CENTER);
+            text.relocate(-body.getRadiusX(), -body.getRadiusY());
             text.setPrefWidth(2 * body.getRadiusX());
             text.setPrefHeight(2 * body.getRadiusY());
-            text.setTranslateZ(-.6);
+            text.setTranslateZ(-1);
             geom.getChildren().add(text);
 
             getChildren().add(connections);
@@ -585,8 +676,8 @@ public class GraphPanel extends StackPane {
 
         graphTransform.setTx(-(maxX + minX) / 2);
         graphTransform.setTy(-(maxY + minY) / 2);
-        graphTransform
-                .setTz(-minZ + 3 * GRAPH_SCALE + Math.min(maxX - minX, maxY - minY) / Math.tan(Math.toRadians(camera.getFieldOfView())));
+        graphTransform.setTz(-minZ + 3 * GRAPH_SCALE
+                + Math.min(maxX - minX, maxY - minY) / Math.tan(Math.toRadians(camera.getFieldOfView())));
 
         for (final NodeGeom geom : nodes.values()) {
             geom.updatePosition();

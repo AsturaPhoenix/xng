@@ -162,6 +162,11 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
         return this;
     }
 
+    public float getCoefficient(final Node node) {
+        final Activation activation = inputs.get(node);
+        return activation == null ? 0 : activation.coefficient;
+    }
+
     /**
      * @param node
      *            the input node

@@ -2,11 +2,9 @@ package io.tqi.ekg.ifc.fx;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
@@ -176,7 +174,7 @@ public class GraphPanel extends StackPane {
     }
 
     private static class Connection extends Group {
-        final NodeGeom end;
+        NodeGeom end;
         final Group lineBillboard = new Group();
         final Line line = new Line();
         final Rectangle touchTarget = new Rectangle();
@@ -210,20 +208,39 @@ public class GraphPanel extends StackPane {
                 rotate1.setAngle(Math.toDegrees(Math.atan2(delta.getY() / xyMag, delta.getX() / xyMag)));
             rotate2.setAngle(Math.toDegrees(Math.asin(-delta.getZ() / line.getEndX())));
         }
+
+        NodeGeom getOwner() {
+            Node node = this;
+            do {
+                node = node.getParent();
+            } while (!(node instanceof NodeGeom || node == null));
+            return (NodeGeom) node;
+        }
     }
 
     private class AssocConnection extends Connection implements Selectable {
-        final Association rep;
         final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
-        AssocConnection(final NodeGeom source, final io.tqi.ekg.Node dest) {
+        AssocConnection(final NodeGeom source) {
             super(source);
-            rep = new Association(source.node.get(), dest);
             setColor(Color.RED, Color.TRANSPARENT);
 
             selGlow.setSpread(.7);
 
-            setOnMouseClicked(e -> touched(this, rep));
+            setOnMouseClicked(e -> {
+                final io.tqi.ekg.Node from = getSource(), to = getDest();
+
+                if (from != null && to != null)
+                    touched(this, new Association(from, to));
+            });
+        }
+
+        io.tqi.ekg.Node getSource() {
+            return end.node.get();
+        }
+
+        io.tqi.ekg.Node getDest() {
+            return getOwner().node.get();
         }
 
         @Override
@@ -238,15 +255,13 @@ public class GraphPanel extends StackPane {
     }
 
     private class PropConnection extends Connection implements Selectable {
-        final Property rep;
         final Connection spur;
         final Caption caption = new Caption();
         final Scale flip = new Scale();
         final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
-        PropConnection(final io.tqi.ekg.Node object, final NodeGeom property, final NodeGeom value) {
+        PropConnection(final NodeGeom property, final NodeGeom value) {
             super(value);
-            rep = new Property(object, property.node.get(), value.node.get());
             setColor(Color.TRANSPARENT, Color.BLACK);
             spur = new Connection(property);
             spur.setColor(Color.BLUE.interpolate(Color.TRANSPARENT, .9), Color.TRANSPARENT);
@@ -258,7 +273,24 @@ public class GraphPanel extends StackPane {
 
             selGlow.setSpread(.7);
 
-            setOnMouseClicked(e -> touched(this, rep));
+            setOnMouseClicked(e -> {
+                final io.tqi.ekg.Node on = getObject(), pn = getProperty(), vn = getValue();
+                if (on != null && pn != null && vn != null) {
+                    touched(this, new Property(on, pn, vn));
+                }
+            });
+        }
+
+        io.tqi.ekg.Node getObject() {
+            return getOwner().node.get();
+        }
+
+        io.tqi.ekg.Node getProperty() {
+            return spur.end.node.get();
+        }
+
+        io.tqi.ekg.Node getValue() {
+            return end.node.get();
         }
 
         @Override
@@ -312,7 +344,6 @@ public class GraphPanel extends StackPane {
 
         final Group geom = new Group();
         final Group connections = new Group();
-        final Map<Object, Connection> outgoing = new HashMap<>();
         final Set<Connection> incoming = new HashSet<>();
 
         final InnerShadow selEffect = new InnerShadow(GRAPH_SCALE / 4, Color.DEEPSKYBLUE);
@@ -506,8 +537,8 @@ public class GraphPanel extends StackPane {
                 updateColor();
 
                 if (n.getLocation() != null) {
-                    updatePosition();
                     updateConnections();
+                    updatePosition();
                     for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
                         final Connection c = it.next();
                         if (c.getScene() == null)
@@ -530,39 +561,42 @@ public class GraphPanel extends StackPane {
             if (n == null)
                 return;
 
-            final Set<Object> oldKeys = new HashSet<>(outgoing.keySet());
+            final Set<io.tqi.ekg.Node> oldAssocs = new HashSet<>(), oldProps = new HashSet<>();
 
-            for (final Entry<io.tqi.ekg.Node, Activation> edge : n.getSynapse()) {
-                final Association key = new Association(edge.getKey(), n);
-                outgoing.computeIfAbsent(key, k -> {
-                    final Connection connection = new AssocConnection(node(edge.getKey()), n);
-                    connections.getChildren().add(connection);
-                    return connection;
-                }).update();
-                oldKeys.remove(key);
+            for (final Iterator<Node> it = connections.getChildren().iterator(); it.hasNext();) {
+                final Node node = it.next();
+                if (node instanceof AssocConnection) {
+                    final AssocConnection ac = (AssocConnection) node;
+                    if (n.getSynapse().getCoefficient(ac.getSource()) == 0) {
+                        it.remove();
+                        if (selectedUi == ac)
+                            touched(null, null);
+                    } else {
+                        oldAssocs.add(ac.getSource());
+                    }
+                } else if (node instanceof PropConnection) {
+                    final PropConnection pc = (PropConnection) node;
+                    final io.tqi.ekg.Node pn = pc.getProperty(), vn = n.getProperty(pn);
+                    if (vn == null) {
+                        it.remove();
+                        if (selectedUi == pc)
+                            touched(null, null);
+                    } else {
+                        oldProps.add(pn);
+                        if (pc.getValue() != vn)
+                            pc.end = node(vn);
+                    }
+                }
+            }
+
+            for (final Entry<io.tqi.ekg.Node, Activation> source : n.getSynapse()) {
+                if (!oldAssocs.contains(source.getKey())) {
+                    connections.getChildren().add(new AssocConnection(node(source.getKey())));
+                }
             }
             for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : n.getProperties().entrySet()) {
-                if (prop.getValue() == null)
-                    continue;
-                final Property key = new Property(n, prop.getKey(), prop.getValue());
-                outgoing.computeIfAbsent(key, k -> {
-                    final Connection connection = new PropConnection(n, node(prop.getKey()), node(prop.getValue()));
-                    connections.getChildren().add(connection);
-                    connection.update();
-                    return connection;
-                }).update();
-                oldKeys.remove(key);
-            }
-
-            for (Object key : oldKeys) {
-                final Connection disc = outgoing.remove(key);
-                if (disc instanceof PropConnection) {
-                    ((PropConnection) disc).spur.end.incoming.remove(disc);
-                }
-                disc.end.incoming.remove(disc);
-                connections.getChildren().remove(disc);
-                if (selectedUi == disc) {
-                    touched(null, null);
+                if (!oldProps.contains(prop.getKey())) {
+                    connections.getChildren().add(new PropConnection(node(prop.getKey()), node(prop.getValue())));
                 }
             }
         }
@@ -574,11 +608,16 @@ public class GraphPanel extends StackPane {
                 setTranslateX(pos.getX());
                 setTranslateY(pos.getY());
                 setTranslateZ(pos.getZ());
+
+                for (final Node cn : connections.getChildren()) {
+                    ((Connection) cn).update();
+                }
+                for (final Connection cn : incoming) {
+                    cn.update();
+                }
             } else {
                 setVisible(false);
             }
-
-            updateConnections();
         }
     }
 

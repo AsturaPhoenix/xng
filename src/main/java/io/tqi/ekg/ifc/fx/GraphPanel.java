@@ -612,8 +612,11 @@ public class GraphPanel extends StackPane {
                             touched(null, null);
                     } else {
                         oldProps.add(pn);
-                        if (pc.getValue() != vn)
+                        if (pc.getValue() != vn) {
+                            pc.end.incoming.remove(pc);
                             pc.end = node(vn);
+                            pc.end.incoming.add(pc);
+                        }
                     }
                 }
             }

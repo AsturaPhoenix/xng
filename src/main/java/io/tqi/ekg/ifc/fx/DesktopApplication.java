@@ -12,7 +12,9 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Consumer;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
+import io.tqi.ekg.Identifier;
 import io.tqi.ekg.KnowledgeBase;
 import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
@@ -98,6 +100,26 @@ public class DesktopApplication extends Application {
         final Tooltip propTt = new Tooltip();
         final Button delete = new Button();
         initButton(delete, "res/delete.png", "Delete");
+        final TextField text = new TextField();
+
+        final Consumer<Optional<Object>> idleTextUpdate = opt -> {
+            if (tbTextListener != null)
+                text.textProperty().removeListener(tbTextListener);
+            if (opt.isPresent()) {
+                delete.setDisable(false);
+                if (opt.get() instanceof io.tqi.ekg.Node) {
+                    text.setPromptText("Comment");
+
+                    tbTextListener = (o, a, b) -> {
+                        ((io.tqi.ekg.Node) opt.get()).setComment(b);
+                    };
+                    text.textProperty().addListener(tbTextListener);
+                }
+            } else {
+                text.setPromptText("Find node");
+                text.clear();
+            }
+        };
 
         activate.setOnAction(e -> {
             if (selectAction != null) {
@@ -118,9 +140,13 @@ public class DesktopApplication extends Application {
                 if (graph.getSelected() != null) {
                     activate.setSelected(false);
                     graph.setSelectFn(null);
+                    selectAction = graph.rxSelected().subscribe(idleTextUpdate);
                 }
+                if (tbTextListener != null)
+                    text.textProperty().removeListener(tbTextListener);
             } else {
                 graph.setSelectFn(null);
+                selectAction = graph.rxSelected().subscribe(idleTextUpdate);
             }
         });
 
@@ -151,6 +177,8 @@ public class DesktopApplication extends Application {
 
                                 property.setSelected(false);
                                 graph.setSelectFn(null);
+                                selectAction = graph.rxSelected().subscribe(idleTextUpdate);
+                                text.setOnAction(null);
                             }
                         }
 
@@ -161,8 +189,21 @@ public class DesktopApplication extends Application {
                         return false;
                     }
                 });
+
+                text.setPromptText("Find node");
+                text.setOnAction(a -> {
+                    final io.tqi.ekg.Node node = kb.getNode(new Identifier(text.getText()));
+                    if (node != null) {
+                        graph.select(node);
+                    }
+                });
+
+                if (tbTextListener != null)
+                    text.textProperty().removeListener(tbTextListener);
             } else {
                 graph.setSelectFn(null);
+                selectAction = graph.rxSelected().subscribe(idleTextUpdate);
+                text.setOnAction(null);
             }
         });
 
@@ -180,27 +221,14 @@ public class DesktopApplication extends Application {
             propTt.setY(e.getScreenY() + 16);
         });
 
-        final TextField text = new TextField();
         graph.rxSelected().subscribe(opt -> {
             if (tbTextListener != null)
                 text.textProperty().removeListener(tbTextListener);
-            if (!opt.isPresent()) {
-                text.setPromptText("Find node");
-                text.clear();
-                delete.setDisable(true);
-            } else {
+            if (opt.isPresent()) {
                 delete.setDisable(false);
                 if (opt.get() instanceof io.tqi.ekg.Node) {
-                    final io.tqi.ekg.Node node = (io.tqi.ekg.Node) opt.get();
-                    text.setPromptText("Comment");
-                    text.setText(node.getComment());
+                    text.setText(((io.tqi.ekg.Node) opt.get()).getComment());
                     text.positionCaret(text.getLength());
-
-                    tbTextListener = (o, a, b) -> {
-                        node.setComment(b);
-                    };
-                    text.textProperty().addListener(tbTextListener);
-
                     delete.setOnAction(e -> System.out.println("Not implemented"));
                 } else if (opt.get() instanceof GraphPanel.Property) {
                     delete.setOnAction(e -> {
@@ -215,8 +243,11 @@ public class DesktopApplication extends Application {
                 } else {
                     delete.setOnAction(e -> System.out.println("Not implemented"));
                 }
+            } else {
+                delete.setDisable(true);
             }
         });
+        selectAction = graph.rxSelected().subscribe(idleTextUpdate);
         return new ToolBar(activate, property, delete, text);
     }
 

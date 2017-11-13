@@ -686,6 +686,10 @@ public class GraphPanel extends StackPane {
         }
     }
 
+    public void select(final io.tqi.ekg.Node node) {
+        touched(node(node), node);
+    }
+
     private void touched(final Selectable ui, final Object data) {
         if (selectedUi != null) {
             selectedUi.deselect();

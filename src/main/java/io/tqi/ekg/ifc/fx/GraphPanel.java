@@ -20,6 +20,7 @@ import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.ekg.KnowledgeBase;
 import io.tqi.ekg.Synapse.Activation;
+import javafx.collections.ObservableList;
 import javafx.geometry.Point2D;
 import javafx.geometry.Point3D;
 import javafx.geometry.Pos;
@@ -37,11 +38,8 @@ import javafx.scene.input.TouchEvent;
 import javafx.scene.input.TouchPoint;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.CycleMethod;
-import javafx.scene.paint.LinearGradient;
-import javafx.scene.paint.Stop;
 import javafx.scene.shape.Ellipse;
-import javafx.scene.shape.Line;
+import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
@@ -174,39 +172,70 @@ public class GraphPanel extends StackPane {
     }
 
     private static class Connection extends Group {
+        static final double ARROW_DEV = 1.5, ARROW_LEN = 7;
+
         NodeGeom end;
         final Group lineBillboard = new Group();
-        final Line line = new Line();
+        final Polygon line = new Polygon();
         final Rectangle touchTarget = new Rectangle();
         final Rotate rotate1 = new Rotate(0, Rotate.Z_AXIS), rotate2 = new Rotate(0, Rotate.Y_AXIS);
 
-        Connection(final NodeGeom end) {
+        Connection(final NodeGeom end, final boolean flip) {
             this.end = end;
             end.incoming.add(this);
-            line.setStrokeWidth(.01 * GRAPH_SCALE);
+            if (flip)
+                line.setScaleX(-1);
             touchTarget.setHeight(.1 * GRAPH_SCALE);
             touchTarget.setY(-touchTarget.getHeight() / 2);
             touchTarget.setFill(Color.TRANSPARENT);
-            lineBillboard.getTransforms().add(rotate1);
-            lineBillboard.getTransforms().add(rotate2);
-            lineBillboard.getChildren().add(touchTarget);
-            lineBillboard.getChildren().add(line);
+            lineBillboard.getTransforms().addAll(rotate1, rotate2);
+            lineBillboard.getChildren().addAll(touchTarget, line);
             getChildren().add(lineBillboard);
         }
 
-        void setColor(final Color color1, Color color2) {
-            line.setStroke(new LinearGradient(0, 0, .05, 0, true, CycleMethod.REPEAT, new Stop(0, color1),
-                    new Stop(1, color2)));
+        void setColor(final Color color) {
+            line.setFill(color);
         }
 
         void update() {
             final Point3D delta = sceneToLocal(end.localToScene(Point3D.ZERO));
             final double xyMag = Math.sqrt(delta.getX() * delta.getX() + delta.getY() * delta.getY());
-            line.setEndX(delta.magnitude());
-            touchTarget.setWidth(line.getEndX());
+            touchTarget.setWidth(delta.magnitude());
+            final int tris = (int) (touchTarget.getWidth() / ARROW_LEN);
+            final ObservableList<Double> points = line.getPoints();
+            final int edgeLength = 4 * tris, pathLength = 2 * edgeLength - 2;
+
+            if (tris == 0) {
+                points.clear();
+            } else if (points.size() > pathLength) {
+                points.remove(edgeLength, points.size() - edgeLength + 2);
+            } else {
+                final List<Double> newPts = new ArrayList<>(pathLength - points.size());
+                final int lastTriCount = (points.size() + 2) / 8;
+                for (int i = lastTriCount; i < tris; i++) {
+                    // @formatter:off
+                    newPts.add(i * ARROW_LEN);       newPts.add(-ARROW_DEV);
+                    newPts.add((i + 1) * ARROW_LEN); newPts.add(0.0);
+                    // @formatter:on
+                }
+                for (int i = tris - 1; i >= lastTriCount; i--) {
+                    // @formatter:off
+                    newPts.add(i * ARROW_LEN); newPts.add(ARROW_DEV);
+                    if (i > 0) {
+                        newPts.add(i * ARROW_LEN); newPts.add(0.0);
+                    }
+                    // @formatter:on
+                }
+                if (points.isEmpty()) {
+                    points.addAll(newPts);
+                } else {
+                    points.addAll(points.size() / 2 + 1, newPts);
+                }
+            }
+
             if (xyMag > 0)
                 rotate1.setAngle(Math.toDegrees(Math.atan2(delta.getY() / xyMag, delta.getX() / xyMag)));
-            rotate2.setAngle(Math.toDegrees(Math.asin(-delta.getZ() / line.getEndX())));
+            rotate2.setAngle(Math.toDegrees(Math.asin(-delta.getZ() / touchTarget.getWidth())));
         }
 
         NodeGeom getOwner() {
@@ -222,8 +251,8 @@ public class GraphPanel extends StackPane {
         final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
         AssocConnection(final NodeGeom source) {
-            super(source);
-            setColor(Color.RED, Color.TRANSPARENT);
+            super(source, true);
+            setColor(Color.RED);
 
             selGlow.setSpread(.7);
 
@@ -261,10 +290,10 @@ public class GraphPanel extends StackPane {
         final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
         PropConnection(final NodeGeom property, final NodeGeom value) {
-            super(value);
-            setColor(Color.TRANSPARENT, Color.BLACK);
-            spur = new Connection(property);
-            spur.setColor(Color.BLUE.interpolate(Color.TRANSPARENT, .9), Color.TRANSPARENT);
+            super(value, false);
+            setColor(Color.BLACK);
+            spur = new Connection(property, false);
+            spur.setColor(Color.BLUE.interpolate(Color.TRANSPARENT, .9));
             getChildren().add(spur);
 
             caption.setFont(new Font(.08 * GRAPH_SCALE));
@@ -306,12 +335,12 @@ public class GraphPanel extends StackPane {
                     flip.setY(1);
                     flip.setZ(1);
                 } else {
-                    flip.setPivotX(line.getEndX() / 2);
+                    flip.setPivotX(touchTarget.getWidth() / 2);
                     flip.setX(-1);
                     flip.setY(-1);
                     flip.setZ(-1);
                 }
-                caption.setPrefWidth(line.getEndX());
+                caption.setPrefWidth(touchTarget.getWidth());
                 caption.setVisible(true);
             }
             final Point3D midpt = sceneToLocal(end.localToScene(Point3D.ZERO)).multiply(.5);

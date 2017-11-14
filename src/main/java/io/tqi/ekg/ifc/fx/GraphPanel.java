@@ -294,6 +294,7 @@ public class GraphPanel extends StackPane {
             setColor(Color.BLACK);
             spur = new Connection(property, false);
             spur.setColor(Color.BLUE.interpolate(Color.TRANSPARENT, .9));
+            spur.setVisible(false);
             getChildren().add(spur);
 
             caption.setFont(new Font(.08 * GRAPH_SCALE));
@@ -356,10 +357,12 @@ public class GraphPanel extends StackPane {
             line.setEffect(selGlow);
             caption.setEffect(selGlow);
             spur.line.setEffect(selGlow);
+            spur.setVisible(true);
         }
 
         @Override
         public void deselect() {
+            spur.setVisible(false);
             line.setEffect(null);
             caption.setEffect(null);
             spur.line.setEffect(null);

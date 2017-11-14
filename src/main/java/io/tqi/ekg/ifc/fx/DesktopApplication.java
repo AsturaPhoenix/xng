@@ -12,7 +12,6 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.disposables.Disposable;
-import io.reactivex.functions.Consumer;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.tqi.ekg.Identifier;
 import io.tqi.ekg.KnowledgeBase;
@@ -78,8 +77,6 @@ public class DesktopApplication extends Application {
         primaryStage.setOnCloseRequest(e -> kb.close());
     }
 
-    private ChangeListener<String> tbTextListener;
-
     private void initButton(final ButtonBase button, final String res, final String altText) {
         try {
             button.setGraphic(new ImageView(new Image(new FileInputStream(res))));
@@ -90,129 +87,194 @@ public class DesktopApplication extends Application {
         button.setTooltip(new Tooltip(altText));
     }
 
-    private Disposable selectAction;
+    private io.tqi.ekg.Node findNode(final String query) {
+        return kb.getNode(new Identifier(query));
+    }
+
+    private void selectNode(final String query) {
+        graph.select(findNode(query));
+    }
+
+    private final Button delete = new Button();
+    private final ToggleButton property = new ToggleButton();
+    private final TextField text = new TextField();
+    private final Tooltip propTt = new Tooltip();
+
+    private interface Mode {
+        void bind();
+
+        void unbind();
+    }
+
+    private Mode mode;
+
+    private void setMode(final Mode mode) {
+        if (this.mode != null)
+            this.mode.unbind();
+        this.mode = mode;
+        if (mode != null)
+            mode.bind();
+    }
+
+    private final Mode defaultMode = new Mode() {
+        private Disposable onSelected;
+        private ChangeListener<String> textListener;
+
+        @Override
+        public void bind() {
+            onSelected = graph.rxSelected().subscribe(this::onSelected);
+        }
+
+        @Override
+        public void unbind() {
+            if (textListener != null)
+                text.textProperty().removeListener(textListener);
+            onSelected.dispose();
+        }
+
+        void onSelected(final Optional<Object> selection) {
+            if (textListener != null)
+                text.textProperty().removeListener(textListener);
+            if (selection.isPresent()) {
+                delete.setDisable(false);
+                if (selection.get() instanceof io.tqi.ekg.Node) {
+                    final io.tqi.ekg.Node node = (io.tqi.ekg.Node) selection.get();
+                    text.setText(node.getComment());
+                    text.positionCaret(text.getLength());
+
+                    text.setPromptText("Comment");
+                    textListener = (o, a, b) -> node.setComment(b);
+                    text.textProperty().addListener(textListener);
+                }
+            } else {
+                text.setPromptText("Find/create node");
+                text.clear();
+            }
+        }
+    };
+
+    private final Mode selectMode = new Mode() {
+        private Disposable onSelected;
+
+        @Override
+        public void bind() {
+            onSelected = graph.rxSelected().subscribe(o -> text.clear());
+        }
+
+        @Override
+        public void unbind() {
+            onSelected.dispose();
+        }
+    };
+
+    private final Mode activateMode = new Mode() {
+        @Override
+        public void bind() {
+            selectMode.bind();
+            text.setPromptText("Activate");
+
+            graph.setSelectFn(o -> {
+                if (o instanceof io.tqi.ekg.Node) {
+                    ((io.tqi.ekg.Node) o).activate();
+                    return true;
+                } else {
+                    return false;
+                }
+            });
+        }
+
+        @Override
+        public void unbind() {
+            selectMode.unbind();
+            graph.setSelectFn(null);
+        }
+    };
+
+    private static final String[] PROP_PARAMS = { "Object", "Property", "Value" };
+
+    private final Mode propertyMode = new Mode() {
+        final List<io.tqi.ekg.Node> args = new ArrayList<>();
+        final StringBuilder ttBuilder = new StringBuilder();
+
+        @Override
+        public void bind() {
+            selectMode.bind();
+            updateForArgs();
+
+            graph.setSelectFn(o -> {
+                if (o instanceof io.tqi.ekg.Node) {
+                    final io.tqi.ekg.Node node = (io.tqi.ekg.Node) o;
+                    args.add(node);
+                    ttBuilder.append(node.displayString());
+                    switch (args.size()) {
+                    case 1:
+                        ttBuilder.append('.');
+                        break;
+                    case 2:
+                        ttBuilder.append('=');
+                        break;
+                    case 3:
+                        args.get(0).setProperty(args.get(1), args.get(2));
+
+                        property.setSelected(false);
+                        setMode(defaultMode);
+                        return true;
+                    }
+
+                    updateForArgs();
+
+                    return true;
+                } else {
+                    return false;
+                }
+            });
+
+            propTt.show(graph.getScene().getWindow());
+        }
+
+        @Override
+        public void unbind() {
+            args.clear();
+            ttBuilder.setLength(0);
+
+            propTt.hide();
+            selectMode.unbind();
+            graph.setSelectFn(null);
+        }
+
+        private void updateForArgs() {
+            final String param = PROP_PARAMS[args.size()];
+            propTt.setText(String.format("%s<%s...>", ttBuilder, param.toLowerCase()));
+            text.setPromptText(param);
+        }
+    };
 
     private Node createToolbar() {
         final ToggleButton activate = new ToggleButton();
         initButton(activate, "res/lightning.png", "Activate");
-        final ToggleButton property = new ToggleButton();
         initButton(property, "res/details.png", "Create property");
-        final Tooltip propTt = new Tooltip();
-        final Button delete = new Button();
         initButton(delete, "res/delete.png", "Delete");
-        final TextField text = new TextField();
-
-        final Consumer<Optional<Object>> idleTextUpdate = opt -> {
-            if (tbTextListener != null)
-                text.textProperty().removeListener(tbTextListener);
-            if (opt.isPresent()) {
-                delete.setDisable(false);
-                if (opt.get() instanceof io.tqi.ekg.Node) {
-                    text.setPromptText("Comment");
-
-                    tbTextListener = (o, a, b) -> {
-                        ((io.tqi.ekg.Node) opt.get()).setComment(b);
-                    };
-                    text.textProperty().addListener(tbTextListener);
-                }
-            } else {
-                text.setPromptText("Find node");
-                text.clear();
-            }
-        };
 
         activate.setOnAction(e -> {
-            if (selectAction != null) {
-                selectAction.dispose();
-                selectAction = null;
-            }
-            property.setSelected(false);
-
             if (activate.isSelected()) {
-                graph.setSelectFn(o -> {
-                    if (o instanceof io.tqi.ekg.Node) {
-                        ((io.tqi.ekg.Node) o).activate();
-                        return true;
-                    } else {
-                        return false;
-                    }
-                });
+                setMode(activateMode);
+                property.setSelected(false);
+
                 if (graph.getSelected() != null) {
                     activate.setSelected(false);
-                    graph.setSelectFn(null);
-                    selectAction = graph.rxSelected().subscribe(idleTextUpdate);
+                    setMode(defaultMode);
                 }
-                if (tbTextListener != null)
-                    text.textProperty().removeListener(tbTextListener);
             } else {
-                graph.setSelectFn(null);
-                selectAction = graph.rxSelected().subscribe(idleTextUpdate);
+                setMode(defaultMode);
             }
         });
 
         property.setOnAction(e -> {
-            if (selectAction != null) {
-                selectAction.dispose();
-                selectAction = null;
-            }
-            activate.setSelected(false);
-
             if (property.isSelected()) {
-                final List<io.tqi.ekg.Node> args = new ArrayList<>();
-                graph.setSelectFn(o -> {
-                    if (o instanceof io.tqi.ekg.Node) {
-                        args.add((io.tqi.ekg.Node) o);
-
-                        final StringBuilder ttBuilder = new StringBuilder().append(args.get(0).displayString())
-                                .append('.');
-                        if (args.size() == 1) {
-                            ttBuilder.append("<property...>");
-                        } else {
-                            ttBuilder.append(args.get(1).displayString()).append(" = ");
-                            if (args.size() == 2) {
-                                ttBuilder.append("<value...>");
-                            } else {
-                                ttBuilder.append(args.get(2).displayString());
-                                args.get(0).setProperty(args.get(1), args.get(2));
-
-                                property.setSelected(false);
-                                graph.setSelectFn(null);
-                                selectAction = graph.rxSelected().subscribe(idleTextUpdate);
-                                text.setOnAction(null);
-                            }
-                        }
-
-                        propTt.setText(ttBuilder.toString());
-
-                        return true;
-                    } else {
-                        return false;
-                    }
-                });
-
-                text.setPromptText("Find node");
-                text.setOnAction(a -> {
-                    final io.tqi.ekg.Node node = kb.getNode(new Identifier(text.getText()));
-                    if (node != null) {
-                        graph.select(node);
-                    }
-                });
-
-                if (tbTextListener != null)
-                    text.textProperty().removeListener(tbTextListener);
+                setMode(propertyMode);
+                activate.setSelected(false);
             } else {
-                graph.setSelectFn(null);
-                selectAction = graph.rxSelected().subscribe(idleTextUpdate);
-                text.setOnAction(null);
-            }
-        });
-
-        property.selectedProperty().addListener((o, oldValue, newValue) -> {
-            if (newValue) {
-                propTt.setText("<object...>");
-                propTt.show(graph.getScene().getWindow());
-            } else {
-                propTt.hide();
+                setMode(defaultMode);
             }
         });
 
@@ -222,13 +284,9 @@ public class DesktopApplication extends Application {
         });
 
         graph.rxSelected().subscribe(opt -> {
-            if (tbTextListener != null)
-                text.textProperty().removeListener(tbTextListener);
             if (opt.isPresent()) {
                 delete.setDisable(false);
                 if (opt.get() instanceof io.tqi.ekg.Node) {
-                    text.setText(((io.tqi.ekg.Node) opt.get()).getComment());
-                    text.positionCaret(text.getLength());
                     delete.setOnAction(e -> System.out.println("Not implemented"));
                 } else if (opt.get() instanceof GraphPanel.Property) {
                     delete.setOnAction(e -> {
@@ -247,7 +305,11 @@ public class DesktopApplication extends Application {
                 delete.setDisable(true);
             }
         });
-        selectAction = graph.rxSelected().subscribe(idleTextUpdate);
+
+        setMode(defaultMode);
+
+        text.setOnAction(e -> selectNode(text.getText()));
+
         return new ToolBar(activate, property, delete, text);
     }
 

@@ -1,6 +1,5 @@
 package io.tqi.ekg;
 
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -17,12 +16,13 @@ import io.tqi.ekg.Synapse.Activation;
 import javafx.geometry.Point3D;
 
 public class NodePhysics {
-    private static class Link extends WeakReference<Node> {
+    private static class Link {
         Link next;
         Set<Link> bucket;
+        final Node.Ref node;
 
         Link(final Node node) {
-            super(node);
+            this.node = node.ref();
         }
     }
 
@@ -50,20 +50,20 @@ public class NodePhysics {
     private void process() {
         Link link;
         synchronized ($lock) {
-            while (head != null && head.get() == null) {
+            while (head != null && head.node.get() == null) {
                 head = head.next;
             }
             link = head;
         }
 
         while (link != null) {
-            final Node node = link.get();
+            final Node node = link.node.get();
             if (node != null) {
                 updateBucket(link);
                 process(node);
             }
 
-            while (link.next != null && link.next.get() == null) {
+            while (link.next != null && link.next.node.get() == null) {
                 link.next = link.next.next;
             }
             link = link.next;
@@ -100,7 +100,7 @@ public class NodePhysics {
 
     private void updateBucket(final Link link) {
         final Set<Link> bucket;
-        final Node node = link.get();
+        final Node node = link.node.get();
         if (node == null)
             return;
 
@@ -162,7 +162,7 @@ public class NodePhysics {
 
         if (!node.isPinned() && node.getLocation() != null) {
             for (final Link otherLink : getNeighborhood(node)) {
-                final Node other = otherLink.get();
+                final Node other = otherLink.node.get();
                 if (other == null || other == node)
                     continue;
                 Point3D vec = node.getLocation().subtract(other.getLocation());

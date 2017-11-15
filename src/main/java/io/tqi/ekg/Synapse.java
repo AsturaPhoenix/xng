@@ -4,12 +4,8 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.lang.ref.WeakReference;
-import java.util.Collections;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.Map.Entry;
-import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
@@ -39,27 +35,27 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
         private float coefficient;
         @Getter
         private long decayPeriod; // linear for now
-        private final WeakReference<Node> node;
+        private final Node node;
         private final Disposable subscription;
 
         private Activation(final Node node, final Disposable subscription) {
             this.coefficient = 1;
             decayPeriod = DEFAULT_DECAY_PERIOD;
-            this.node = new WeakReference<>(node);
+            this.node = node;
             this.subscription = subscription;
         }
 
         public float getValue(final long time) {
-            long dt = time - node.get().getLastActivation();
+            long dt = time - node.getLastActivation();
             return dt >= decayPeriod ? 0 : coefficient * (1 - dt / (float) decayPeriod);
         }
 
         private long getZero() {
-            return node.get().getLastActivation() + decayPeriod;
+            return node.getLastActivation() + decayPeriod;
         }
     }
 
-    private transient Map<Node, Activation> inputs;
+    private transient NodeKeyMap<Activation> inputs;
 
     private transient Subject<Long> rxInput;
     private transient Observable<Long> rxOutput;
@@ -70,7 +66,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
     }
 
     private void init() {
-        inputs = Collections.synchronizedMap(new WeakHashMap<>());
+        inputs = new NodeKeyMap<>();
         rxInput = PublishSubject.create();
         rxOutput = rxInput.window(rxInput.debounce(DEBOUNCE_PERIOD, TimeUnit.MILLISECONDS))
                 .concatMap(window -> window.sample(DEBOUNCE_PERIOD, TimeUnit.MILLISECONDS)).switchMap(this::evaluate);

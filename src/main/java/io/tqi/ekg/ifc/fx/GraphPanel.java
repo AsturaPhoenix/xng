@@ -1,6 +1,5 @@
 package io.tqi.ekg.ifc.fx;
 
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -8,7 +7,6 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
@@ -19,6 +17,7 @@ import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.NodeKeyMap;
 import io.tqi.ekg.Synapse.Activation;
 import javafx.collections.ObservableList;
 import javafx.geometry.Point2D;
@@ -265,11 +264,11 @@ public class GraphPanel extends StackPane {
         }
 
         io.tqi.ekg.Node getSource() {
-            return end.node.get();
+            return end.node;
         }
 
         io.tqi.ekg.Node getDest() {
-            return getOwner().node.get();
+            return getOwner().node;
         }
 
         @Override
@@ -312,15 +311,15 @@ public class GraphPanel extends StackPane {
         }
 
         io.tqi.ekg.Node getObject() {
-            return getOwner().node.get();
+            return getOwner().node;
         }
 
         io.tqi.ekg.Node getProperty() {
-            return spur.end.node.get();
+            return spur.end.node;
         }
 
         io.tqi.ekg.Node getValue() {
-            return end.node.get();
+            return end.node;
         }
 
         @Override
@@ -370,7 +369,7 @@ public class GraphPanel extends StackPane {
     }
 
     private class NodeGeom extends Group implements Selectable {
-        final WeakReference<io.tqi.ekg.Node> node;
+        final io.tqi.ekg.Node node;
         final Ellipse body;
         final Caption text;
 
@@ -410,7 +409,7 @@ public class GraphPanel extends StackPane {
         }
 
         NodeGeom(final io.tqi.ekg.Node node) {
-            this.node = new WeakReference<>(node);
+            this.node = node;
 
             getChildren().add(geom);
 
@@ -432,28 +431,31 @@ public class GraphPanel extends StackPane {
             root.getChildren().add(this);
             node.rxChange().sample(1000 / 60, TimeUnit.MILLISECONDS).observeOn(JavaFxScheduler.platform())
                     .subscribe(x -> updateNode(), y -> {
-                    }, () -> root.getChildren().remove(this));
+                    }, () -> {
+                        for (Connection c : incoming) {
+                            if (c.getParent() instanceof Connection) {
+                                c = (Connection) c.getParent();
+                            }
+                            if (c.getParent() != null)
+                                ((Group) c.getParent()).getChildren().remove(c);
+                        }
+                        root.getChildren().remove(this);
+                    });
 
             geom.setOnMousePressed(e -> {
                 if (e.isSynthesized())
                     return;
 
-                final io.tqi.ekg.Node n = this.node.get();
-                if (n != null) {
-                    dragPt = calcTp(e);
-                    n.setPinned(true);
-                    tappable.onActualMousePressed(e);
-                } else {
-                    tappable.cancelTap();
-                }
+                dragPt = calcTp(e);
+                node.setPinned(true);
+                tappable.onActualMousePressed(e);
             });
 
             geom.setOnTouchPressed(e -> {
-                final io.tqi.ekg.Node n = this.node.get();
-                if (dragPtId == 0 && n != null) {
+                if (dragPtId == 0 && node != null) {
                     dragPtId = e.getTouchPoint().getId();
                     dragPt = calcTp(e);
-                    n.setPinned(true);
+                    node.setPinned(true);
                     tappable.onTouchPressed(e);
                 } else {
                     tappable.cancelTap();
@@ -464,26 +466,18 @@ public class GraphPanel extends StackPane {
                 if (e.isSynthesized())
                     return;
 
-                final io.tqi.ekg.Node n = this.node.get();
-
-                if (n != null) {
-                    if (tappable.onActualMouseDragged(e)) {
-                        final Point3D newPt = calcTp(e);
-                        n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
-                        dragPt = newPt;
-                    }
-                } else {
-                    tappable.cancelTap();
+                if (tappable.onActualMouseDragged(e)) {
+                    final Point3D newPt = calcTp(e);
+                    node.setLocation(node.getLocation().add(newPt.subtract(dragPt)));
+                    dragPt = newPt;
                 }
             });
 
             geom.setOnTouchMoved(e -> {
-                final io.tqi.ekg.Node n = this.node.get();
-
-                if (dragPtId == e.getTouchPoint().getId() && n != null) {
+                if (dragPtId == e.getTouchPoint().getId() && node != null) {
                     if (tappable.onTouchMoved(e)) {
                         final Point3D newPt = calcTp(e);
-                        n.setLocation(n.getLocation().add(newPt.subtract(dragPt)));
+                        node.setLocation(node.getLocation().add(newPt.subtract(dragPt)));
                         dragPt = newPt;
                     }
                 } else {
@@ -495,23 +489,21 @@ public class GraphPanel extends StackPane {
                 if (e.isSynthesized())
                     return;
 
-                final io.tqi.ekg.Node n = this.node.get();
-                if (n != null) {
-                    n.setPinned(false);
+                if (node != null) {
+                    node.setPinned(false);
                 }
                 if (tappable.onReleased()) {
-                    touched(n == null ? null : this, n);
+                    touched(node == null ? null : this, node);
                 }
             });
 
             geom.setOnTouchReleased(e -> {
-                final io.tqi.ekg.Node n = this.node.get();
-                if (dragPtId == e.getTouchPoint().getId() && n != null) {
-                    n.setPinned(false);
+                if (dragPtId == e.getTouchPoint().getId() && node != null) {
+                    node.setPinned(false);
                     dragPtId = 0;
                 }
                 if (tappable.onReleased()) {
-                    touched(n == null ? null : this, n);
+                    touched(node == null ? null : this, node);
                 }
             });
 
@@ -524,8 +516,7 @@ public class GraphPanel extends StackPane {
         }
 
         void updateColor() {
-            final io.tqi.ekg.Node n = node.get();
-            if (n != null && n.getValue() == null) {
+            if (node != null && node.getValue() == null) {
                 body.setFill(Color.ALICEBLUE);
                 body.setStroke(Color.CORNFLOWERBLUE);
             } else {
@@ -533,8 +524,8 @@ public class GraphPanel extends StackPane {
                 body.setStroke(Color.CORNFLOWERBLUE);
             }
 
-            if (n != null) {
-                final double activation = Math.max(1000 + n.getLastActivation() - System.currentTimeMillis(), 0)
+            if (node != null) {
+                final double activation = Math.max(1000 + node.getLastActivation() - System.currentTimeMillis(), 0)
                         / 1000.0;
                 if (activation > 0) {
                     body.setFill(((Color) body.getFill()).interpolate(Color.YELLOW, activation));
@@ -562,13 +553,12 @@ public class GraphPanel extends StackPane {
         }
 
         void updateNode() {
-            final io.tqi.ekg.Node n = node.get();
-            if (n != null) {
-                text.setText(n.displayString());
+            if (node != null) {
+                text.setText(node.displayString());
                 body.setRadiusX((Strings.isNullOrEmpty(text.getText()) ? NODE_MIN_RAD : NODE_MAJ_RAD) * GRAPH_SCALE);
                 updateColor();
 
-                if (n.getLocation() != null) {
+                if (node.getLocation() != null) {
                     updateConnections();
                     updatePosition();
                     for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
@@ -589,26 +579,25 @@ public class GraphPanel extends StackPane {
         }
 
         void updateConnections() {
-            final io.tqi.ekg.Node n = node.get();
-            if (n == null)
+            if (node == null)
                 return;
 
             final Set<io.tqi.ekg.Node> oldAssocs = new HashSet<>(), oldProps = new HashSet<>();
 
             for (final Iterator<Node> it = connections.getChildren().iterator(); it.hasNext();) {
-                final Node node = it.next();
-                if (node instanceof AssocConnection) {
-                    final AssocConnection ac = (AssocConnection) node;
-                    if (n.getSynapse().getCoefficient(ac.getSource()) == 0) {
+                final Node child = it.next();
+                if (child instanceof AssocConnection) {
+                    final AssocConnection ac = (AssocConnection) child;
+                    if (node.getSynapse().getCoefficient(ac.getSource()) == 0) {
                         it.remove();
                         if (selectedUi == ac)
                             touched(null, null);
                     } else {
                         oldAssocs.add(ac.getSource());
                     }
-                } else if (node instanceof PropConnection) {
-                    final PropConnection pc = (PropConnection) node;
-                    final io.tqi.ekg.Node pn = pc.getProperty(), vn = n.getProperty(pn);
+                } else if (child instanceof PropConnection) {
+                    final PropConnection pc = (PropConnection) child;
+                    final io.tqi.ekg.Node pn = pc.getProperty(), vn = node.getProperty(pn);
                     if (vn == null) {
                         it.remove();
                         if (selectedUi == pc)
@@ -624,12 +613,12 @@ public class GraphPanel extends StackPane {
                 }
             }
 
-            for (final Entry<io.tqi.ekg.Node, Activation> source : n.getSynapse()) {
+            for (final Entry<io.tqi.ekg.Node, Activation> source : node.getSynapse()) {
                 if (!oldAssocs.contains(source.getKey())) {
                     connections.getChildren().add(new AssocConnection(node(source.getKey())));
                 }
             }
-            for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : n.getProperties().entrySet()) {
+            for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : node.getProperties().entrySet()) {
                 if (!oldProps.contains(prop.getKey())) {
                     connections.getChildren().add(new PropConnection(node(prop.getKey()), node(prop.getValue())));
                 }
@@ -637,9 +626,8 @@ public class GraphPanel extends StackPane {
         }
 
         void updatePosition() {
-            final io.tqi.ekg.Node n = node.get();
-            if (n != null && n.getLocation() != null) {
-                final Point3D pos = graphTransform.transform(n.getLocation());
+            if (node != null && node.getLocation() != null) {
+                final Point3D pos = graphTransform.transform(node.getLocation());
                 setTranslateX(pos.getX());
                 setTranslateY(pos.getY());
                 setTranslateZ(pos.getZ());
@@ -663,7 +651,7 @@ public class GraphPanel extends StackPane {
     private int navPtCount;
     private final Affine graphTransform;
 
-    private final WeakHashMap<io.tqi.ekg.Node, NodeGeom> nodes = new WeakHashMap<>();
+    private final NodeKeyMap<NodeGeom> nodes = new NodeKeyMap<>();
 
     private Selectable selectedUi;
     @Getter

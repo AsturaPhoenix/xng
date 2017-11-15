@@ -2,14 +2,17 @@ package io.tqi.ekg;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectInputStream.GetField;
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import com.google.common.collect.MapMaker;
-
+import io.reactivex.Completable;
 import io.reactivex.Observable;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Action;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import javafx.geometry.Point3D;
@@ -29,14 +32,50 @@ public class Node implements Serializable {
         double x, y, z;
     }
 
+    public static class Ref implements Disposable {
+        private Node node;
+        private final Disposable cleanup;
+
+        public Node get() {
+            return node;
+        }
+
+        public Ref(final Node node, final Action deleter) {
+            this.node = node;
+            cleanup = node.rxDeleted().subscribe(() -> {
+                if (deleter != null)
+                    deleter.run();
+                this.node = null;
+            });
+        }
+
+        @Override
+        public void dispose() {
+            cleanup.dispose();
+        }
+
+        @Override
+        public boolean isDisposed() {
+            return cleanup.isDisposed();
+        }
+    }
+
+    public Ref ref(final Action deleter) {
+        return new Ref(this, deleter);
+    }
+
+    public Ref ref() {
+        return ref(null);
+    }
+
     @Getter
-    private final Serializable value;
+    private Serializable value;
 
     @Getter
     private long lastActivation;
 
     @Getter
-    private final Synapse synapse = new Synapse();
+    private Synapse synapse = new Synapse();
 
     @Getter
     private long refactory = DEFAULT_REFRACTORY;
@@ -44,6 +83,7 @@ public class Node implements Serializable {
     private transient Subject<Long> rxInput;
     private transient Observable<Long> rxOutput;
     private transient Subject<Object> rxChange;
+    private transient Completable rxDeleted;
 
     private SPoint location;
 
@@ -95,19 +135,40 @@ public class Node implements Serializable {
         // once per activation.
         rxOutput = rxInput.filter(t -> t - lastActivation >= refactory).share();
         rxChange = PublishSubject.create();
+        rxDeleted = rxChange.ignoreElements();
 
         synapse.rxActivate().subscribe(t -> activate());
         rxOutput.subscribe(t -> lastActivation = t);
         synapse.rxChange().subscribe(s -> rxChange.onNext(this));
     }
 
+    @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
-        stream.defaultReadObject();
+        final GetField fields = stream.readFields();
+
+        value = (Serializable) fields.get("value", null);
+        lastActivation = fields.get("lastActivation", 0L);
+        synapse = (Synapse) fields.get("synapse", new Synapse());
+        refactory = fields.get("refactory", DEFAULT_REFRACTORY);
+        location = (SPoint) fields.get("location", null);
+        pinned = fields.get("pinned", false);
+        comment = (String) fields.get("comment", null);
+        properties = new NodeMap((Map<Node, Node>) fields.get("properties", new HashMap<>()));
+
         init();
     }
 
     public Observable<Object> rxChange() {
         return rxChange;
+    }
+
+    public Completable rxDeleted() {
+        return rxDeleted;
+    }
+
+    public void delete() {
+        rxInput.onComplete();
+        rxChange.onComplete();
     }
 
     public void setRefractory(final long refractory) {
@@ -126,7 +187,7 @@ public class Node implements Serializable {
         return rxOutput;
     }
 
-    private final Map<Node, Node> properties = new MapMaker().weakKeys().makeMap();
+    private NodeMap properties = new NodeMap();
 
     @RequiredArgsConstructor
     public static class PropertySet {

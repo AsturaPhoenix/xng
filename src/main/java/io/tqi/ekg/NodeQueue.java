@@ -1,7 +1,5 @@
 package io.tqi.ekg;
 
-import java.lang.ref.ReferenceQueue;
-import java.lang.ref.WeakReference;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
 import java.util.Iterator;
@@ -16,18 +14,19 @@ import lombok.Synchronized;
  * holds weak references to its nodes. This collection is thread-safe.
  */
 public class NodeQueue implements Iterable<Node> {
-    private static class Link extends WeakReference<Node> {
+    private class Link {
         Link previous, next;
+        Node.Ref node;
 
-        Link(final Node node, final ReferenceQueue<? super Node> q) {
-            super(node, q);
+        Link(final Node node) {
+            this.node = node.ref(() -> remove(this));
         }
     }
 
     private class NodeQueueIterator implements Iterator<Node> {
         final Object version;
         Link nextLink;
-        Node nextNode; // need to hold onto a hard reference while on deck
+        Node nextNode; // hold onto a hard reference while on deck
 
         NodeQueueIterator() {
             version = NodeQueue.this.version;
@@ -36,7 +35,7 @@ public class NodeQueue implements Iterable<Node> {
 
         private void consumeReleased() {
             synchronized ($lock) {
-                while (nextLink != null && (nextNode = nextLink.get()) == null) {
+                while (nextLink != null && (nextNode = nextLink.node.get()) == null) {
                     nextLink = nextLink.next;
                 }
             }
@@ -65,29 +64,15 @@ public class NodeQueue implements Iterable<Node> {
         }
     }
 
-    private final ReferenceQueue<Node> removeQueue = new ReferenceQueue<>();
     private Link head, tail;
     private Object version;
 
-    private final Thread remover = new Thread(() -> {
-        while (!Thread.interrupted()) {
-            try {
-                final Link removed = (Link) removeQueue.remove();
-                remove(removed);
-            } catch (final InterruptedException e) {
-                return;
-            }
-        }
-    });
-
-    public NodeQueue() {
-        remover.setDaemon(true);
-        remover.start();
-    }
-
     public void add(final Node node) {
-        final Link link = new Link(node, removeQueue);
-        initAtTail(link);
+        final Link link;
+        synchronized ($lock) {
+            link = new Link(node);
+            initAtTail(link);
+        }
 
         node.rxActivate().subscribe(t -> promote(link));
     }
@@ -112,7 +97,7 @@ public class NodeQueue implements Iterable<Node> {
             link.next.previous = link.previous;
         }
 
-        if (link.get() != null) {
+        if (link.node.get() != null) {
             version = null;
         }
     }

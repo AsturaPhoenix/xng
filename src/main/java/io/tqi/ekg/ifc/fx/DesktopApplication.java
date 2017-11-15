@@ -287,7 +287,7 @@ public class DesktopApplication extends Application {
             if (opt.isPresent()) {
                 delete.setDisable(false);
                 if (opt.get() instanceof io.tqi.ekg.Node) {
-                    delete.setOnAction(e -> System.out.println("Not implemented"));
+                    delete.setOnAction(e -> ((io.tqi.ekg.Node) opt.get()).delete());
                 } else if (opt.get() instanceof GraphPanel.Property) {
                     delete.setOnAction(e -> {
                         final GraphPanel.Property prop = (GraphPanel.Property) opt.get();

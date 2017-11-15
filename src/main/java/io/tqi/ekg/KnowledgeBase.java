@@ -2,10 +2,12 @@ package io.tqi.ekg;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectInputStream.GetField;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
@@ -13,12 +15,9 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.MapMaker;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
@@ -46,8 +45,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         }
     }
 
-    private final ConcurrentMap<Serializable, Node> index = new ConcurrentHashMap<>();
-    private final Map<IdentityKey, Node> valueIndex = new MapMaker().weakValues().makeMap();
+    private NodeValueMap<Serializable> index = new NodeValueMap<>();
+    private NodeValueMap<IdentityKey> valueIndex = new NodeValueMap<>();
 
     // Nodes not otherwise referenced should be garbage collected, so this
     // collection holds weak references.
@@ -319,7 +318,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
     @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
-        stream.defaultReadObject();
+        final GetField fields = stream.readFields();
+        index = new NodeValueMap<>((Map<Serializable, Node>) fields.get("index", new HashMap<>()));
+        valueIndex = new NodeValueMap<>((Map<IdentityKey, Node>) fields.get("valueIndex", new HashMap<>()));
 
         final Set<Node> serNodes = (Set<Node>) stream.readObject();
         int oldSize = serNodes.size();

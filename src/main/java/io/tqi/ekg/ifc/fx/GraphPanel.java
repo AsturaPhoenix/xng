@@ -88,7 +88,7 @@ public class GraphPanel extends StackPane {
             initNode();
 
             if (label == null) {
-                pumpkinTimer.subscribe(t -> checkFallback());
+                pumpkinTimer.observeOn(JavaFxScheduler.platform()).subscribe(t -> checkFallback());
             }
         }
 

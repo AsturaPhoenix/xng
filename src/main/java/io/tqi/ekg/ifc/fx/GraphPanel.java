@@ -251,7 +251,6 @@ public class GraphPanel extends StackPane {
 
         AssocConnection(final NodeGeom source) {
             super(source, true);
-            setColor(Color.RED);
 
             selGlow.setSpread(.7);
 
@@ -268,7 +267,8 @@ public class GraphPanel extends StackPane {
         }
 
         io.tqi.ekg.Node getDest() {
-            return getOwner().node;
+            final NodeGeom owner = getOwner();
+            return owner == null ? null : owner.node;
         }
 
         @Override
@@ -279,6 +279,12 @@ public class GraphPanel extends StackPane {
         @Override
         public void deselect() {
             line.setEffect(null);
+        }
+
+        void updateColor() {
+            io.tqi.ekg.Node dest = getDest();
+            if (dest != null)
+                setColor(Color.TRANSPARENT.interpolate(Color.RED, dest.getSynapse().getCoefficient(getSource())));
         }
     }
 
@@ -593,6 +599,7 @@ public class GraphPanel extends StackPane {
                         if (selectedUi == ac)
                             touched(null, null);
                     } else {
+                        ac.updateColor();
                         oldAssocs.add(ac.getSource());
                     }
                 } else if (child instanceof PropConnection) {
@@ -615,7 +622,9 @@ public class GraphPanel extends StackPane {
 
             for (final Entry<io.tqi.ekg.Node, Activation> source : node.getSynapse()) {
                 if (!oldAssocs.contains(source.getKey())) {
-                    connections.getChildren().add(new AssocConnection(node(source.getKey())));
+                    final AssocConnection ac = new AssocConnection(node(source.getKey()));
+                    connections.getChildren().add(ac);
+                    ac.updateColor();
                 }
             }
             for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : node.getProperties().entrySet()) {
@@ -678,7 +687,7 @@ public class GraphPanel extends StackPane {
     }
 
     public void select(final io.tqi.ekg.Node node) {
-        touched(node(node), node);
+        touched(node == null ? null : node(node), node);
     }
 
     private void touched(final Selectable ui, final Object data) {

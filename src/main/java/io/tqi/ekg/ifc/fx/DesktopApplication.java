@@ -116,6 +116,10 @@ public class DesktopApplication extends Application {
             mode.bind();
     }
 
+    private void setFindNodeOnText() {
+        text.setOnAction(e -> selectNode(text.getText()));
+    }
+
     private final Mode defaultMode = new Mode() {
         private Disposable onSelected;
         private ChangeListener<String> textListener;
@@ -130,6 +134,7 @@ public class DesktopApplication extends Application {
             if (textListener != null)
                 text.textProperty().removeListener(textListener);
             onSelected.dispose();
+            text.setOnAction(null);
         }
 
         void onSelected(final Optional<Object> selection) {
@@ -137,6 +142,7 @@ public class DesktopApplication extends Application {
                 text.textProperty().removeListener(textListener);
             if (selection.isPresent()) {
                 delete.setDisable(false);
+                text.setOnAction(null);
                 if (selection.get() instanceof io.tqi.ekg.Node) {
                     final io.tqi.ekg.Node node = (io.tqi.ekg.Node) selection.get();
                     text.setText(node.getComment());
@@ -149,6 +155,7 @@ public class DesktopApplication extends Application {
             } else {
                 text.setPromptText("Find/create node");
                 text.clear();
+                setFindNodeOnText();
             }
         }
     };
@@ -159,11 +166,13 @@ public class DesktopApplication extends Application {
         @Override
         public void bind() {
             onSelected = graph.rxSelected().subscribe(o -> text.clear());
+            setFindNodeOnText();
         }
 
         @Override
         public void unbind() {
             onSelected.dispose();
+            text.setOnAction(null);
         }
     };
 
@@ -222,6 +231,7 @@ public class DesktopApplication extends Application {
                     }
 
                     updateForArgs();
+                    text.requestFocus();
 
                     return true;
                 } else {

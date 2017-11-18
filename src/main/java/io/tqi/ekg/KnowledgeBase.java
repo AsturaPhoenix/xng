@@ -15,6 +15,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -401,9 +402,23 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         return getOrCreateNode(identifier, null);
     }
 
+    @SuppressWarnings("unchecked")
     public Node valueNode(final Serializable value) {
-        return valueIndex.computeIfAbsent(new IdentityKey(value), x -> {
-            final Node node = new Node(value);
+        // Single-instance resolution for immutable types. Skip for/bootstrap
+        // with Class since that's always single-instance.
+        Serializable resolvingValue = value;
+        if (!(value instanceof Class<?>)) {
+            final Node values = valueNode(value.getClass()).getProperty(node(Common.value));
+            if (values != null && values.getValue() instanceof ConcurrentHashMap) {
+                resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.getValue())
+                        .computeIfAbsent(value, x -> value);
+            }
+        }
+
+        final Serializable resolvedValue = resolvingValue;
+
+        return valueIndex.computeIfAbsent(new IdentityKey(resolvedValue), x -> {
+            final Node node = new Node(resolvedValue);
             initNode(node);
             nodes.add(node);
             return node;

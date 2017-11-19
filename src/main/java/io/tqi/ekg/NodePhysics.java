@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.collect.Iterables;
 
 import io.reactivex.Observable;
+import io.tqi.ekg.KnowledgeBase.Common;
 import io.tqi.ekg.Synapse.Activation;
 import javafx.geometry.Point3D;
 
@@ -26,10 +27,13 @@ public class NodePhysics {
         }
     }
 
+    private final KnowledgeBase kb;
+
     private final Object $lock = new Object();
     private Link head;
 
-    public NodePhysics() {
+    public NodePhysics(final KnowledgeBase kb) {
+        this.kb = kb;
         Observable.interval(1000 / 60, TimeUnit.MILLISECONDS).subscribe(f -> process());
     }
 
@@ -124,15 +128,35 @@ public class NodePhysics {
     private void attract(final Node a, final Node b, final double k, final double zx) {
         final Point3D vec = b.getLocation().subtract(a.getLocation());
         final double dist = vec.magnitude();
-        final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - zx, 0), .2));
+        final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - zx, 0), .2) / 2);
 
-        if (delta.dotProduct(delta) > .001) {
+        if (delta.dotProduct(delta) > .00001) {
             if (!a.isPinned()) {
                 a.setLocation(a.getLocation().add(delta));
             }
 
             if (!b.isPinned()) {
                 b.setLocation(b.getLocation().subtract(delta));
+            }
+        }
+    }
+
+    private void attract(final Node a, final Node b1, final Node b2, final double k, final double zx) {
+        final Point3D vec = a.getLocation().subtract(b1.getLocation().midpoint(b2.getLocation()));
+        final double dist = vec.magnitude();
+        final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - zx, 0), .2) / 3);
+
+        if (delta.dotProduct(delta) > .00001) {
+            if (!a.isPinned()) {
+                a.setLocation(a.getLocation().subtract(delta));
+            }
+
+            if (!b1.isPinned()) {
+                b1.setLocation(b1.getLocation().add(delta));
+            }
+
+            if (!b2.isPinned()) {
+                b2.setLocation(b2.getLocation().add(delta));
             }
         }
     }
@@ -156,8 +180,10 @@ public class NodePhysics {
             if (prop.getValue().getLocation() == null) {
                 prop.getValue().setLocation(node.getLocation().add(0, 1, 0));
             }
-            attract(prop.getKey(), node, .02, 5);
-            attract(prop.getValue(), node, .05, 1.5);
+
+            final double attScale = prop.getKey() == kb.node(Common.execute) ? 5 : 1;
+            attract(prop.getKey(), node, prop.getValue(), .02 / attScale, 4 * attScale);
+            attract(prop.getValue(), node, .05 / attScale, 1.5 * attScale);
         }
 
         if (!node.isPinned() && node.getLocation() != null) {

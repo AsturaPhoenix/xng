@@ -17,6 +17,7 @@ import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.KnowledgeBase.Common;
 import io.tqi.ekg.NodeKeyMap;
 import io.tqi.ekg.Synapse.Activation;
 import javafx.collections.ObservableList;
@@ -54,6 +55,7 @@ import lombok.RequiredArgsConstructor;
 public class GraphPanel extends StackPane {
     private static final double ROTATION_FACTOR = 2;
     private static final double GRAPH_SCALE = 100;
+    private static final double UI_SCALE = 2;
     private static final double TRANSLATION_FACTOR = GRAPH_SCALE / 55;
     private static final double ZOOM_FACTOR = GRAPH_SCALE / 11;
 
@@ -296,7 +298,8 @@ public class GraphPanel extends StackPane {
 
         PropConnection(final NodeGeom property, final NodeGeom value) {
             super(value, false);
-            setColor(Color.BLACK);
+            setColor(property.node == kb.node(Common.execute) ? Color.DEEPSKYBLUE.interpolate(Color.TRANSPARENT, .5)
+                    : Color.BLACK);
             spur = new Connection(property, false);
             spur.setColor(Color.BLUE.interpolate(Color.TRANSPARENT, .9));
             spur.setVisible(false);
@@ -707,8 +710,10 @@ public class GraphPanel extends StackPane {
     private final Subject<Optional<Void>> rxCam = PublishSubject.create();
     private final Observable<Optional<Void>> rxCamOut = rxCam.sample(1000 / 60, TimeUnit.MILLISECONDS)
             .observeOn(JavaFxScheduler.platform()).share();
+    private final KnowledgeBase kb;
 
     public GraphPanel(final KnowledgeBase kb) {
+        this.kb = kb;
         root = new Group();
 
         camera = new PerspectiveCamera(true);
@@ -718,7 +723,7 @@ public class GraphPanel extends StackPane {
         root.getChildren().add(camera);
 
         graphTransform = new Affine();
-        graphTransform.append(new Scale(GRAPH_SCALE, GRAPH_SCALE, GRAPH_SCALE));
+        graphTransform.append(new Scale(GRAPH_SCALE * UI_SCALE, GRAPH_SCALE * UI_SCALE, GRAPH_SCALE * UI_SCALE));
 
         // Stagger node creation or else JavaFX may NPE on cache buffer
         // creation...
@@ -742,16 +747,16 @@ public class GraphPanel extends StackPane {
             maxZ = Math.max(pt.getZ(), maxZ);
         }
 
-        minX *= GRAPH_SCALE;
-        maxX *= GRAPH_SCALE;
-        minY *= GRAPH_SCALE;
-        maxY *= GRAPH_SCALE;
-        minZ *= GRAPH_SCALE;
-        maxZ *= GRAPH_SCALE;
+        minX *= GRAPH_SCALE * UI_SCALE;
+        maxX *= GRAPH_SCALE * UI_SCALE;
+        minY *= GRAPH_SCALE * UI_SCALE;
+        maxY *= GRAPH_SCALE * UI_SCALE;
+        minZ *= GRAPH_SCALE * UI_SCALE;
+        maxZ *= GRAPH_SCALE * UI_SCALE;
 
         graphTransform.setTx(-(maxX + minX) / 2);
         graphTransform.setTy(-(maxY + minY) / 2);
-        graphTransform.setTz(-minZ + 3 * GRAPH_SCALE
+        graphTransform.setTz(-minZ + 3 * GRAPH_SCALE * UI_SCALE
                 + Math.min(maxX - minX, maxY - minY) / Math.tan(Math.toRadians(camera.getFieldOfView())));
 
         for (final NodeGeom geom : nodes.values()) {

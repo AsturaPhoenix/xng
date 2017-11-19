@@ -222,7 +222,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private void init() {
         rxOutput = PublishSubject.create();
         rxChange = PublishSubject.create();
-        physics = new NodePhysics();
+        physics = new NodePhysics(this);
 
         for (final Node node : nodes) {
             initNode(node);

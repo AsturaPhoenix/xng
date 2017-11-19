@@ -5,6 +5,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectInputStream.GetField;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -60,7 +61,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
     public enum Common {
         execute, argument("arg"), callback, clazz(
-                "class"), object, property, method, exception, source, destination, value, coefficient, newNode;
+                "class"), object, property, field, method, exception, source, destination, value, coefficient, newNode;
 
         public final Identifier identifier;
 
@@ -93,6 +94,40 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                 final Node value = source.getProperty(kb.node(Common.object)).getProperty(sourceProp);
                 dest.getProperty(kb.node(Common.object)).setProperty(destProp, value);
                 return value;
+            }
+        },
+        /**
+         * Gets a static or instance Java field.
+         */
+        field {
+            @Override
+            public Node impl(final KnowledgeBase kb, final Node node) throws Exception {
+                final Node classNode = node.getProperty(kb.node(Common.clazz)),
+                        objectNode = node.getProperty(kb.node(Common.object)),
+                        fieldNode = node.getProperty(kb.node(Common.field));
+                final Object object;
+                final Class<?> clazz;
+
+                if (objectNode != null) {
+                    object = objectNode.getValue();
+
+                    if (classNode != null) {
+                        clazz = (Class<?>) classNode.getValue();
+                        if (!clazz.isAssignableFrom(object.getClass())) {
+                            throw new IllegalArgumentException("Provided class does not match object class");
+                        }
+                    } else {
+                        clazz = object.getClass();
+                    }
+                } else {
+                    object = null;
+                    clazz = (Class<?>) classNode.getValue();
+                }
+
+                Field field = clazz.getField((String) fieldNode.getValue());
+
+                Object ret = field.get(object);
+                return kb.valueNode((Serializable) ret);
             }
         },
         /**

@@ -183,7 +183,6 @@ public class GraphPanel extends StackPane {
 
         Connection(final NodeGeom end, final boolean flip) {
             this.end = end;
-            end.incoming.add(this);
             if (flip)
                 line.setScaleX(-1);
             touchTarget.setHeight(.1 * GRAPH_SCALE);
@@ -253,6 +252,7 @@ public class GraphPanel extends StackPane {
 
         AssocConnection(final NodeGeom source) {
             super(source, true);
+            source.incoming.add(this);
 
             selGlow.setSpread(.7);
 
@@ -298,6 +298,9 @@ public class GraphPanel extends StackPane {
 
         PropConnection(final NodeGeom property, final NodeGeom value) {
             super(value, false);
+            property.incoming.add(this);
+            value.incoming.add(this);
+
             setColor(property.node == kb.node(Common.execute) ? Color.DEEPSKYBLUE.interpolate(Color.TRANSPARENT, .5)
                     : Color.BLACK);
             spur = new Connection(property, false);
@@ -442,9 +445,6 @@ public class GraphPanel extends StackPane {
                     .subscribe(x -> updateNode(), y -> {
                     }, () -> {
                         for (Connection c : incoming) {
-                            if (c.getParent() instanceof Connection) {
-                                c = (Connection) c.getParent();
-                            }
                             if (c.getParent() != null)
                                 ((Group) c.getParent()).getChildren().remove(c);
                         }
@@ -570,13 +570,6 @@ public class GraphPanel extends StackPane {
                 if (node.getLocation() != null) {
                     updateConnections();
                     updatePosition();
-                    for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
-                        final Connection c = it.next();
-                        if (c.getScene() == null)
-                            it.remove();
-                        else
-                            c.update();
-                    }
 
                     setVisible(true);
                 } else {
@@ -647,11 +640,16 @@ public class GraphPanel extends StackPane {
                 for (final Node cn : connections.getChildren()) {
                     ((Connection) cn).update();
                 }
-                for (final Connection cn : incoming) {
-                    cn.update();
-                }
             } else {
                 setVisible(false);
+            }
+
+            for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
+                final Connection c = it.next();
+                if (c.getScene() == null)
+                    it.remove();
+                else
+                    c.update();
             }
         }
     }

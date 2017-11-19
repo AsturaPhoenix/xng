@@ -167,7 +167,7 @@ public class NodePhysics {
         }
 
         for (final Entry<Node, Activation> assoc : node.getSynapse()) {
-            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient(), 1.5);
+            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient(), 1.7);
         }
 
         for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
@@ -182,8 +182,8 @@ public class NodePhysics {
             }
 
             final double attScale = prop.getKey() == kb.node(Common.execute) ? 5 : 1;
-            attract(prop.getKey(), node, prop.getValue(), .02 / attScale, 4 * attScale);
-            attract(prop.getValue(), node, .05 / attScale, 1.5 * attScale);
+            attract(prop.getKey(), node, prop.getValue(), .02 / attScale, 4);
+            attract(prop.getValue(), node, .05 / attScale, 1.7 * attScale);
         }
 
         if (!node.isPinned() && node.getLocation() != null) {

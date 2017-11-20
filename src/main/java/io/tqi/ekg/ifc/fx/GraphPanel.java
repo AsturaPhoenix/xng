@@ -209,7 +209,7 @@ public class GraphPanel extends StackPane {
                 points.clear();
             } else if (points.size() > pathLength) {
                 points.remove(edgeLength, points.size() - edgeLength + 2);
-            } else {
+            } else if (points.size() < pathLength) {
                 final List<Double> newPts = new ArrayList<>(pathLength - points.size());
                 final int lastTriCount = (points.size() + 2) / 8;
                 for (int i = lastTriCount; i < tris; i++) {
@@ -262,6 +262,8 @@ public class GraphPanel extends StackPane {
                 if (from != null && to != null)
                     touched(this, new Association(from, to));
             });
+
+            connections.add(this);
         }
 
         io.tqi.ekg.Node getSource() {
@@ -320,6 +322,8 @@ public class GraphPanel extends StackPane {
                     touched(this, new Property(on, pn, vn));
                 }
             });
+
+            connections.add(this);
         }
 
         io.tqi.ekg.Node getObject() {
@@ -520,8 +524,6 @@ public class GraphPanel extends StackPane {
                     .switchMap(t -> Observable.interval(1000 / 60, TimeUnit.MILLISECONDS)
                             .takeUntil(Observable.timer(1200, TimeUnit.MILLISECONDS)))
                     .observeOn(JavaFxScheduler.platform()).subscribe(t -> updateColor());
-
-            rxCamOut.subscribe(e -> updatePosition());
         }
 
         void updateColor() {
@@ -637,19 +639,20 @@ public class GraphPanel extends StackPane {
                 setTranslateY(pos.getY());
                 setTranslateZ(pos.getZ());
 
-                for (final Node cn : connections.getChildren()) {
-                    ((Connection) cn).update();
+                if (updateConnections) {
+                    for (final Node cn : connections.getChildren()) {
+                        ((Connection) cn).update();
+                    }
+                    for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
+                        final Connection c = it.next();
+                        if (c.getScene() == null)
+                            it.remove();
+                        else
+                            c.update();
+                    }
                 }
             } else {
                 setVisible(false);
-            }
-
-            for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
-                final Connection c = it.next();
-                if (c.getScene() == null)
-                    it.remove();
-                else
-                    c.update();
             }
         }
     }
@@ -662,6 +665,7 @@ public class GraphPanel extends StackPane {
     private final Affine graphTransform;
 
     private final NodeKeyMap<NodeGeom> nodes = new NodeKeyMap<>();
+    private final ArrayList<Connection> connections = new ArrayList<>();
 
     private Selectable selectedUi;
     @Getter
@@ -705,9 +709,8 @@ public class GraphPanel extends StackPane {
         rxSelected.onNext(Optional.ofNullable(selected));
     }
 
-    private final Subject<Optional<Void>> rxCam = PublishSubject.create();
-    private final Observable<Optional<Void>> rxCamOut = rxCam.sample(1000 / 60, TimeUnit.MILLISECONDS)
-            .observeOn(JavaFxScheduler.platform()).share();
+    private final Subject<Optional<Void>> rxCam = PublishSubject.create(), rxInvalidate = PublishSubject.create();
+    private boolean updateConnections = true;
     private final KnowledgeBase kb;
 
     public GraphPanel(final KnowledgeBase kb) {
@@ -775,7 +778,32 @@ public class GraphPanel extends StackPane {
         setTouchHandlers();
 
         rxSelected.onNext(Optional.empty());
+
+        rxCam.sample(1000 / 60, TimeUnit.MILLISECONDS).mergeWith(rxInvalidate.sample(10, TimeUnit.MILLISECONDS))
+                .observeOn(JavaFxScheduler.platform()).subscribe(e -> {
+                    final long frameStart = System.currentTimeMillis();
+                    updateConnections = false;
+                    for (final NodeGeom node : nodes.values()) {
+                        node.updatePosition();
+                    }
+                    while (connectionToProcess < connections.size() && System.currentTimeMillis() - frameStart < 1) {
+                        final Connection c = connections.get(connectionToProcess);
+                        if (c.getScene() == null) {
+                            connections.remove(connectionToProcess);
+                        } else {
+                            c.update();
+                            connectionToProcess++;
+                        }
+                    }
+                    if (connectionToProcess >= connections.size())
+                        connectionToProcess = 0;
+                    else
+                        rxInvalidate.onNext(Optional.empty());
+                    updateConnections = true;
+                });
     }
+
+    private int connectionToProcess;
 
     private NodeGeom node(final io.tqi.ekg.Node node) {
         assert (node != null);

@@ -17,7 +17,8 @@ public class KnowledgeBaseTest {
 
     private static void testPrint(final KnowledgeBase kb) {
         final EmissionMonitor<String> monitor = new EmissionMonitor<>(kb.rxOutput());
-        kb.invoke(kb.node(BuiltIn.print), kb.valueNode("foo"), null);
+        kb.putContext(kb.node(Common.value), kb.valueNode("foo"));
+        kb.node(BuiltIn.print).activate();
         assertEquals("foo", monitor.emissions().blockingFirst());
     }
 
@@ -36,11 +37,11 @@ public class KnowledgeBaseTest {
 
         // @formatter:off
         kb.node("roses are")
-                .setProperty(kb.node(Common.execute), kb.node(BuiltIn.getProperty))
-                .setProperty(kb.node(Common.argument), kb.node()
+                .setProperty(kb.node(Common.context), kb.node()
                         .setProperty(kb.node(Common.object), kb.node("roses"))
                         .setProperty(kb.node(Common.property), kb.node("color")))
-                .setProperty(kb.node(Common.callback), kb.node(BuiltIn.print));
+                .then(kb.node(BuiltIn.getProperty))
+                .then(kb.node(BuiltIn.print));
         // @formatter:on
     }
 

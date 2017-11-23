@@ -23,12 +23,13 @@ import lombok.Getter;
  * future, it is likely that either we will switch to relative time and fully
  * support serialization or else completely clear activation on deserialization.
  */
-public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activation>> {
+public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profile>> {
     private static final long serialVersionUID = 1779165354354490167L;
 
     private static final long DEBOUNCE_PERIOD = 16;
+    private static final double THRESHOLD = 1;
 
-    public static class Activation {
+    public static class Profile {
         static final long DEFAULT_DECAY_PERIOD = 30000;
 
         @Getter
@@ -38,7 +39,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
         private final Node node;
         private final Disposable subscription;
 
-        private Activation(final Node node, final Disposable subscription) {
+        private Profile(final Node node, final Disposable subscription) {
             this.coefficient = 1;
             decayPeriod = DEFAULT_DECAY_PERIOD;
             this.node = node;
@@ -55,7 +56,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
         }
     }
 
-    private transient NodeKeyMap<Activation> inputs;
+    private transient NodeKeyMap<Profile> inputs;
 
     private transient Subject<Long> rxInput;
     private transient Observable<Long> rxOutput;
@@ -78,7 +79,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
      * depending on current state.
      */
     private Observable<Long> evaluate(final long time) {
-        if (getValue(time) >= 1) {
+        if (getValue(time) >= THRESHOLD) {
             return Observable.just(time);
         } else {
             final long nextCrit = getNextCriticalPoint(time);
@@ -89,7 +90,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
 
     public float getValue(final long time) {
         float value = 0;
-        for (final Activation activation : inputs.values()) {
+        for (final Profile activation : inputs.values()) {
             value += activation.getValue(time);
         }
         return value;
@@ -105,7 +106,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
     private long getNextCriticalPoint(final long time) {
         float totalValue = 0, totalDecayRate = 0;
         long nextZero = Long.MAX_VALUE;
-        for (final Activation activation : inputs.values()) {
+        for (final Profile activation : inputs.values()) {
             final float value = activation.getValue(time);
             if (value != 0) {
                 totalValue += value;
@@ -128,7 +129,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
     private void writeObject(final ObjectOutputStream o) throws IOException {
         o.defaultWriteObject();
         o.writeInt(inputs.size());
-        for (final Entry<Node, Activation> entry : inputs.entrySet()) {
+        for (final Entry<Node, Profile> entry : inputs.entrySet()) {
             o.writeObject(entry.getKey());
             o.writeFloat(entry.getValue().coefficient);
             o.writeLong(entry.getValue().decayPeriod);
@@ -141,15 +142,15 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
         final int size = o.readInt();
         for (int i = 0; i < size; i++) {
             final Node node = (Node) o.readObject();
-            final Activation activation = newActivation(node);
+            final Profile activation = newActivation(node);
             activation.coefficient = o.readFloat();
             activation.decayPeriod = o.readLong();
             inputs.put(node, activation);
         }
     }
 
-    private Activation newActivation(final Node source) {
-        return new Activation(source, source.rxActivate().subscribe(rxInput::onNext));
+    private Profile newActivation(final Node source) {
+        return new Profile(source, source.rxActivate().subscribe(rxInput::onNext));
     }
 
     public Synapse setCoefficient(final Node node, final float coefficient) {
@@ -159,7 +160,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
     }
 
     public float getCoefficient(final Node node) {
-        final Activation activation = inputs.get(node);
+        final Profile activation = inputs.get(node);
         return activation == null ? 0 : activation.coefficient;
     }
 
@@ -177,7 +178,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
     }
 
     public void dissociate(final Node node) {
-        final Activation activation = inputs.remove(node);
+        final Profile activation = inputs.remove(node);
         if (activation != null) {
             activation.subscription.dispose();
             rxChange.onNext(this);
@@ -185,7 +186,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Activ
     }
 
     @Override
-    public Iterator<Entry<Node, Activation>> iterator() {
+    public Iterator<Entry<Node, Profile>> iterator() {
         return inputs.entrySet().iterator();
     }
 }

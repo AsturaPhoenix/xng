@@ -13,6 +13,7 @@ import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Action;
+import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import javafx.geometry.Point3D;
@@ -78,10 +79,12 @@ public class Node implements Serializable {
     private Synapse synapse = new Synapse();
 
     @Getter
-    private long refactory = DEFAULT_REFRACTORY;
+    private long refractory = DEFAULT_REFRACTORY;
 
     private transient Subject<Long> rxInput;
-    private transient Observable<Long> rxOutput;
+    @Setter
+    private transient Runnable onActivate;
+    private transient Subject<Long> rxOutput;
     private transient Subject<Object> rxChange;
     private transient Completable rxDeleted;
 
@@ -109,13 +112,13 @@ public class Node implements Serializable {
     }
 
     public Node() {
-        this.value = null;
-        init();
+        this(null);
     }
 
     public Node(final Serializable value) {
         this.value = value;
-        init();
+        preInit();
+        postInit();
     }
 
     @Override
@@ -128,34 +131,42 @@ public class Node implements Serializable {
         }
     }
 
-    private void init() {
+    private void preInit() {
         rxInput = PublishSubject.create();
-        // The share is necessary because this node's rxOutput subscription sets
-        // lastActivation, which means filter will only produce a correct result
-        // once per activation.
-        rxOutput = rxInput.filter(t -> t - lastActivation >= refactory).share();
+        rxOutput = PublishSubject.create();
+        rxInput.observeOn(Schedulers.computation()).subscribe(t -> {
+            if (t - lastActivation >= refractory) {
+                if (onActivate != null)
+                    onActivate.run();
+                lastActivation = System.currentTimeMillis();
+                rxOutput.onNext(lastActivation);
+            }
+        });
         rxChange = PublishSubject.create();
         rxDeleted = rxChange.ignoreElements();
+    }
 
+    private void postInit() {
         synapse.rxActivate().subscribe(t -> activate());
-        rxOutput.subscribe(t -> lastActivation = t);
         synapse.rxChange().subscribe(s -> rxChange.onNext(this));
     }
 
     @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
+        preInit();
+
         final GetField fields = stream.readFields();
 
         value = (Serializable) fields.get("value", null);
         lastActivation = fields.get("lastActivation", 0L);
         synapse = (Synapse) fields.get("synapse", new Synapse());
-        refactory = fields.get("refactory", DEFAULT_REFRACTORY);
+        refractory = fields.get("refractory", DEFAULT_REFRACTORY);
         location = (SPoint) fields.get("location", null);
         pinned = fields.get("pinned", false);
         comment = (String) fields.get("comment", null);
         properties = new NodeMap((Map<Node, Node>) fields.get("properties", new HashMap<>()));
 
-        init();
+        postInit();
     }
 
     public Observable<Object> rxChange() {
@@ -172,7 +183,7 @@ public class Node implements Serializable {
     }
 
     public void setRefractory(final long refractory) {
-        this.refactory = refractory;
+        this.refractory = refractory;
         rxChange.onNext(this);
     }
 

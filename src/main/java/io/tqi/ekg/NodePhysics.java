@@ -12,8 +12,7 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.collect.Iterables;
 
 import io.reactivex.Observable;
-import io.tqi.ekg.KnowledgeBase.Common;
-import io.tqi.ekg.Synapse.Activation;
+import io.tqi.ekg.Synapse.Profile;
 import javafx.geometry.Point3D;
 
 public class NodePhysics {
@@ -27,13 +26,12 @@ public class NodePhysics {
         }
     }
 
-    private final KnowledgeBase kb;
-
     private final Object $lock = new Object();
     private Link head;
+    private final NodeMap context;
 
-    public NodePhysics(final KnowledgeBase kb) {
-        this.kb = kb;
+    public NodePhysics(final NodeMap context) {
+        this.context = context;
         Observable.interval(1000 / 60, TimeUnit.MILLISECONDS).subscribe(f -> process());
     }
 
@@ -126,6 +124,10 @@ public class NodePhysics {
     }
 
     private void attract(final Node a, final Node b, final double k, final double zx) {
+        if (a.getLocation() == null) {
+            a.setLocation(b.getLocation().add(.5, .5, 0));
+        }
+
         final Point3D vec = b.getLocation().subtract(a.getLocation());
         final double dist = vec.magnitude();
         final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - zx, 0), .2) / 2);
@@ -142,6 +144,10 @@ public class NodePhysics {
     }
 
     private void attract(final Node a, final Node b1, final Node b2, final double k, final double zx) {
+        if (a.getLocation() == null) {
+            a.setLocation(b1.getLocation().midpoint(b2.getLocation()).add(0, 1, 0));
+        }
+
         final Point3D vec = a.getLocation().subtract(b1.getLocation().midpoint(b2.getLocation()));
         final double dist = vec.magnitude();
         final Point3D delta = vec.normalize().multiply(Math.min(k * Math.max(dist - zx, 0), .2) / 3);
@@ -166,24 +172,21 @@ public class NodePhysics {
             node.setLocation(Point3D.ZERO);
         }
 
-        for (final Entry<Node, Activation> assoc : node.getSynapse()) {
-            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient(), 1.7);
+        for (final Entry<Node, Profile> assoc : node.getSynapse()) {
+            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient(), 1.2);
         }
 
         for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
             if (prop.getValue() == null)
                 continue;
 
-            if (prop.getKey().getLocation() == null) {
-                prop.getKey().setLocation(node.getLocation().add(-.25, 1, 0));
-            }
-            if (prop.getValue().getLocation() == null) {
-                prop.getValue().setLocation(node.getLocation().add(0, 1, 0));
-            }
+            attract(prop.getValue(), node, .05, 1.2);
+            attract(prop.getKey(), node, prop.getValue(), .02, 4);
+        }
 
-            final double attScale = prop.getKey() == kb.node(Common.execute) ? 5 : 1;
-            attract(prop.getKey(), node, prop.getValue(), .02 / attScale, 4);
-            attract(prop.getValue(), node, .05 / attScale, 1.7 * attScale);
+        final Node contextValue = context.get(node);
+        if (contextValue != null) {
+            attract(contextValue, node, .02, 3);
         }
 
         if (!node.isPinned() && node.getLocation() != null) {

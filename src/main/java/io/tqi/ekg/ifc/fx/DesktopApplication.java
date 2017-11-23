@@ -13,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 
 import io.reactivex.disposables.Disposable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
-import io.tqi.ekg.Identifier;
 import io.tqi.ekg.KnowledgeBase;
 import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
@@ -88,7 +87,7 @@ public class DesktopApplication extends Application {
     }
 
     private io.tqi.ekg.Node findNode(final String query) {
-        return kb.getNode(new Identifier(query));
+        return kb.getNode(query);
     }
 
     private void selectNode(final String query) {
@@ -307,6 +306,11 @@ public class DesktopApplication extends Application {
                     delete.setOnAction(e -> {
                         final GraphPanel.Association assoc = (GraphPanel.Association) opt.get();
                         assoc.dest.getSynapse().dissociate(assoc.source);
+                    });
+                } else if (opt.get() instanceof GraphPanel.ContextEntry) {
+                    delete.setOnAction(e -> {
+                        final GraphPanel.ContextEntry context = (GraphPanel.ContextEntry) opt.get();
+                        kb.removeContext(context.key);
                     });
                 } else {
                     delete.setOnAction(e -> System.out.println("Not implemented"));

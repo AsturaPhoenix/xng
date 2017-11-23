@@ -24,7 +24,7 @@ public class EmissionMonitor<T> {
     }
 
     public Observable<T> emissions() {
-        return monitor.takeUntil(Observable.timer(100, TimeUnit.MILLISECONDS));
+        return monitor.takeUntil(Observable.timer(250, TimeUnit.MILLISECONDS));
     }
 
     boolean didEmit() {

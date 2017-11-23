@@ -11,6 +11,8 @@ import org.junit.Test;
 
 import com.google.common.collect.Iterables;
 
+import io.reactivex.subjects.PublishSubject;
+
 public class NodeTest {
     @Test
     public void testEmptySerialization() throws Exception {
@@ -95,6 +97,7 @@ public class NodeTest {
     @Test
     public void testRefractory() {
         final Node node = new Node();
+        node.setRefractory(1000);
         final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxActivate());
         node.activate();
         node.activate();
@@ -124,6 +127,22 @@ public class NodeTest {
         up.activate();
         assertFalse(monitor.didEmit());
         Thread.sleep(500);
+        assertTrue(monitor.didEmit());
+    }
+
+    @Test
+    public void testBlocking() throws Exception {
+        final Node node = new Node();
+        final PublishSubject<Void> subject = PublishSubject.create();
+        node.setOnActivate(() -> {
+            subject.ignoreElements().blockingAwait();
+        });
+        final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxActivate());
+        node.activate();
+        Thread.sleep(250);
+        assertFalse(monitor.didEmit());
+        subject.onComplete();
+        Thread.sleep(250);
         assertTrue(monitor.didEmit());
     }
 }

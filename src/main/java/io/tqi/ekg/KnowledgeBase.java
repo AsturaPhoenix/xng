@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -18,17 +19,23 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import javafx.geometry.Point3D;
+import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
 
 public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
-    private static final long serialVersionUID = 4850129606513054849L;
+    private static final long serialVersionUID = -6461427806563494150L;
+
+    @RequiredArgsConstructor
+    @EqualsAndHashCode
+    public static class PutContextEvent {
+        public final Node key, value;
+    }
 
     @RequiredArgsConstructor
     private static class IdentityKey implements Serializable {
@@ -47,11 +54,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         }
     }
 
-    private NodeValueMap<Serializable> index = new NodeValueMap<>();
+    private NodeValueMap<String> index = new NodeValueMap<>();
     private NodeValueMap<IdentityKey> valueIndex = new NodeValueMap<>();
+    private NodeMap context = new NodeMap();
 
-    // Nodes not otherwise referenced should be garbage collected, so this
-    // collection holds weak references.
     private transient NodeQueue nodes = new NodeQueue();
     private transient NodePhysics physics;
 
@@ -60,40 +66,26 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private transient Subject<Object> rxChange;
 
     public enum Common {
-        execute, argument("arg"), callback, clazz(
-                "class"), object, property, field, method, exception, source, destination, value, coefficient, newNode;
+        context, transform, javaClass(
+                "class"), object, property, name, exception, source, destination, value, coefficient, nodeCreated(
+                        "node created"), nullNode("null");
 
-        public final Identifier identifier;
+        public final String identifier;
 
         private Common() {
-            identifier = new Identifier(name());
+            identifier = name();
         }
 
         private Common(final String identifier) {
-            this.identifier = new Identifier(identifier);
+            this.identifier = identifier;
         }
     }
 
     public enum BuiltIn {
         clearProperties {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) {
-                node.clearProperties();
-                return node;
-            }
-        },
-        copyProperty {
-            @Override
-            public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node source = node.getProperty(kb.node(Common.source)),
-                        dest = node.getProperty(kb.node(Common.destination));
-                final Node sourceProp = source.getProperty(kb.node(Common.property)),
-                        destProp = dest.getProperty(kb.node(Common.property));
-                Preconditions.checkNotNull(sourceProp);
-                Preconditions.checkNotNull(destProp);
-                final Node value = source.getProperty(kb.node(Common.object)).getProperty(sourceProp);
-                dest.getProperty(kb.node(Common.object)).setProperty(destProp, value);
-                return value;
+            public void impl(final KnowledgeBase kb) {
+                kb.context.get(kb.node(Common.object)).clearProperties();
             }
         },
         /**
@@ -101,10 +93,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
          */
         field {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) throws Exception {
-                final Node classNode = node.getProperty(kb.node(Common.clazz)),
-                        objectNode = node.getProperty(kb.node(Common.object)),
-                        fieldNode = node.getProperty(kb.node(Common.field));
+            public void impl(final KnowledgeBase kb) throws Exception {
+                final Node classNode = kb.context.get(kb.node(Common.javaClass)),
+                        objectNode = kb.context.get(kb.node(Common.object)),
+                        fieldNode = kb.context.get(kb.node(Common.name));
                 final Object object;
                 final Class<?> clazz;
 
@@ -127,33 +119,32 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                 Field field = clazz.getField((String) fieldNode.getValue());
 
                 Object ret = field.get(object);
-                return kb.valueNode((Serializable) ret);
+                kb.putContext(kb.node(Common.value), kb.valueNode((Serializable) ret));
             }
         },
         /**
-         * Takes two args: {@link KnowledgeBase#OBJECT} and "property".
+         * Takes two args: {@link Common#object} and {@link Common#property}.
          */
         getProperty {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node object = node.getProperty(kb.node(Common.object)),
-                        property = node.getProperty(kb.node(Common.property));
-                return object.getProperty(property);
+            public void impl(final KnowledgeBase kb) {
+                final Node object = kb.context.get(kb.node(Common.object)),
+                        property = kb.context.get(kb.node(Common.property));
+                kb.putContext(kb.node(Common.value), object.getProperty(property));
             }
         },
         /**
          * A limited Java interop bridge. Method parameter types must be fully
-         * and exactly specified via "paramN" properties on the argument node,
-         * having values of Java classes. Arguments are passed as "argN"
-         * properties on the argument node, and must be serializable. Missing
-         * arguments are passed null.
+         * and exactly specified via "paramN" index entries, null-terminated,
+         * having values of Java classes. Arguments are passed as "argN" index
+         * entries, and must be serializable. Missing arguments are passed null.
          */
-        invoke {
+        method {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) throws Exception {
-                final Node classNode = node.getProperty(kb.node(Common.clazz)),
-                        objectNode = node.getProperty(kb.node(Common.object)),
-                        methodNode = node.getProperty(kb.node(Common.method));
+            public void impl(final KnowledgeBase kb) throws Exception {
+                final Node classNode = kb.context.get(kb.node(Common.javaClass)),
+                        objectNode = kb.context.get(kb.node(Common.object)),
+                        methodNode = kb.context.get(kb.node(Common.name));
                 final Object object;
                 final Class<?> clazz;
 
@@ -175,79 +166,64 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
                 ArrayList<Class<?>> params = new ArrayList<>();
                 Node param;
-                for (int i = 1; (param = node.getProperty(kb.param(i))) != null; i++) {
+                for (int i = 1; (param = kb.context.get(kb.param(i))) != null; i++) {
                     params.add((Class<?>) param.getValue());
                 }
 
                 Method method = clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
                 ArrayList<Object> args = new ArrayList<>();
                 for (int i = 1; i <= params.size(); i++) {
-                    Node arg = node.getProperty(kb.arg(i));
+                    Node arg = kb.context.get(kb.arg(i));
                     args.add(arg == null ? null : arg.getValue());
                 }
 
                 Object ret = method.invoke(object, args.toArray());
                 if (method.getReturnType() != null) {
-                    return kb.valueNode((Serializable) ret);
-                } else {
-                    return null;
+                    kb.putContext(kb.node(Common.value), kb.valueNode((Serializable) ret));
                 }
             }
         },
-        javaClass {
+        findClass {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) throws ClassNotFoundException {
-                return kb.valueNode(Class.forName((String) node.getValue()));
+            public void impl(final KnowledgeBase kb) throws ClassNotFoundException {
+                kb.putContext(kb.node(Common.javaClass),
+                        kb.valueNode(Class.forName((String) kb.context.get(kb.node(Common.name)).getValue())));
             }
         },
-        node {
+        createNode {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) {
-                return kb.node();
+            public void impl(final KnowledgeBase kb) {
+                kb.node();
             }
         },
         print {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) {
-                kb.rxOutput.onNext(Objects.toString(node.getValue()));
-                return node;
+            public void impl(final KnowledgeBase kb) {
+                kb.rxOutput.onNext(Objects.toString(kb.context.get(kb.node(Common.value)).getValue()));
             }
         },
         setCoefficient {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node dest = node.getProperty(kb.node(Common.destination));
-                dest.getSynapse().setCoefficient(node.getProperty(kb.node(Common.source)),
-                        ((Number) node.getProperty(kb.node(Common.coefficient)).getValue()).floatValue());
-                return dest;
+            public void impl(final KnowledgeBase kb) {
+                final Node dest = kb.context.get(kb.node(Common.destination));
+                dest.getSynapse().setCoefficient(kb.context.get(kb.node(Common.source)),
+                        ((Number) kb.context.get(kb.node(Common.coefficient)).getValue()).floatValue());
             }
         },
-        /**
-         * This can also be used to rename default return values, which are
-         * normally put to the ARGUMENT property of the callback.
-         * <p>
-         * Args:
-         * <ul>
-         * <li>{@link KnowledgeBase#OBJECT}
-         * <li>{@link KnowledgeBase#PROPERTY}
-         * <li>{@link KnowledgeBase#VALUE}
-         * </ul>
-         */
         setProperty {
             @Override
-            public Node impl(final KnowledgeBase kb, final Node node) {
-                final Node object = node.getProperty(kb.node(Common.object)),
-                        property = node.getProperty(kb.node(Common.property)),
-                        value = node.getProperty(kb.node(Common.value));
+            public void impl(final KnowledgeBase kb) {
+                final Node object = kb.context.get(kb.node(Common.object)),
+                        property = kb.context.get(kb.node(Common.property)),
+                        value = kb.context.get(kb.node(Common.value));
                 if (property == null) {
                     throw new NullPointerException();
                 }
                 object.setProperty(property, value);
-                return object;
             }
         };
 
-        public abstract Node impl(final KnowledgeBase kb, final Node node) throws Exception;
+        public abstract void impl(final KnowledgeBase kb) throws Exception;
     }
 
     public KnowledgeBase() {
@@ -257,10 +233,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private void init() {
         rxOutput = PublishSubject.create();
         rxChange = PublishSubject.create();
-        physics = new NodePhysics(this);
+        physics = new NodePhysics(context);
 
         for (final Node node : nodes) {
             initNode(node);
+        }
+
+        // create any new Common nodes
+        for (final Common common : Common.values()) {
+            node(common);
         }
 
         for (final BuiltIn builtIn : BuiltIn.values()) {
@@ -269,19 +250,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
         final TreeMap<String, Node> sortedIndex = new TreeMap<>();
 
-        for (final Entry<Serializable, Node> entry : index.entrySet()) {
-            final String stringKey = entry.getKey() == null ? null : entry.getKey().toString();
-            if (Strings.isNullOrEmpty(stringKey))
+        for (final Entry<String, Node> entry : index.entrySet()) {
+            if (Strings.isNullOrEmpty(entry.getKey()))
                 continue;
 
             final Node node = entry.getValue();
 
             if (node.getComment() == null) {
-                node.setComment(stringKey);
+                node.setComment(entry.getKey());
             }
 
             if (node.getLocation() == null) {
-                sortedIndex.put(stringKey, node);
+                sortedIndex.put(entry.getKey(), node);
             }
         }
 
@@ -292,7 +272,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
         rxNodeAdded = PublishSubject.create();
         rxNodeAdded.subscribe(n -> {
-            invoke(node(Common.newNode), n, null);
+            final Node nnn = node(Common.nodeCreated);
+            putContext(nnn, n);
+            nnn.activate();
         });
     }
 
@@ -300,12 +282,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         // fields may be initialized before kb subjects are, in which case kb
         // init will catch this
         if (rxChange != null) {
-            node.rxActivate().subscribe(t -> {
-                final Node fn = node.getProperty(node(Common.execute));
-                if (fn != null) {
-                    invoke(fn, node.getProperty(node(Common.argument)), node.getProperty(node(Common.callback)));
-                }
-            });
+            node.setOnActivate(() -> mutateIndex(node));
             node.rxChange().subscribe(rxChange::onNext);
             physics.add(node);
         }
@@ -315,10 +292,23 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         }
     }
 
-    public void invoke(final Node fn, final Node arg, final Node callback) {
-        fn.setProperty(node(Common.argument), arg);
-        fn.setProperty(node(Common.callback), callback);
-        fn.activate();
+    private void mutateIndex(final Node node) {
+        final Node contextCopy = node.getProperty(node(Common.context));
+        if (contextCopy != null) {
+            for (final Entry<Node, Node> prop : contextCopy.getProperties().entrySet()) {
+                if (prop.getValue() == node(Common.nullNode)) {
+                    removeContext(prop.getKey());
+                } else {
+                    putContext(prop.getKey(), prop.getValue());
+                }
+            }
+        }
+        final Node transform = node.getProperty(node(Common.transform));
+        if (transform != null) {
+            for (final Entry<Node, Node> prop : transform.getProperties().entrySet()) {
+                putContext(prop.getKey(), context.get(prop.getValue()));
+            }
+        }
     }
 
     private Node registerBuiltIn(final BuiltIn builtIn) {
@@ -326,17 +316,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         // from the main index so that we can rebind the impl to the correct
         // node after deserialization.
         final Node node = node(builtIn);
-        node.rxActivate().subscribe(t -> {
-            final Node result;
+        node.setOnActivate(() -> {
+            mutateIndex(node);
             try {
-                result = builtIn.impl(KnowledgeBase.this, node.getProperty(node(Common.argument)));
+                builtIn.impl(this);
             } catch (final Exception e) {
-                invoke(node(Common.exception), valueNode(e).setProperty(node(Common.source), node), null);
-                return;
-            }
-            final Node callback = node.getProperty(node(Common.callback));
-            if (callback != null) {
-                invoke(callback, result, null);
+                final Node exceptionNode = node(Common.exception);
+                putContext(exceptionNode, valueNode(e).setProperty(node(Common.source), node));
+                exceptionNode.activate();
             }
         });
         node.setRefractory(0);
@@ -355,8 +342,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
         final GetField fields = stream.readFields();
-        index = new NodeValueMap<>((Map<Serializable, Node>) fields.get("index", new HashMap<>()));
+        index = new NodeValueMap<>((Map<String, Node>) fields.get("index", new HashMap<>()));
         valueIndex = new NodeValueMap<>((Map<IdentityKey, Node>) fields.get("valueIndex", new HashMap<>()));
+        context = new NodeMap((Map<Node, Node>) fields.get("context", new HashMap<>()));
 
         final Set<Node> serNodes = (Set<Node>) stream.readObject();
         int oldSize = serNodes.size();
@@ -368,11 +356,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
         nodes = new NodeQueue();
         nodes.addAll(serNodes);
-
-        // create any new Common nodes
-        for (final Common common : Common.values()) {
-            node(common);
-        }
 
         init();
     }
@@ -430,11 +413,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     public Node node(final String identifier) {
-        return node(new Identifier(identifier));
-    }
-
-    public Node node(final Identifier identifier) {
-        return getOrCreateNode(identifier, null);
+        final boolean[] created = new boolean[1];
+        final Node node = index.computeIfAbsent(identifier, x -> {
+            final Node newNode = new Node();
+            if (identifier != null)
+                newNode.setComment(identifier);
+            created[0] = true;
+            nodes.add(newNode);
+            return newNode;
+        });
+        if (created[0])
+            initNode(node);
+        return node;
     }
 
     @SuppressWarnings("unchecked")
@@ -460,23 +450,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         });
     }
 
-    public Node getNode(final Identifier identifier) {
-        return index.get(identifier);
-    }
-
-    private Node getOrCreateNode(final Serializable label, final Serializable value) {
-        final boolean[] created = new boolean[1];
-        final Node node = index.computeIfAbsent(label, x -> {
-            final Node newNode = new Node(value);
-            if (label != null)
-                newNode.setComment(label.toString());
-            created[0] = true;
-            nodes.add(newNode);
-            return newNode;
-        });
-        if (created[0])
-            initNode(node);
-        return node;
+    public Node getNode(final String key) {
+        return index.get(key);
     }
 
     // All kb nodes must be created through a node(...) or valueNode(...) method
@@ -488,12 +463,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         return node;
     }
 
-    public void indexNode(final String identifier, final Node node) {
-        indexNode(new Identifier(identifier), node);
+    public void putContext(final Node key, final Node value) {
+        context.put(key, value);
+        rxChange.onNext(new PutContextEvent(key, value));
     }
 
-    public void indexNode(final Identifier identifier, final Node node) {
-        index.put(identifier, node);
+    public void removeContext(final Node key) {
+        context.remove(key);
+        rxChange.onNext(new PutContextEvent(key, null));
+    }
+
+    public Map<Node, Node> getContext() {
+        return Collections.unmodifiableMap(context);
     }
 
     @Override

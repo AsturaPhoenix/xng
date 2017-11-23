@@ -27,7 +27,7 @@ public class SerializingPersistence {
             System.out.println("Persistence not found at " + root + "; creating new persistence.");
             return new KnowledgeBase();
         } catch (final ObjectStreamException e) {
-            System.out.println("Persistence not compatible at " + root + ".");
+            System.out.println("Persistence not compatible at " + root + ". If this is expected, delete the file.");
             throw e;
         }
     }

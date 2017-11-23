@@ -22,6 +22,16 @@ import lombok.Value;
 
 public class Repl {
     @Value
+    private static class Identifier {
+        String value;
+
+        @Override
+        public String toString() {
+            return value;
+        }
+    }
+
+    @Value
     private static class Argument {
         Identifier parameter;
         Object value;
@@ -47,30 +57,19 @@ public class Repl {
             INTEGER = digit().or(LEADING_DIGIT.seq(digit().plus())),
             NUMBER = INTEGER.flatten().map((String s) -> Integer.parseInt(s)).or(
                     INTEGER.seq(CharacterParser.of('.'), digit().plus()).map(Double::parseDouble)).trim(),
-            VALUE = IDENTIFIER.or(STRING, NUMBER),
-            ARGUMENT = IDENTIFIER.seq(CharacterParser.of(':'), VALUE).map((List<Object> value) ->
-                    new Argument((Identifier)value.get(0), value.get(2))),
-            COMMAND = IDENTIFIER.seq(VALUE.or(ARGUMENT.star())),
-            ALIAS = IDENTIFIER.seq(CharacterParser.of('='), COMMAND).map((List<Object> value) ->
+            NODE = IDENTIFIER.or(STRING, NUMBER),
+            ALIAS = IDENTIFIER.seq(CharacterParser.of('='), NODE).map((List<Object> value) ->
                     new AbstractMap.SimpleEntry<>(value.get(0), value.get(2))),
-            COMMAND_PARSER = ALIAS.or(COMMAND).end();
+            COMMAND_PARSER = NODE.or(ALIAS).end();
     //@formatter:on
 
     @Getter
     private final KnowledgeBase kb;
 
-    private final Node commandOutputNode;
     private final Subject<String> commandOutput = PublishSubject.create();
 
     public Repl(final KnowledgeBase kb) {
         this.kb = kb;
-
-        commandOutputNode = kb.node("Repl.commandOutput");
-        commandOutputNode.rxActivate().subscribe(t -> {
-            final Node retval = commandOutputNode.getProperty(kb.node(Common.argument));
-            if (retval != null && retval.getValue() != null)
-                commandOutput.onNext(retval.getValue().toString());
-        });
     }
 
     public Observable<String> commandOutput() {
@@ -83,7 +82,7 @@ public class Repl {
 
     private Node resolveNode(final Object token) {
         if (token instanceof Identifier) {
-            return kb.getNode((Identifier) token);
+            return kb.node(((Identifier) token).getValue());
         } else if (token instanceof String) {
             return kb.valueNode((String) token);
         } else if (token instanceof Number) {
@@ -98,37 +97,16 @@ public class Repl {
 
         if (result.isFailure()) {
             commandOutput.onNext(String.format("Invalid command string \"%s\"", command));
+        } else if (result.get() instanceof Map.Entry) {
+            final Map.Entry<?, ?> alias = (Map.Entry<?, ?>) result.get();
+            kb.putContext(resolveNode(alias.getKey()), resolveNode(alias.getValue()));
         } else {
-            if (result.get() instanceof Map.Entry) {
-                final Map.Entry<?, ?> alias = (Map.Entry<?, ?>) result.get();
-                final Node cb = kb.node();
-                cb.rxActivate().subscribe(t -> {
-                    kb.indexNode((Identifier) alias.getKey(), cb.getProperty(kb.node(Common.argument)));
-                });
-                executeCommand((List<?>) alias.getValue(), cb);
-            } else {
-                executeCommand(result.get(), commandOutputNode);
-            }
-        }
-    }
-
-    private void executeCommand(final List<?> parts, final Node callback) {
-        final Node execute = kb.getNode((Identifier) parts.get(0));
-        if (execute == null) {
-            commandOutput.onNext(String.format("Unknown command \"%s\"", parts.get(0)));
-        } else {
-            final Node arg;
-
-            if (parts.get(1) instanceof List) {
-                arg = kb.node();
-            } else {
-                arg = resolveNode(parts.get(1));
-            }
-            kb.invoke(execute, arg, callback);
+            resolveNode(result.get()).activate();
         }
     }
 
     public void sendInput(final String input) {
-        kb.node("Repl.input").setProperty(kb.node(Common.argument), kb.valueNode(input)).activate();
+        kb.putContext(kb.node(Common.value), kb.valueNode(input));
+        kb.node("Repl.input").activate();
     }
 }

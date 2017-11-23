@@ -17,9 +17,8 @@ import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.ekg.KnowledgeBase;
-import io.tqi.ekg.KnowledgeBase.Common;
 import io.tqi.ekg.NodeKeyMap;
-import io.tqi.ekg.Synapse.Activation;
+import io.tqi.ekg.Synapse.Profile;
 import javafx.collections.ObservableList;
 import javafx.geometry.Point2D;
 import javafx.geometry.Point3D;
@@ -72,6 +71,12 @@ public class GraphPanel extends StackPane {
     @EqualsAndHashCode
     public static class Association {
         public final io.tqi.ekg.Node source, dest;
+    }
+
+    @RequiredArgsConstructor
+    @EqualsAndHashCode
+    public static class ContextEntry {
+        public final io.tqi.ekg.Node key, value;
     }
 
     @RequiredArgsConstructor
@@ -197,6 +202,12 @@ public class GraphPanel extends StackPane {
             line.setFill(color);
         }
 
+        void setEnd(final NodeGeom end) {
+            this.end.incoming.remove(this);
+            this.end = end;
+            this.end.incoming.add(this);
+        }
+
         void update() {
             final Point3D delta = sceneToLocal(end.localToScene(Point3D.ZERO));
             final double xyMag = Math.sqrt(delta.getX() * delta.getX() + delta.getY() * delta.getY());
@@ -247,14 +258,15 @@ public class GraphPanel extends StackPane {
         }
     }
 
-    private class AssocConnection extends Connection implements Selectable {
-        final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
+    private static final DropShadow SEL_GLOW = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
+    static {
+        SEL_GLOW.setSpread(.7);
+    }
 
+    private class AssocConnection extends Connection implements Selectable {
         AssocConnection(final NodeGeom source) {
             super(source, true);
             source.incoming.add(this);
-
-            selGlow.setSpread(.7);
 
             setOnMouseClicked(e -> {
                 final io.tqi.ekg.Node from = getSource(), to = getDest();
@@ -277,7 +289,7 @@ public class GraphPanel extends StackPane {
 
         @Override
         public void select() {
-            line.setEffect(selGlow);
+            line.setEffect(SEL_GLOW);
         }
 
         @Override
@@ -292,19 +304,53 @@ public class GraphPanel extends StackPane {
         }
     }
 
+    private class ContextConnection extends Connection implements Selectable {
+        ContextConnection(final NodeGeom value) {
+            super(value, false);
+            setColor(Color.TRANSPARENT.interpolate(Color.TURQUOISE, .7));
+            value.incoming.add(this);
+
+            setOnMouseClicked(e -> {
+                final io.tqi.ekg.Node from = getKey(), to = getValue();
+
+                if (from != null && to != null)
+                    touched(this, new ContextEntry(from, to));
+            });
+
+            connections.add(this);
+        }
+
+        io.tqi.ekg.Node getValue() {
+            return end.node;
+        }
+
+        io.tqi.ekg.Node getKey() {
+            final NodeGeom owner = getOwner();
+            return owner == null ? null : owner.node;
+        }
+
+        @Override
+        public void select() {
+            line.setEffect(SEL_GLOW);
+        }
+
+        @Override
+        public void deselect() {
+            line.setEffect(null);
+        }
+    }
+
     private class PropConnection extends Connection implements Selectable {
         final Connection spur;
         final Caption caption = new Caption();
         final Scale flip = new Scale();
-        final DropShadow selGlow = new DropShadow(GRAPH_SCALE / 75, Color.DEEPSKYBLUE);
 
         PropConnection(final NodeGeom property, final NodeGeom value) {
             super(value, false);
             property.incoming.add(this);
             value.incoming.add(this);
 
-            setColor(property.node == kb.node(Common.execute) ? Color.DEEPSKYBLUE.interpolate(Color.TRANSPARENT, .5)
-                    : Color.BLACK);
+            setColor(Color.BLACK);
             spur = new Connection(property, false);
             spur.setColor(Color.BLUE.interpolate(Color.TRANSPARENT, .9));
             spur.setVisible(false);
@@ -313,8 +359,6 @@ public class GraphPanel extends StackPane {
             caption.setFont(new Font(.08 * GRAPH_SCALE));
             caption.getTransforms().add(flip);
             lineBillboard.getChildren().add(caption);
-
-            selGlow.setSpread(.7);
 
             setOnMouseClicked(e -> {
                 final io.tqi.ekg.Node on = getObject(), pn = getProperty(), vn = getValue();
@@ -369,9 +413,9 @@ public class GraphPanel extends StackPane {
         @Override
         public void select() {
             // can't just set effect on group; interferes with perspective
-            line.setEffect(selGlow);
-            caption.setEffect(selGlow);
-            spur.line.setEffect(selGlow);
+            line.setEffect(SEL_GLOW);
+            caption.setEffect(SEL_GLOW);
+            spur.line.setEffect(SEL_GLOW);
             spur.setVisible(true);
         }
 
@@ -396,6 +440,8 @@ public class GraphPanel extends StackPane {
         final InnerShadow selEffect = new InnerShadow(GRAPH_SCALE / 4, Color.DEEPSKYBLUE);
 
         final Tappable tappable = new Tappable();
+
+        ContextConnection contextConnection;
 
         int dragPtId;
         Point3D dragPt;
@@ -449,8 +495,12 @@ public class GraphPanel extends StackPane {
                     .subscribe(x -> updateNode(), y -> {
                     }, () -> {
                         for (Connection c : incoming) {
-                            if (c.getParent() != null)
+                            if (c instanceof ContextConnection) {
+                                c.getOwner().contextConnection = null;
+                            }
+                            if (c.getParent() != null) {
                                 ((Group) c.getParent()).getChildren().remove(c);
+                            }
                         }
                         root.getChildren().remove(this);
                     });
@@ -563,6 +613,21 @@ public class GraphPanel extends StackPane {
             updateColor();
         }
 
+        void setContextValue(final io.tqi.ekg.Node value) {
+            if (value != null) {
+                if (contextConnection == null) {
+                    contextConnection = new ContextConnection(node(value));
+                    connections.getChildren().add(contextConnection);
+                } else {
+                    contextConnection.setEnd(node(value));
+                }
+                contextConnection.update();
+            } else if (contextConnection != null) {
+                connections.getChildren().remove(contextConnection);
+                contextConnection = null;
+            }
+        }
+
         void updateNode() {
             if (node != null) {
                 text.setText(node.displayString());
@@ -610,15 +675,13 @@ public class GraphPanel extends StackPane {
                     } else {
                         oldProps.add(pn);
                         if (pc.getValue() != vn) {
-                            pc.end.incoming.remove(pc);
-                            pc.end = node(vn);
-                            pc.end.incoming.add(pc);
+                            pc.setEnd(node(vn));
                         }
                     }
                 }
             }
 
-            for (final Entry<io.tqi.ekg.Node, Activation> source : node.getSynapse()) {
+            for (final Entry<io.tqi.ekg.Node, Profile> source : node.getSynapse()) {
                 if (!oldAssocs.contains(source.getKey())) {
                     final AssocConnection ac = new AssocConnection(node(source.getKey()));
                     connections.getChildren().add(ac);
@@ -645,10 +708,15 @@ public class GraphPanel extends StackPane {
                     }
                     for (final Iterator<Connection> it = incoming.iterator(); it.hasNext();) {
                         final Connection c = it.next();
-                        if (c.getScene() == null)
+                        if (c.getScene() == null && getScene() != null) {
+                            // This removal prevents memory leaks, but we need
+                            // to check getScene too because c.getScene may be
+                            // spuriously null if the graph panel itself has not
+                            // yet been connected.
                             it.remove();
-                        else
+                        } else {
                             c.update();
+                        }
                     }
                 }
             } else {
@@ -711,10 +779,8 @@ public class GraphPanel extends StackPane {
 
     private final Subject<Optional<Void>> rxCam = PublishSubject.create(), rxInvalidate = PublishSubject.create();
     private boolean updateConnections = true;
-    private final KnowledgeBase kb;
 
     public GraphPanel(final KnowledgeBase kb) {
-        this.kb = kb;
         root = new Group();
 
         camera = new PerspectiveCamera(true);
@@ -731,6 +797,14 @@ public class GraphPanel extends StackPane {
         Observable.fromIterable(kb).concatWith(kb.rxNodeAdded())
                 .zipWith(Observable.interval(2, TimeUnit.MILLISECONDS), (n, t) -> n)
                 .observeOn(JavaFxScheduler.platform()).subscribe(this::node);
+
+        kb.rxChange().ofType(KnowledgeBase.PutContextEvent.class).observeOn(JavaFxScheduler.platform()).subscribe(e -> {
+            node(e.key).setContextValue(e.value);
+        });
+        for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> entry : kb.getContext().entrySet()) {
+            node(entry.getKey()).setContextValue(entry.getValue());
+        }
+
         double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
         double minZ = Double.POSITIVE_INFINITY, maxZ = Double.NEGATIVE_INFINITY;

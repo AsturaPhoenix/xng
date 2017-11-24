@@ -685,7 +685,7 @@ public class GraphPanel extends StackPane {
     private final StackPane touch;
     private final List<Point2D> touchPoints = new ArrayList<>();
     private int navPtCount;
-    private final Affine graphTransform;
+    private final Affine graphTransform = new Affine(), pendingTransform = new Affine();
 
     private final NodeKeyMap<NodeGeom> nodes = new NodeKeyMap<>();
     private final ArrayList<Connection> connections = new ArrayList<>();
@@ -733,7 +733,7 @@ public class GraphPanel extends StackPane {
     }
 
     private final io.tqi.ekg.Node context;
-    private final Subject<Optional<Void>> rxCam = PublishSubject.create(), rxInvalidate = PublishSubject.create();
+    private final Subject<Optional<Void>> rxCam = PublishSubject.create();
     private boolean updateConnections = true;
 
     public GraphPanel(final KnowledgeBase kb) {
@@ -744,9 +744,9 @@ public class GraphPanel extends StackPane {
         camera.setFieldOfView(40);
         camera.setNearClip(1);
         camera.setFarClip(100000);
+        camera.getTransforms().add(pendingTransform);
         root.getChildren().add(camera);
 
-        graphTransform = new Affine();
         graphTransform.append(new Scale(GRAPH_SCALE * UI_SCALE, GRAPH_SCALE * UI_SCALE, GRAPH_SCALE * UI_SCALE));
 
         // Stagger node creation or else JavaFX may NPE on cache buffer
@@ -803,31 +803,25 @@ public class GraphPanel extends StackPane {
 
         rxSelected.onNext(Optional.empty());
 
-        rxCam.sample(1000 / 60, TimeUnit.MILLISECONDS).mergeWith(rxInvalidate.sample(10, TimeUnit.MILLISECONDS))
-                .observeOn(JavaFxScheduler.platform()).subscribe(e -> {
-                    final long frameStart = System.currentTimeMillis();
-                    updateConnections = false;
-                    for (final NodeGeom node : nodes.values()) {
-                        node.updatePosition();
-                    }
-                    while (connectionToProcess < connections.size() && System.currentTimeMillis() - frameStart < 1) {
-                        final Connection c = connections.get(connectionToProcess);
-                        if (c.getScene() == null) {
-                            connections.remove(connectionToProcess);
-                        } else {
-                            c.update();
-                            connectionToProcess++;
-                        }
-                    }
-                    if (connectionToProcess >= connections.size())
-                        connectionToProcess = 0;
-                    else
-                        rxInvalidate.onNext(Optional.empty());
-                    updateConnections = true;
-                });
+        rxCam.sample(250, TimeUnit.MILLISECONDS).observeOn(JavaFxScheduler.platform()).subscribe(e -> {
+            pendingTransform.invert();
+            graphTransform.prepend(pendingTransform);
+            pendingTransform.setToIdentity();
+            updateConnections = false;
+            for (final NodeGeom node : nodes.values()) {
+                node.updatePosition();
+            }
+            for (final Iterator<Connection> it = connections.iterator(); it.hasNext();) {
+                final Connection c = it.next();
+                if (c.getScene() == null) {
+                    it.remove();
+                } else {
+                    c.update();
+                }
+            }
+            updateConnections = true;
+        });
     }
-
-    private int connectionToProcess;
 
     private NodeGeom node(final io.tqi.ekg.Node node) {
         assert (node != null);
@@ -913,9 +907,9 @@ public class GraphPanel extends StackPane {
                     onRotateDrag(tm.delta);
                 }
                 if (e.isMiddleButtonDown() || e.isShiftDown()) {
-                    graphTransform.prependTranslation(0, 0, ZOOM_FACTOR * tm.delta.getY());
+                    pendingTransform.appendTranslation(0, 0, -ZOOM_FACTOR * tm.delta.getY());
+                    rxCam.onNext(Optional.empty());
                 }
-                rxCam.onNext(Optional.empty());
             }
         });
 
@@ -939,13 +933,11 @@ public class GraphPanel extends StackPane {
 
                         final Point2D toOld = centroid.subtract(tm.oldPt), toNew = centroid.subtract(tm.newPt);
 
-                        graphTransform.prependTranslation(0, 0, ZOOM_FACTOR * tm.delta.dotProduct(toOld.normalize()));
-
-                        graphTransform.prependRotation(toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
+                        pendingTransform.appendTranslation(0, 0, -ZOOM_FACTOR * tm.delta.dotProduct(toOld.normalize()));
+                        pendingTransform.appendRotation(-toOld.angle(toNew) / e.getTouchCount(), Point3D.ZERO,
                                 toOld.crossProduct(toNew).normalize());
+                        rxCam.onNext(Optional.empty());
                     }
-
-                    rxCam.onNext(Optional.empty());
                 }
             }
         });
@@ -959,13 +951,15 @@ public class GraphPanel extends StackPane {
         final Point3D vc = getViewCentroid();
         final double angle = to3.angle(from3);
 
-        graphTransform.prependRotation(vc.equals(Point3D.ZERO) ? -angle : angle, vc,
+        pendingTransform.appendRotation(vc.equals(Point3D.ZERO) ? angle : -angle, vc,
                 to3.crossProduct(from3).normalize());
+        rxCam.onNext(Optional.empty());
     }
 
     private void onTranslateDrag(final Point2D delta) {
-        final Point2D adjusted = delta.multiply(TRANSLATION_FACTOR * 900 / Math.min(getWidth(), getHeight()));
-        graphTransform.prependTranslation(adjusted.getX(), adjusted.getY());
+        final Point2D adjusted = delta.multiply(-TRANSLATION_FACTOR * 900 / Math.min(getWidth(), getHeight()));
+        pendingTransform.appendTranslation(adjusted.getX(), adjusted.getY());
+        rxCam.onNext(Optional.empty());
     }
 
     private Point3D getViewCentroid() {

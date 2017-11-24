@@ -85,6 +85,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                 kb.getContext(kb.node(Common.object)).clearProperties();
             }
         },
+        delete {
+            @Override
+            public void impl(final KnowledgeBase kb) {
+                kb.getContext(kb.node(Common.object)).delete();
+            }
+        },
         /**
          * Gets a static or instance Java field.
          */

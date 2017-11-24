@@ -17,6 +17,7 @@ import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.KnowledgeBase.Common;
 import io.tqi.ekg.NodeKeyMap;
 import io.tqi.ekg.Synapse.Profile;
 import javafx.collections.ObservableList;
@@ -304,42 +305,6 @@ public class GraphPanel extends StackPane {
         }
     }
 
-    private class ContextConnection extends Connection implements Selectable {
-        ContextConnection(final NodeGeom value) {
-            super(value, false);
-            setColor(Color.TRANSPARENT.interpolate(Color.TURQUOISE, .7));
-            value.incoming.add(this);
-
-            setOnMouseClicked(e -> {
-                final io.tqi.ekg.Node from = getKey(), to = getValue();
-
-                if (from != null && to != null)
-                    touched(this, new ContextEntry(from, to));
-            });
-
-            connections.add(this);
-        }
-
-        io.tqi.ekg.Node getValue() {
-            return end.node;
-        }
-
-        io.tqi.ekg.Node getKey() {
-            final NodeGeom owner = getOwner();
-            return owner == null ? null : owner.node;
-        }
-
-        @Override
-        public void select() {
-            line.setEffect(SEL_GLOW);
-        }
-
-        @Override
-        public void deselect() {
-            line.setEffect(null);
-        }
-    }
-
     private class PropConnection extends Connection implements Selectable {
         final Connection spur;
         final Caption caption = new Caption();
@@ -436,12 +401,12 @@ public class GraphPanel extends StackPane {
         final Group geom = new Group();
         final Group connections = new Group();
         final Set<Connection> incoming = new HashSet<>();
+        final Observable<Connection> spurs = Observable.fromIterable(incoming).ofType(PropConnection.class)
+                .map(c -> c.spur).filter(c -> c.end == this);
 
         final InnerShadow selEffect = new InnerShadow(GRAPH_SCALE / 4, Color.DEEPSKYBLUE);
 
         final Tappable tappable = new Tappable();
-
-        ContextConnection contextConnection;
 
         int dragPtId;
         Point3D dragPt;
@@ -495,9 +460,6 @@ public class GraphPanel extends StackPane {
                     .subscribe(x -> updateNode(), y -> {
                     }, () -> {
                         for (Connection c : incoming) {
-                            if (c instanceof ContextConnection) {
-                                c.getOwner().contextConnection = null;
-                            }
                             if (c.getParent() != null) {
                                 ((Group) c.getParent()).getChildren().remove(c);
                             }
@@ -605,27 +567,16 @@ public class GraphPanel extends StackPane {
         public void select() {
             selected = true;
             updateColor();
+
+            spurs.forEach(c -> c.setVisible(true));
         }
 
         @Override
         public void deselect() {
             selected = false;
             updateColor();
-        }
 
-        void setContextValue(final io.tqi.ekg.Node value) {
-            if (value != null) {
-                if (contextConnection == null) {
-                    contextConnection = new ContextConnection(node(value));
-                    connections.getChildren().add(contextConnection);
-                } else {
-                    contextConnection.setEnd(node(value));
-                }
-                contextConnection.update();
-            } else if (contextConnection != null) {
-                connections.getChildren().remove(contextConnection);
-                contextConnection = null;
-            }
+            spurs.forEach(c -> c.setVisible(false));
         }
 
         void updateNode() {
@@ -690,7 +641,11 @@ public class GraphPanel extends StackPane {
             }
             for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : node.getProperties().entrySet()) {
                 if (!oldProps.contains(prop.getKey())) {
-                    connections.getChildren().add(new PropConnection(node(prop.getKey()), node(prop.getValue())));
+                    final PropConnection c = new PropConnection(node(prop.getKey()), node(prop.getValue()));
+                    if (node == context) {
+                        c.setColor(Color.TURQUOISE.interpolate(Color.TRANSPARENT, .3));
+                    }
+                    connections.getChildren().add(c);
                 }
             }
         }
@@ -777,10 +732,12 @@ public class GraphPanel extends StackPane {
         rxSelected.onNext(Optional.ofNullable(selected));
     }
 
+    private final io.tqi.ekg.Node context;
     private final Subject<Optional<Void>> rxCam = PublishSubject.create(), rxInvalidate = PublishSubject.create();
     private boolean updateConnections = true;
 
     public GraphPanel(final KnowledgeBase kb) {
+        context = kb.node(Common.context);
         root = new Group();
 
         camera = new PerspectiveCamera(true);
@@ -797,13 +754,6 @@ public class GraphPanel extends StackPane {
         Observable.fromIterable(kb).concatWith(kb.rxNodeAdded())
                 .zipWith(Observable.interval(2, TimeUnit.MILLISECONDS), (n, t) -> n)
                 .observeOn(JavaFxScheduler.platform()).subscribe(this::node);
-
-        kb.rxChange().ofType(KnowledgeBase.PutContextEvent.class).observeOn(JavaFxScheduler.platform()).subscribe(e -> {
-            node(e.key).setContextValue(e.value);
-        });
-        for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> entry : kb.getContext().entrySet()) {
-            node(entry.getKey()).setContextValue(entry.getValue());
-        }
 
         double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;

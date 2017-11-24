@@ -307,11 +307,6 @@ public class DesktopApplication extends Application {
                         final GraphPanel.Association assoc = (GraphPanel.Association) opt.get();
                         assoc.dest.getSynapse().dissociate(assoc.source);
                     });
-                } else if (opt.get() instanceof GraphPanel.ContextEntry) {
-                    delete.setOnAction(e -> {
-                        final GraphPanel.ContextEntry context = (GraphPanel.ContextEntry) opt.get();
-                        kb.removeContext(context.key);
-                    });
                 } else {
                     delete.setOnAction(e -> System.out.println("Not implemented"));
                 }

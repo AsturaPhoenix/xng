@@ -9,7 +9,9 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Multiset;
 
 import io.reactivex.Observable;
 import io.tqi.ekg.Synapse.Profile;
@@ -28,10 +30,11 @@ public class NodePhysics {
 
     private final Object $lock = new Object();
     private Link head;
-    private final NodeMap context;
 
-    public NodePhysics(final NodeMap context) {
-        this.context = context;
+    private Multiset<Node> propUsage = HashMultiset.create();
+    private Multiset<Node> propUsageCounter = HashMultiset.create();
+
+    public NodePhysics() {
         Observable.interval(1000 / 60, TimeUnit.MILLISECONDS).subscribe(f -> process());
     }
 
@@ -70,6 +73,11 @@ public class NodePhysics {
             }
             link = link.next;
         }
+
+        final Multiset<Node> swap = propUsage;
+        propUsage = propUsageCounter;
+        swap.clear();
+        propUsageCounter = swap;
     }
 
     private static final int GRID_SIZE = 1;
@@ -176,17 +184,17 @@ public class NodePhysics {
             attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient(), 1.2);
         }
 
+        final int nProps = node.getProperties().size();
+
         for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
             if (prop.getValue() == null)
                 continue;
 
-            attract(prop.getValue(), node, .05, 1.2);
-            attract(prop.getKey(), node, prop.getValue(), .02, 4);
-        }
+            propUsageCounter.add(prop.getKey());
 
-        final Node contextValue = context.get(node);
-        if (contextValue != null) {
-            attract(contextValue, node, .02, 3);
+            attract(prop.getValue(), node, .05 / nProps, 1.2 * nProps);
+            final int nUses = propUsage.count(prop.getKey());
+            attract(prop.getKey(), node, prop.getValue(), .02 / nUses, 2 * nUses);
         }
 
         if (!node.isPinned() && node.getLocation() != null) {

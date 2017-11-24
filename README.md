@@ -1,5 +1,7 @@
 # Executable Knowledge Graph
 
+![Screenshot](screenshots/cover.png)
+
 # Visual Studio Code
 To develop in VS Code,
 1. Clone the git repo.

@@ -82,6 +82,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     public enum BuiltIn {
+        activate {
+            @Override
+            public void impl(final KnowledgeBase kb) {
+                kb.context.get(kb.node(Common.value)).activate();
+            }
+        },
         clearProperties {
             @Override
             public void impl(final KnowledgeBase kb) {

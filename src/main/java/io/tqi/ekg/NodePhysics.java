@@ -31,8 +31,26 @@ public class NodePhysics {
     private final Object $lock = new Object();
     private Link head;
 
-    private Multiset<Node> propUsage = HashMultiset.create();
-    private Multiset<Node> propUsageCounter = HashMultiset.create();
+    private static class Counters {
+        final Multiset<Node> propUsage = HashMultiset.create();
+        final Map<Node, Double> assocUsage = new HashMap<>();
+
+        void clear() {
+            propUsage.clear();
+            assocUsage.clear();
+        }
+
+        void addAssoc(final Node a, final Node b, final double coefficient) {
+            addAssoc(a, coefficient);
+            addAssoc(b, coefficient);
+        }
+
+        void addAssoc(final Node node, final double coefficient) {
+            assocUsage.merge(node, coefficient, (a, b) -> a + b);
+        }
+    }
+
+    private Counters counters = new Counters(), nextCounters = new Counters();
 
     public NodePhysics() {
         Observable.interval(1000 / 60, TimeUnit.MILLISECONDS).subscribe(f -> process());
@@ -74,10 +92,10 @@ public class NodePhysics {
             link = link.next;
         }
 
-        final Multiset<Node> swap = propUsage;
-        propUsage = propUsageCounter;
+        final Counters swap = counters;
+        counters = nextCounters;
         swap.clear();
-        propUsageCounter = swap;
+        nextCounters = swap;
     }
 
     private static final int GRID_SIZE = 1;
@@ -180,8 +198,13 @@ public class NodePhysics {
             node.setLocation(Point3D.ZERO);
         }
 
+        final double myLoosening = Math.max(1, counters.assocUsage.getOrDefault(node, 1.0) - 4);
+
         for (final Entry<Node, Profile> assoc : node.getSynapse()) {
-            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient(), 1.2);
+            nextCounters.addAssoc(node, assoc.getKey(), assoc.getValue().getCoefficient());
+            final double loosening = (myLoosening
+                    + Math.max(1, counters.assocUsage.getOrDefault(assoc.getKey(), 1.0) - 4)) / 2;
+            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient() / loosening, 1.2 * loosening);
         }
 
         final int nProps = node.getProperties().size();
@@ -190,10 +213,10 @@ public class NodePhysics {
             if (prop.getValue() == null)
                 continue;
 
-            propUsageCounter.add(prop.getKey());
+            nextCounters.propUsage.add(prop.getKey());
 
             attract(prop.getValue(), node, .05 / nProps, 1.2 * nProps);
-            final int nUses = propUsage.count(prop.getKey());
+            final int nUses = counters.propUsage.count(prop.getKey());
             attract(prop.getKey(), node, prop.getValue(), .02 / nUses, 2 * nUses);
         }
 

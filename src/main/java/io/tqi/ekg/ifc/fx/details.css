@@ -9,3 +9,7 @@ GridPane > * {
 GridPane Label {
 	-fx-padding: 4;
 }
+
+GridPane .header {
+	-fx-background-color: lightgrey;
+}

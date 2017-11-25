@@ -3,11 +3,10 @@ package io.tqi.ekg;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectInputStream.GetField;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 import io.reactivex.Completable;
 import io.reactivex.Observable;
@@ -16,6 +15,7 @@ import io.reactivex.functions.Action;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import javafx.collections.MapChangeListener;
 import javafx.geometry.Point3D;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -149,6 +149,7 @@ public class Node implements Serializable, ChangeObservable<Object> {
     private void postInit() {
         synapse.rxActivate().subscribe(t -> activate());
         synapse.rxChange().subscribe(s -> rxChange.onNext(this));
+        properties.addListener((MapChangeListener<Node, Node>) rxChange::onNext);
     }
 
     @SuppressWarnings("unchecked")
@@ -164,9 +165,16 @@ public class Node implements Serializable, ChangeObservable<Object> {
         location = (SPoint) fields.get("location", null);
         pinned = fields.get("pinned", false);
         comment = (String) fields.get("comment", null);
-        properties = new NodeMap((Map<Node, Node>) fields.get("properties", new HashMap<>()));
+        properties = new ObservableNodeMap();
+        properties.putAll((Map<Node, Node>) fields.get("properties", new HashMap<>()));
 
         postInit();
+    }
+
+    private void writeObject(final ObjectOutputStream o) throws IOException {
+        synchronized (properties.mutex()) {
+            o.defaultWriteObject();
+        }
     }
 
     @Override
@@ -200,7 +208,7 @@ public class Node implements Serializable, ChangeObservable<Object> {
         return rxOutput;
     }
 
-    private NodeMap properties = new NodeMap();
+    private ObservableNodeMap properties = new ObservableNodeMap();
 
     @RequiredArgsConstructor
     public static class PropertySet {
@@ -208,45 +216,8 @@ public class Node implements Serializable, ChangeObservable<Object> {
         public final boolean getOrCreate;
     }
 
-    public Node setProperty(final Node property, final Node value) {
-        if (value == null) {
-            properties.remove(property);
-        } else {
-            properties.put(property, value);
-        }
-        rxChange.onNext(new PropertySet(this, property, value, false));
-
-        return this;
-    }
-
-    public Node clearProperties() {
-        properties.clear();
-        rxChange.onNext(this);
-        return this;
-    }
-
-    public Node setProperty(final Node property, final Optional<Node> value) {
-        return setProperty(property, value.orElse(null));
-    }
-
-    public Node getProperty(final Node property) {
-        return properties.get(property);
-    }
-
-    public Node getOrCreateProperty(final Node property, final KnowledgeBase kb) {
-        final boolean[] computed = new boolean[1];
-        final Node propNode = properties.computeIfAbsent(property, k -> {
-            computed[0] = true;
-            return kb.node();
-        });
-        if (computed[0]) {
-            rxChange.onNext(new PropertySet(this, property, propNode, true));
-        }
-        return propNode;
-    }
-
-    public Map<Node, Node> getProperties() {
-        return Collections.unmodifiableMap(properties);
+    public ObservableNodeMap properties() {
+        return properties;
     }
 
     @Override

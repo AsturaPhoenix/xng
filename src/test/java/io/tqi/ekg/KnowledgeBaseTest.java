@@ -17,7 +17,7 @@ public class KnowledgeBaseTest {
 
     private static void testPrint(final KnowledgeBase kb) {
         final EmissionMonitor<String> monitor = new EmissionMonitor<>(kb.rxOutput());
-        kb.putContext(kb.node(Common.value), kb.valueNode("foo"));
+        kb.context().put(kb.node(Common.value), kb.valueNode("foo"));
         kb.node(BuiltIn.print).activate();
         assertEquals("foo", monitor.emissions().blockingFirst());
     }
@@ -33,15 +33,16 @@ public class KnowledgeBaseTest {
     }
 
     private static void setUpPropGet(final KnowledgeBase kb) {
-        kb.node("roses").setProperty(kb.node("color"), kb.valueNode("red"));
+        kb.node("roses").properties().put(kb.node("color"), kb.valueNode("red"));
+
+        final Node rosesAre = kb.node("roses are"), context = kb.node();
+        rosesAre.setRefractory(0);
+        rosesAre.properties().put(kb.node(Common.context), context);
+        context.properties().put(kb.node(Common.object), kb.node("roses"));
+        context.properties().put(kb.node(Common.property), kb.node("color"));
 
         // @formatter:off
-        kb.node("roses are").setRefractory(0);
-        kb.node("roses are")
-                .setProperty(kb.node(Common.context), kb.node()
-                        .setProperty(kb.node(Common.object), kb.node("roses"))
-                        .setProperty(kb.node(Common.property), kb.node("color")))
-                .then(kb.node(BuiltIn.getProperty))
+        rosesAre.then(kb.node(BuiltIn.getProperty))
                 .then(kb.node(BuiltIn.print));
         // @formatter:on
     }
@@ -89,7 +90,7 @@ public class KnowledgeBaseTest {
     public void testSetException() {
         try (final KnowledgeBase kb = new KnowledgeBase()) {
             final EmissionMonitor<?> monitor = new EmissionMonitor<>(kb.node(Common.exception).rxChange());
-            kb.node(Common.exception).setProperty(kb.node(Common.source), kb.valueNode(new Exception()));
+            kb.node(Common.exception).properties().put(kb.node(Common.source), kb.valueNode(new Exception()));
             assertTrue(monitor.didEmit());
         }
     }

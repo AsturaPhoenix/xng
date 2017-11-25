@@ -27,10 +27,10 @@ public class NodeTest {
     @Test
     public void testPropertySerialization() throws Exception {
         final Node oObj = new Node(), oPropLabel = new Node("foo"), oPropValue = new Node("bar");
-        oObj.setProperty(oPropLabel, oPropValue);
+        oObj.properties().put(oPropLabel, oPropValue);
 
         final Node sObj = TestUtil.serialize(oObj);
-        final Entry<Node, Node> prop = Iterables.getOnlyElement(sObj.getProperties().entrySet());
+        final Entry<Node, Node> prop = Iterables.getOnlyElement(sObj.properties().entrySet());
         assertEquals("foo", prop.getKey().getValue());
         assertEquals("bar", prop.getValue().getValue());
     }
@@ -75,6 +75,7 @@ public class NodeTest {
         and.getSynapse().setCoefficient(b, .8f);
         a.activate();
         assertFalse(monitor.didEmit());
+        a.activate();
         b.activate();
         assertTrue(monitor.didEmit());
     }
@@ -90,6 +91,7 @@ public class NodeTest {
         final EmissionMonitor<?> monitor = new EmissionMonitor<>(nodes[2].rxActivate());
         nodes[0].activate();
         assertFalse(monitor.didEmit());
+        nodes[0].activate();
         nodes[1].activate();
         assertTrue(monitor.didEmit());
     }

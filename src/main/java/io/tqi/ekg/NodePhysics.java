@@ -194,7 +194,7 @@ public class NodePhysics {
     }
 
     private void process(final Node node) {
-        if (!node.getProperties().isEmpty() && node.getLocation() == null) {
+        if (!node.properties().isEmpty() && node.getLocation() == null) {
             node.setLocation(Point3D.ZERO);
         }
 
@@ -207,17 +207,19 @@ public class NodePhysics {
             attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient() / loosening, 1.2 * loosening);
         }
 
-        final int nProps = node.getProperties().size();
+        final int nProps = node.properties().size();
 
-        for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
-            if (prop.getValue() == null)
-                continue;
+        synchronized (node.properties().mutex()) {
+            for (final Entry<Node, Node> prop : node.properties().entrySet()) {
+                if (prop.getValue() == null)
+                    continue;
 
-            nextCounters.propUsage.add(prop.getKey());
+                nextCounters.propUsage.add(prop.getKey());
 
-            attract(prop.getValue(), node, .05 / nProps, 1.2 * nProps);
-            final int nUses = counters.propUsage.count(prop.getKey());
-            attract(prop.getKey(), node, prop.getValue(), .02 / nUses, 2 * nUses);
+                attract(prop.getValue(), node, .05 / nProps, 1.2 * nProps);
+                final int nUses = counters.propUsage.count(prop.getKey());
+                attract(prop.getKey(), node, prop.getValue(), .02 / nUses, 2 * nUses);
+            }
         }
 
         if (!node.isPinned() && node.getLocation() != null) {

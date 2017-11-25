@@ -76,19 +76,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         activate {
             @Override
             public void impl(final KnowledgeBase kb) {
-                kb.getContext(kb.node(Common.value)).activate();
+                kb.context().get(kb.node(Common.value)).activate();
             }
         },
         clearProperties {
             @Override
             public void impl(final KnowledgeBase kb) {
-                kb.getContext(kb.node(Common.object)).clearProperties();
+                kb.context().get(kb.node(Common.object)).properties().clear();
             }
         },
         delete {
             @Override
             public void impl(final KnowledgeBase kb) {
-                kb.getContext(kb.node(Common.object)).delete();
+                kb.context().get(kb.node(Common.object)).delete();
             }
         },
         /**
@@ -97,9 +97,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         field {
             @Override
             public void impl(final KnowledgeBase kb) throws Exception {
-                final Node classNode = kb.getContext(kb.node(Common.javaClass)),
-                        objectNode = kb.getContext(kb.node(Common.object)),
-                        fieldNode = kb.getContext(kb.node(Common.name));
+                final Node classNode = kb.context().get(kb.node(Common.javaClass)),
+                        objectNode = kb.context().get(kb.node(Common.object)),
+                        fieldNode = kb.context().get(kb.node(Common.name));
                 final Object object;
                 final Class<?> clazz;
 
@@ -122,7 +122,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                 Field field = clazz.getField((String) fieldNode.getValue());
 
                 Object ret = field.get(object);
-                kb.putContext(kb.node(Common.value), kb.valueNode((Serializable) ret));
+                kb.context().put(kb.node(Common.value), kb.valueNode((Serializable) ret));
             }
         },
         /**
@@ -131,9 +131,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         getProperty {
             @Override
             public void impl(final KnowledgeBase kb) {
-                final Node object = kb.getContext(kb.node(Common.object)),
-                        property = kb.getContext(kb.node(Common.property));
-                kb.putContext(kb.node(Common.value), object.getProperty(property));
+                final Node object = kb.context().get(kb.node(Common.object)),
+                        property = kb.context().get(kb.node(Common.property));
+                kb.context().put(kb.node(Common.value), object.properties().get(property));
             }
         },
         /**
@@ -145,9 +145,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         method {
             @Override
             public void impl(final KnowledgeBase kb) throws Exception {
-                final Node classNode = kb.getContext(kb.node(Common.javaClass)),
-                        objectNode = kb.getContext(kb.node(Common.object)),
-                        methodNode = kb.getContext(kb.node(Common.name));
+                final Node classNode = kb.context().get(kb.node(Common.javaClass)),
+                        objectNode = kb.context().get(kb.node(Common.object)),
+                        methodNode = kb.context().get(kb.node(Common.name));
                 final Object object;
                 final Class<?> clazz;
 
@@ -169,28 +169,28 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
                 ArrayList<Class<?>> params = new ArrayList<>();
                 Node param;
-                for (int i = 1; (param = kb.getContext(kb.param(i))) != null; i++) {
+                for (int i = 1; (param = kb.context().get(kb.param(i))) != null; i++) {
                     params.add((Class<?>) param.getValue());
                 }
 
                 Method method = clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
                 ArrayList<Object> args = new ArrayList<>();
                 for (int i = 1; i <= params.size(); i++) {
-                    Node arg = kb.getContext(kb.arg(i));
+                    Node arg = kb.context().get(kb.arg(i));
                     args.add(arg == null ? null : arg.getValue());
                 }
 
                 Object ret = method.invoke(object, args.toArray());
                 if (method.getReturnType() != null) {
-                    kb.putContext(kb.node(Common.value), kb.valueNode((Serializable) ret));
+                    kb.context().put(kb.node(Common.value), kb.valueNode((Serializable) ret));
                 }
             }
         },
         findClass {
             @Override
             public void impl(final KnowledgeBase kb) throws ClassNotFoundException {
-                kb.putContext(kb.node(Common.javaClass),
-                        kb.valueNode(Class.forName((String) kb.getContext(kb.node(Common.name)).getValue())));
+                kb.context().put(kb.node(Common.javaClass),
+                        kb.valueNode(Class.forName((String) kb.context().get(kb.node(Common.name)).getValue())));
             }
         },
         createNode {
@@ -202,34 +202,34 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         print {
             @Override
             public void impl(final KnowledgeBase kb) {
-                kb.rxOutput.onNext(Objects.toString(kb.getContext(kb.node(Common.value)).getValue()));
+                kb.rxOutput.onNext(Objects.toString(kb.context().get(kb.node(Common.value)).getValue()));
             }
         },
         setCoefficient {
             @Override
             public void impl(final KnowledgeBase kb) {
-                final Node dest = kb.getContext(kb.node(Common.destination));
-                dest.getSynapse().setCoefficient(kb.getContext(kb.node(Common.source)),
-                        ((Number) kb.getContext(kb.node(Common.coefficient)).getValue()).floatValue());
+                final Node dest = kb.context().get(kb.node(Common.destination));
+                dest.getSynapse().setCoefficient(kb.context().get(kb.node(Common.source)),
+                        ((Number) kb.context().get(kb.node(Common.coefficient)).getValue()).floatValue());
             }
         },
         setProperty {
             @Override
             public void impl(final KnowledgeBase kb) {
-                final Node object = kb.getContext(kb.node(Common.object)),
-                        property = kb.getContext(kb.node(Common.property)),
-                        value = kb.getContext(kb.node(Common.value));
+                final Node object = kb.context().get(kb.node(Common.object)),
+                        property = kb.context().get(kb.node(Common.property)),
+                        value = kb.context().get(kb.node(Common.value));
                 if (property == null) {
                     throw new NullPointerException();
                 }
-                object.setProperty(property, value);
+                object.properties().put(property, value);
             }
         },
         setRefractory {
             @Override
             public void impl(final KnowledgeBase kb) {
-                kb.getContext(kb.node(Common.value))
-                        .setRefractory(((Number) kb.getContext(kb.node(Common.refractory)).getValue()).longValue());
+                kb.context().get(kb.node(Common.value))
+                        .setRefractory(((Number) kb.context().get(kb.node(Common.refractory)).getValue()).longValue());
             }
         };
 
@@ -283,7 +283,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         rxNodeAdded = PublishSubject.create();
         rxNodeAdded.subscribe(n -> {
             final Node nnn = node(Common.nodeCreated);
-            putContext(nnn, n);
+            context().put(nnn, n);
             nnn.activate();
         });
     }
@@ -303,20 +303,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     private void mutateIndex(final Node node) {
-        final Node contextCopy = node.getProperty(node(Common.context));
+        final Node contextCopy = node.properties().get(node(Common.context));
         if (contextCopy != null) {
-            for (final Entry<Node, Node> prop : contextCopy.getProperties().entrySet()) {
+            for (final Entry<Node, Node> prop : contextCopy.properties().entrySet()) {
                 if (prop.getValue() == node(Common.nullNode)) {
-                    putContext(prop.getKey(), null);
+                    context().remove(prop.getKey());
                 } else {
-                    putContext(prop.getKey(), prop.getValue());
+                    context().put(prop.getKey(), prop.getValue());
                 }
             }
         }
-        final Node transform = node.getProperty(node(Common.transform));
+        final Node transform = node.properties().get(node(Common.transform));
         if (transform != null) {
-            for (final Entry<Node, Node> prop : transform.getProperties().entrySet()) {
-                putContext(prop.getKey(), getContext(prop.getValue()));
+            for (final Entry<Node, Node> prop : transform.properties().entrySet()) {
+                context().put(prop.getKey(), context().get(prop.getValue()));
             }
         }
     }
@@ -332,7 +332,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                 builtIn.impl(this);
             } catch (final Exception e) {
                 final Node exceptionNode = node(Common.exception);
-                putContext(exceptionNode, valueNode(e).setProperty(node(Common.source), node));
+                context().put(exceptionNode, valueNode(e).properties().put(node(Common.source), node));
                 exceptionNode.activate();
             }
         });
@@ -352,14 +352,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
         final GetField fields = stream.readFields();
-        index = new NodeValueMap<>((Map<String, Node>) fields.get("index", new HashMap<>()));
-        valueIndex = new NodeValueMap<>((Map<IdentityKey, Node>) fields.get("valueIndex", new HashMap<>()));
+        index = new NodeValueMap<>();
+        index.putAll((Map<String, Node>) fields.get("index", new HashMap<>()));
+        valueIndex = new NodeValueMap<>();
+        valueIndex.putAll((Map<IdentityKey, Node>) fields.get("valueIndex", new HashMap<>()));
         try {
             final Map<Node, Node> legacyContext = (Map<Node, Node>) fields.get("context", new HashMap<>());
             final Node context = node(Common.context);
             if (legacyContext != null) {
                 for (final Entry<Node, Node> entry : legacyContext.entrySet()) {
-                    context.setProperty(entry.getKey(), entry.getValue());
+                    context.properties().put(entry.getKey(), entry.getValue());
                 }
             }
         } catch (final IllegalArgumentException e) {
@@ -453,7 +455,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         // with Class since that's always single-instance.
         Serializable resolvingValue = value;
         if (!(value instanceof Class<?>)) {
-            final Node values = valueNode(value.getClass()).getProperty(node(Common.value));
+            final Node values = valueNode(value.getClass()).properties().get(node(Common.value));
             if (values != null && values.getValue() instanceof ConcurrentHashMap) {
                 resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.getValue())
                         .computeIfAbsent(value, x -> value);
@@ -483,12 +485,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         return node;
     }
 
-    public Node getContext(final Node key) {
-        return node(Common.context).getProperty(key);
-    }
-
-    public void putContext(final Node key, final Node value) {
-        node(Common.context).setProperty(key, value);
+    public ObservableNodeMap context() {
+        return node(Common.context).properties();
     }
 
     @Override

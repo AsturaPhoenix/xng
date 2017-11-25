@@ -616,7 +616,7 @@ public class GraphPanel extends StackPane {
                     }
                 } else if (child instanceof PropConnection) {
                     final PropConnection pc = (PropConnection) child;
-                    final io.tqi.ekg.Node pn = pc.getProperty(), vn = node.getProperty(pn);
+                    final io.tqi.ekg.Node pn = pc.getProperty(), vn = node.properties().get(pn);
                     if (vn == null) {
                         it.remove();
                         if (selectedUi == pc)
@@ -637,7 +637,7 @@ public class GraphPanel extends StackPane {
                     ac.updateColor();
                 }
             }
-            for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : node.getProperties().entrySet()) {
+            for (final Entry<io.tqi.ekg.Node, io.tqi.ekg.Node> prop : node.properties().entrySet()) {
                 if (!oldProps.contains(prop.getKey())) {
                     final PropConnection c = new PropConnection(node(prop.getKey()), node(prop.getValue()));
                     if (node == context) {

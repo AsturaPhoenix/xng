@@ -3,13 +3,13 @@ package io.tqi.ekg;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.util.Iterator;
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 public class NodeValueMapAdapter<K> extends NodeMapBase<K, Node, Node.Ref> {
-    private static class EntrySet<K> extends EntrySetBase<K, Node, Node.Ref> {
-        EntrySet(final Map<K, Node.Ref> backing) {
-            super(backing);
+    private class EntrySet extends EntrySetBase<K, Node, Node.Ref> {
+        EntrySet() {
+            super(NodeValueMapAdapter.this.backing);
         }
 
         @Override
@@ -37,7 +37,7 @@ public class NodeValueMapAdapter<K> extends NodeMapBase<K, Node, Node.Ref> {
                         public Node setValue(Node value) {
                             final Node.Ref old = e.getValue();
                             old.dispose();
-                            e.setValue(value.ref(() -> backing.remove(e.getKey())));
+                            e.setValue(ref(e.getKey(), value));
                             return old.get();
                         }
                     };
@@ -56,26 +56,28 @@ public class NodeValueMapAdapter<K> extends NodeMapBase<K, Node, Node.Ref> {
         }
     }
 
-    public NodeValueMapAdapter(final Map<K, Node.Ref> backing) {
-        this.backing = backing;
-        entrySet = new EntrySet<>(backing);
+    public NodeValueMapAdapter() {
+        init();
     }
 
-    /**
-     * Deserialization constructor.
-     */
-    protected NodeValueMapAdapter() {
+    private void init() {
+        initBacking();
+        entrySet = new EntrySet();
+    }
+
+    protected void initBacking() {
+        backing = new ConcurrentHashMap<>();
     }
 
     @Override
     protected void deserialize(ObjectInputStream o) throws IOException, ClassNotFoundException {
-        entrySet = new EntrySet<>(backing);
+        init();
         super.deserialize(o);
     }
 
     @Override
     public Node put(K key, Node value) {
-        final Node.Ref old = backing.put(key, value.ref(() -> backing.remove(key)));
+        final Node.Ref old = backing.put(key, ref(key, value));
         if (old == null) {
             return null;
         } else {
@@ -86,6 +88,6 @@ public class NodeValueMapAdapter<K> extends NodeMapBase<K, Node, Node.Ref> {
 
     @Override
     public Node computeIfAbsent(K key, Function<? super K, ? extends Node> mappingFunction) {
-        return backing.computeIfAbsent(key, k -> mappingFunction.apply(k).ref(() -> backing.remove(k))).get();
+        return backing.computeIfAbsent(key, k -> ref(k, mappingFunction.apply(k))).get();
     }
 }

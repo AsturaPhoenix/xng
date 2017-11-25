@@ -69,13 +69,16 @@ public class NodeKeyMap<V> extends NodeMapBase<Node, V, NodeKeyMap.Record<V>> im
     }
 
     public NodeKeyMap() {
-        backing = new ConcurrentHashMap<>();
+        init();
+    }
+
+    private void init() {
+        initBacking();
         entrySet = new EntrySet<>(backing);
     }
 
-    public NodeKeyMap(int initialCapacity) {
-        backing = new ConcurrentHashMap<>(initialCapacity);
-        entrySet = new EntrySet<>(backing);
+    protected void initBacking() {
+        backing = new ConcurrentHashMap<>();
     }
 
     private void writeObject(final ObjectOutputStream o) throws IOException {
@@ -83,14 +86,13 @@ public class NodeKeyMap<V> extends NodeMapBase<Node, V, NodeKeyMap.Record<V>> im
     }
 
     private void readObject(final ObjectInputStream o) throws IOException, ClassNotFoundException {
-        backing = new ConcurrentHashMap<>();
-        entrySet = new EntrySet<>(backing);
+        init();
         deserialize(o);
     }
 
     @Override
     public V put(Node key, V value) {
-        final Record<V> record = backing.computeIfAbsent(key, k -> new Record<>(k.ref(() -> backing.remove(k))));
+        final Record<V> record = backing.computeIfAbsent(key, k -> new Record<>(ref(k, k)));
         final V oldValue = record.value;
         record.value = value;
         return oldValue;
@@ -99,7 +101,7 @@ public class NodeKeyMap<V> extends NodeMapBase<Node, V, NodeKeyMap.Record<V>> im
     @Override
     public V computeIfAbsent(Node key, Function<? super Node, ? extends V> mappingFunction) {
         return backing.computeIfAbsent(key, k -> {
-            final Record<V> record = new Record<>(k.ref((() -> backing.remove(k))));
+            final Record<V> record = new Record<>(ref(k, k));
             record.value = mappingFunction.apply(k);
             return record;
         }).value;

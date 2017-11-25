@@ -99,14 +99,14 @@ public class Repl {
             commandOutput.onNext(String.format("Invalid command string \"%s\"", command));
         } else if (result.get() instanceof Map.Entry) {
             final Map.Entry<?, ?> alias = (Map.Entry<?, ?>) result.get();
-            kb.putContext(resolveNode(alias.getKey()), resolveNode(alias.getValue()));
+            kb.context().put(resolveNode(alias.getKey()), resolveNode(alias.getValue()));
         } else {
             resolveNode(result.get()).activate();
         }
     }
 
     public void sendInput(final String input) {
-        kb.putContext(kb.node(Common.value), kb.valueNode(input));
+        kb.context().put(kb.node(Common.value), kb.valueNode(input));
         kb.node("Repl.input").activate();
     }
 }

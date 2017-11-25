@@ -16,6 +16,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
 
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
@@ -31,6 +32,7 @@ import io.tqi.ekg.ifc.fx.GraphPanel.Property;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
+import javafx.collections.MapChangeListener;
 import javafx.geometry.HPos;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -78,7 +80,7 @@ public class DesktopApplication extends Application {
         final javafx.scene.Node console = createConsole();
         final SplitPane splitPane = new SplitPane(graph, console);
         splitPane.setOrientation(Orientation.VERTICAL);
-        splitPane.setDividerPositions(.5);
+        splitPane.setDividerPositions(.7);
         SplitPane.setResizableWithParent(console, false);
 
         final BorderPane borderPane = new BorderPane();
@@ -241,7 +243,7 @@ public class DesktopApplication extends Application {
                         ttBuilder.append('=');
                         break;
                     case 3:
-                        args.get(0).setProperty(args.get(1), args.get(2));
+                        args.get(0).properties().put(args.get(1), args.get(2));
 
                         property.setSelected(false);
                         setMode(defaultMode);
@@ -319,7 +321,7 @@ public class DesktopApplication extends Application {
                 } else if (opt.get() instanceof Property) {
                     delete.setOnAction(e -> {
                         final Property prop = (Property) opt.get();
-                        prop.object.setProperty(prop.property, Optional.empty());
+                        prop.object.properties().remove(prop.property);
                     });
                 } else if (opt.get() instanceof Association) {
                     delete.setOnAction(e -> {
@@ -357,6 +359,7 @@ public class DesktopApplication extends Application {
     private void addDetailHeader(final GridPane parent, final String header) {
         final StackPane headerPane = new StackPane(new Label(header));
         GridPane.setColumnSpan(headerPane, 2);
+        headerPane.getStyleClass().add("header");
         addDetailRow(parent, headerPane);
     }
 
@@ -409,6 +412,42 @@ public class DesktopApplication extends Application {
         addDetail(parent, label, getNodeObservable(node, getValue), setValue);
     }
 
+    private Runnable disposePropertiesListener;
+
+    private void addProperties(final GridPane parent, final String header, final Node node) {
+        addDetailHeader(parent, header);
+
+        synchronized (node.properties().mutex()) {
+            final int propsStart = parent.getChildren().size();
+
+            for (final Entry<Node, Node> prop : Lists.reverse(new ArrayList<>(node.properties().entrySet()))) {
+                addDetail(parent, prop.getKey().displayString(), new Label(prop.getValue().displayString()));
+            }
+
+            MapChangeListener<Node, Node> listener = c -> Platform.runLater(() -> {
+                synchronized (node.properties().mutex()) {
+                    int i = propsStart;
+                    for (final Entry<Node, Node> prop : Lists.reverse(new ArrayList<>(node.properties().entrySet()))) {
+                        if (i < parent.getChildren().size()) {
+                            ((Label) ((StackPane) parent.getChildren().get(i)).getChildren().get(0))
+                                    .setText(prop.getKey().displayString());
+                            ((Label) ((StackPane) parent.getChildren().get(i + 1)).getChildren().get(0))
+                                    .setText(prop.getValue().displayString());
+                        } else {
+                            addDetail(parent, prop.getKey().displayString(),
+                                    new Label(prop.getValue().displayString()));
+                        }
+                        i += 2;
+                    }
+                    parent.getChildren().remove(i, parent.getChildren().size());
+                }
+            });
+
+            node.properties().addListener(listener);
+            disposePropertiesListener = () -> node.properties().removeListener(listener);
+        }
+    }
+
     private javafx.scene.Node createDetails() {
         final GridPane details = new GridPane();
         details.getStylesheets().add(getClass().getResource("details.css").toString());
@@ -419,7 +458,11 @@ public class DesktopApplication extends Application {
         c1.setPrefWidth(200);
         details.getColumnConstraints().addAll(c0, c1);
 
-        graph.rxSelected().subscribe(opt -> {
+        graph.rxSelected().distinctUntilChanged().subscribe(opt -> {
+            if (disposePropertiesListener != null) {
+                disposePropertiesListener.run();
+                disposePropertiesListener = null;
+            }
             details.getChildren().clear();
 
             if (opt.isPresent()) {
@@ -433,10 +476,7 @@ public class DesktopApplication extends Application {
                     addDetail(details, "Refractory", node, Node::getRefractory,
                             v -> node.setRefractory(Long.parseLong(v)));
 
-                    addDetailHeader(details, "Properties");
-                    for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
-                        addDetail(details, prop.getKey().displayString(), new Label(prop.getValue().displayString()));
-                    }
+                    addProperties(details, "Properties", node);
                 } else if (obj instanceof Association) {
                     final Association assoc = (Association) obj;
                     addDetail(details, "Source", new Label(assoc.source.displayString()));
@@ -451,10 +491,7 @@ public class DesktopApplication extends Application {
                             v -> assoc.dest.getSynapse().setDecayPeriod(assoc.source, Long.parseLong(v)));
                 }
             } else {
-                addDetailHeader(details, "Context");
-                for (final Entry<Node, Node> prop : kb.node(Common.context).getProperties().entrySet()) {
-                    addDetail(details, prop.getKey().displayString(), new Label(prop.getValue().displayString()));
-                }
+                addProperties(details, "Context", kb.node(Common.context));
             }
         });
 

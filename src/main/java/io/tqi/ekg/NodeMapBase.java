@@ -13,7 +13,6 @@ import java.util.Set;
 
 import lombok.RequiredArgsConstructor;
 
-@RequiredArgsConstructor
 public class NodeMapBase<K, V, X> extends AbstractMap<K, V> {
     @RequiredArgsConstructor
     protected static abstract class EntrySetBase<K, V, X> extends AbstractSet<Entry<K, V>> {
@@ -132,6 +131,10 @@ public class NodeMapBase<K, V, X> extends AbstractMap<K, V> {
             if (!e.eof)
                 throw e;
         }
+    }
+
+    protected Node.Ref ref(final K key, final Node node) {
+        return node.ref(() -> backing.remove(key));
     }
 
     @Override

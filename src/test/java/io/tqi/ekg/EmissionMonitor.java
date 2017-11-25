@@ -3,6 +3,7 @@ package io.tqi.ekg;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
+import io.reactivex.schedulers.Schedulers;
 
 public class EmissionMonitor<T> {
     private static final Object DID_NOT_ACTIVATE = new Object();
@@ -24,7 +25,9 @@ public class EmissionMonitor<T> {
     }
 
     public Observable<T> emissions() {
-        return monitor.takeUntil(Observable.timer(250, TimeUnit.MILLISECONDS));
+        // Using the computation scheduler for monitoring can lead to deadlocks
+        // when tests artificially block computation threads.
+        return monitor.takeUntil(Observable.timer(250, TimeUnit.MILLISECONDS, Schedulers.io()));
     }
 
     boolean didEmit() {

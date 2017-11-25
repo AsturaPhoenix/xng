@@ -25,7 +25,7 @@ import lombok.Setter;
 public class Node implements Serializable, ChangeObservable<Object> {
     private static final long serialVersionUID = -4340465118968553513L;
 
-    private static final long DEFAULT_REFRACTORY = 32;
+    private static final long DEFAULT_REFRACTORY = 50;
 
     @AllArgsConstructor
     private static class SPoint implements Serializable {
@@ -159,8 +159,8 @@ public class Node implements Serializable, ChangeObservable<Object> {
 
         value = (Serializable) fields.get("value", null);
         lastActivation = fields.get("lastActivation", 0L);
-        synapse = (Synapse) fields.get("synapse", new Synapse());
         refractory = fields.get("refractory", DEFAULT_REFRACTORY);
+        synapse = (Synapse) fields.get("synapse", new Synapse());
         location = (SPoint) fields.get("location", null);
         pinned = fields.get("pinned", false);
         comment = (String) fields.get("comment", null);

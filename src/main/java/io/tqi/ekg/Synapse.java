@@ -26,12 +26,11 @@ import lombok.Getter;
 public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profile>>, ChangeObservable<Synapse> {
     private static final long serialVersionUID = 1779165354354490167L;
 
-    private static final long DEBOUNCE_PERIOD = 16;
+    public static final long DEBOUNCE_PERIOD = 5;
+    private static final double DECAY_MARGIN = .1;
     private static final double THRESHOLD = 1;
 
     public static class Profile {
-        static final long DEFAULT_DECAY_PERIOD = 320;
-
         @Getter
         private float coefficient;
         @Getter
@@ -41,7 +40,14 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
 
         private Profile(final Node node, final Disposable subscription) {
             this.coefficient = 1;
-            decayPeriod = DEFAULT_DECAY_PERIOD;
+            // The default decay should be roughly proportional to the
+            // refractory period of the source node as nodes with shorter
+            // refractory periods are likely to be evoked more often, possibly
+            // spuriously, and should thus get out of the way faster. By the
+            // time the refractory period has elapsed and the node may thus be
+            // activated again, we want this activation to be decayed by at the
+            // decay margin.
+            decayPeriod = Math.max((long) (node.getRefractory() / DECAY_MARGIN), 1);
             this.node = node;
             this.subscription = subscription;
         }

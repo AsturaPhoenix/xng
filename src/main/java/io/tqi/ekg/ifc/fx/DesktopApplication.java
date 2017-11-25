@@ -388,11 +388,11 @@ public class DesktopApplication extends Application {
     private javafx.scene.Node createDetails() {
         final GridPane details = new GridPane();
         details.getStylesheets().add(getClass().getResource("details.css").toString());
+        details.setPrefWidth(280);
         final ColumnConstraints c0 = new ColumnConstraints(), c1 = new ColumnConstraints();
-        c0.setFillWidth(true);
+        c0.setPrefWidth(80);
         c0.setHalignment(HPos.RIGHT);
-        c1.setFillWidth(true);
-        c1.setMaxWidth(200);
+        c1.setPrefWidth(200);
         details.getColumnConstraints().addAll(c0, c1);
 
         graph.rxSelected().subscribe(opt -> {

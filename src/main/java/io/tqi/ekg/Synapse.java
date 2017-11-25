@@ -23,14 +23,14 @@ import lombok.Getter;
  * future, it is likely that either we will switch to relative time and fully
  * support serialization or else completely clear activation on deserialization.
  */
-public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profile>> {
+public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profile>>, ChangeObservable<Synapse> {
     private static final long serialVersionUID = 1779165354354490167L;
 
     private static final long DEBOUNCE_PERIOD = 16;
     private static final double THRESHOLD = 1;
 
     public static class Profile {
-        static final long DEFAULT_DECAY_PERIOD = 30000;
+        static final long DEFAULT_DECAY_PERIOD = 320;
 
         @Getter
         private float coefficient;
@@ -122,6 +122,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
         return rxOutput;
     }
 
+    @Override
     public Observable<Synapse> rxChange() {
         return rxChange;
     }
@@ -175,6 +176,11 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
         inputs.computeIfAbsent(node, this::newActivation).decayPeriod = decayPeriod;
         rxChange.onNext(this);
         return this;
+    }
+
+    public float getDecayPeriod(final Node node) {
+        final Profile activation = inputs.get(node);
+        return activation == null ? 0 : activation.decayPeriod;
     }
 
     public void dissociate(final Node node) {

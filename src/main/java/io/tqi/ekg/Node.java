@@ -22,10 +22,10 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 
-public class Node implements Serializable {
+public class Node implements Serializable, ChangeObservable<Object> {
     private static final long serialVersionUID = -4340465118968553513L;
 
-    private static final long DEFAULT_REFRACTORY = 12;
+    private static final long DEFAULT_REFRACTORY = 32;
 
     @AllArgsConstructor
     private static class SPoint implements Serializable {
@@ -169,6 +169,7 @@ public class Node implements Serializable {
         postInit();
     }
 
+    @Override
     public Observable<Object> rxChange() {
         return rxChange;
     }
@@ -180,6 +181,7 @@ public class Node implements Serializable {
     public void delete() {
         rxInput.onComplete();
         rxChange.onComplete();
+        rxOutput.onComplete();
     }
 
     public void setRefractory(final long refractory) {

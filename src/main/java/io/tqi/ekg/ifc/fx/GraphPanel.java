@@ -532,10 +532,8 @@ public class GraphPanel extends StackPane {
                 }
             });
 
-            node.rxActivate()
-                    .switchMap(t -> Observable.interval(1000 / 60, TimeUnit.MILLISECONDS)
-                            .takeUntil(Observable.timer(1200, TimeUnit.MILLISECONDS)))
-                    .observeOn(JavaFxScheduler.platform()).subscribe(t -> updateColor());
+            node.rxActivate().switchMap(t -> Observable.intervalRange(0, 72, 0, 17, TimeUnit.MILLISECONDS))
+                    .subscribe(t -> anim.onNext(this));
         }
 
         void updateColor() {
@@ -735,6 +733,7 @@ public class GraphPanel extends StackPane {
     private final io.tqi.ekg.Node context;
     private final Subject<Optional<Void>> rxCam = PublishSubject.create();
     private boolean updateConnections = true;
+    private final Subject<NodeGeom> anim = PublishSubject.create();
 
     public GraphPanel(final KnowledgeBase kb) {
         context = kb.node(Common.context);
@@ -821,6 +820,14 @@ public class GraphPanel extends StackPane {
             }
             updateConnections = true;
         });
+
+        anim.buffer(Observable.interval(17, TimeUnit.MILLISECONDS)).filter(g -> !g.isEmpty())
+                .observeOn(JavaFxScheduler.platform()).subscribe(geoms -> {
+                    for (final NodeGeom geom : geoms) {
+                        geom.updateColor();
+                    }
+                });
+
     }
 
     private NodeGeom node(final io.tqi.ekg.Node node) {

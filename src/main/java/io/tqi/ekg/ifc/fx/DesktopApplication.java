@@ -10,19 +10,30 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
+import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
+import io.tqi.ekg.ChangeObservable;
 import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.Node;
 import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
+import io.tqi.ekg.ifc.fx.GraphPanel.Association;
+import io.tqi.ekg.ifc.fx.GraphPanel.Property;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
+import javafx.geometry.HPos;
 import javafx.geometry.Orientation;
-import javafx.scene.Node;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBase;
+import javafx.scene.control.Label;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
@@ -32,6 +43,9 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
 public class DesktopApplication extends Application {
@@ -57,7 +71,7 @@ public class DesktopApplication extends Application {
 
         graph = new GraphPanel(kb);
 
-        final Node console = createConsole();
+        final javafx.scene.Node console = createConsole();
         final SplitPane splitPane = new SplitPane(graph, console);
         splitPane.setOrientation(Orientation.VERTICAL);
         splitPane.setDividerPositions(.5);
@@ -66,6 +80,7 @@ public class DesktopApplication extends Application {
         final BorderPane borderPane = new BorderPane();
         borderPane.setTop(createToolbar());
         borderPane.setCenter(splitPane);
+        borderPane.setRight(createDetails());
         final Scene scene = new Scene(borderPane);
         primaryStage.setScene(scene);
 
@@ -86,7 +101,7 @@ public class DesktopApplication extends Application {
         button.setTooltip(new Tooltip(altText));
     }
 
-    private io.tqi.ekg.Node findNode(final String query) {
+    private Node findNode(final String query) {
         return kb.getNode(query);
     }
 
@@ -142,8 +157,8 @@ public class DesktopApplication extends Application {
             if (selection.isPresent()) {
                 delete.setDisable(false);
                 text.setOnAction(null);
-                if (selection.get() instanceof io.tqi.ekg.Node) {
-                    final io.tqi.ekg.Node node = (io.tqi.ekg.Node) selection.get();
+                if (selection.get() instanceof Node) {
+                    final Node node = (Node) selection.get();
                     text.setText(node.getComment());
                     text.positionCaret(text.getLength());
 
@@ -182,8 +197,8 @@ public class DesktopApplication extends Application {
             text.setPromptText("Activate");
 
             graph.setSelectFn(o -> {
-                if (o instanceof io.tqi.ekg.Node) {
-                    ((io.tqi.ekg.Node) o).activate();
+                if (o instanceof Node) {
+                    ((Node) o).activate();
                     return true;
                 } else {
                     return false;
@@ -201,7 +216,7 @@ public class DesktopApplication extends Application {
     private static final String[] PROP_PARAMS = { "Object", "Property", "Value" };
 
     private final Mode propertyMode = new Mode() {
-        final List<io.tqi.ekg.Node> args = new ArrayList<>();
+        final List<Node> args = new ArrayList<>();
         final StringBuilder ttBuilder = new StringBuilder();
 
         @Override
@@ -210,8 +225,8 @@ public class DesktopApplication extends Application {
             updateForArgs();
 
             graph.setSelectFn(o -> {
-                if (o instanceof io.tqi.ekg.Node) {
-                    final io.tqi.ekg.Node node = (io.tqi.ekg.Node) o;
+                if (o instanceof Node) {
+                    final Node node = (Node) o;
                     args.add(node);
                     ttBuilder.append(node.displayString());
                     switch (args.size()) {
@@ -258,7 +273,7 @@ public class DesktopApplication extends Application {
         }
     };
 
-    private Node createToolbar() {
+    private javafx.scene.Node createToolbar() {
         final ToggleButton activate = new ToggleButton();
         initButton(activate, "res/lightning.png", "Activate");
         initButton(property, "res/details.png", "Create property");
@@ -295,16 +310,16 @@ public class DesktopApplication extends Application {
         graph.rxSelected().subscribe(opt -> {
             if (opt.isPresent()) {
                 delete.setDisable(false);
-                if (opt.get() instanceof io.tqi.ekg.Node) {
-                    delete.setOnAction(e -> ((io.tqi.ekg.Node) opt.get()).delete());
-                } else if (opt.get() instanceof GraphPanel.Property) {
+                if (opt.get() instanceof Node) {
+                    delete.setOnAction(e -> ((Node) opt.get()).delete());
+                } else if (opt.get() instanceof Property) {
                     delete.setOnAction(e -> {
-                        final GraphPanel.Property prop = (GraphPanel.Property) opt.get();
+                        final Property prop = (Property) opt.get();
                         prop.object.setProperty(prop.property, Optional.empty());
                     });
-                } else if (opt.get() instanceof GraphPanel.Association) {
+                } else if (opt.get() instanceof Association) {
                     delete.setOnAction(e -> {
-                        final GraphPanel.Association assoc = (GraphPanel.Association) opt.get();
+                        final Association assoc = (Association) opt.get();
                         assoc.dest.getSynapse().dissociate(assoc.source);
                     });
                 } else {
@@ -322,7 +337,97 @@ public class DesktopApplication extends Application {
         return new ToolBar(activate, property, delete, text);
     }
 
-    private Node createConsole() {
+    private void addDetail(final GridPane parent, final String label, final javafx.scene.Node value) {
+        final int row = parent.getChildren().isEmpty() ? 0
+                : GridPane.getRowIndex(parent.getChildren().get(parent.getChildren().size() - 1)) + 1;
+        final StackPane labelPane = new StackPane(new Label(label)), valuePane = new StackPane(value);
+        labelPane.setAlignment(Pos.BASELINE_RIGHT);
+        valuePane.setAlignment(Pos.BASELINE_LEFT);
+        parent.addRow(row, labelPane, valuePane);
+    }
+
+    private void addDetail(final GridPane parent, final String label, final Observable<String> value,
+            final Consumer<String> onChange) {
+        final TextField field = new TextField();
+        value.subscribe(v -> {
+            if (!field.isFocused()) {
+                field.setText(v);
+            }
+        });
+        field.textProperty().addListener((o, a, b) -> {
+            try {
+                onChange.accept(b);
+            } catch (final RuntimeException e) {
+            }
+        });
+        addDetail(parent, label, field);
+    }
+
+    private Observable<String> wrapChangeObservable(final ChangeObservable<?> c, final Supplier<Object> getValue) {
+        return c.rxChange().map(o -> Optional.ofNullable(getValue.get())).startWith(Optional.ofNullable(getValue.get()))
+                .distinctUntilChanged().map(opt -> opt.map(Object::toString).orElse(""))
+                .observeOn(JavaFxScheduler.platform());
+    }
+
+    private Observable<String> getNodeObservable(final Node node, final Function<Node, Object> getValue) {
+        return wrapChangeObservable(node, () -> getValue.apply(node));
+    }
+
+    private void addDetail(final GridPane parent, final String label, final Node node,
+            final Function<Node, Object> getValue) {
+        final Label value = new Label();
+        getNodeObservable(node, getValue).subscribe(value::setText);
+        addDetail(parent, label, value);
+    }
+
+    private void addDetail(final GridPane parent, final String label, final Node node,
+            final Function<Node, Object> getValue, final Consumer<String> setValue) {
+        addDetail(parent, label, getNodeObservable(node, getValue), setValue);
+    }
+
+    private javafx.scene.Node createDetails() {
+        final GridPane details = new GridPane();
+        details.getStylesheets().add(getClass().getResource("details.css").toString());
+        final ColumnConstraints c0 = new ColumnConstraints(), c1 = new ColumnConstraints();
+        c0.setFillWidth(true);
+        c0.setHalignment(HPos.RIGHT);
+        c1.setFillWidth(true);
+        c1.setMaxWidth(200);
+        details.getColumnConstraints().addAll(c0, c1);
+
+        graph.rxSelected().subscribe(opt -> {
+            details.getChildren().clear();
+
+            if (opt.isPresent()) {
+                final Object obj = opt.get();
+                if (obj instanceof Node) {
+                    final Node node = (Node) obj;
+                    addDetail(details, "Value", node, Node::getValue);
+                    addDetail(details, "Class", node,
+                            n -> n.getValue() == null ? null : n.getValue().getClass().getName());
+                    addDetail(details, "Comment", node, Node::getComment, node::setComment);
+                    addDetail(details, "Refractory", node, Node::getRefractory,
+                            v -> node.setRefractory(Long.parseLong(v)));
+                } else if (obj instanceof Association) {
+                    final Association assoc = (Association) obj;
+                    addDetail(details, "Source", new Label(assoc.source.displayString()));
+                    addDetail(details, "Destination", new Label(assoc.dest.displayString()));
+                    addDetail(details, "Coefficient",
+                            wrapChangeObservable(assoc.dest.getSynapse(),
+                                    () -> assoc.dest.getSynapse().getCoefficient(assoc.source)),
+                            v -> assoc.dest.getSynapse().setCoefficient(assoc.source, Float.parseFloat(v)));
+                    addDetail(details, "Decay",
+                            wrapChangeObservable(assoc.dest.getSynapse(),
+                                    () -> assoc.dest.getSynapse().getDecayPeriod(assoc.source)),
+                            v -> assoc.dest.getSynapse().setDecayPeriod(assoc.source, Long.parseLong(v)));
+                }
+            }
+        });
+
+        return details;
+    }
+
+    private javafx.scene.Node createConsole() {
         final TextArea output = new TextArea();
 
         input = new TextField();
@@ -343,9 +448,11 @@ public class DesktopApplication extends Application {
         System.setOut(new PrintStream(new OutputStream() {
             @Override
             public void write(int b) {
-                if (output.getText().isEmpty() || output.getText().endsWith("\n"))
-                    output.appendText("! ");
-                output.appendText(Character.toString((char) b));
+                Platform.runLater(() -> {
+                    if (output.getText().isEmpty() || output.getText().endsWith("\n"))
+                        output.appendText("! ");
+                    output.appendText(Character.toString((char) b));
+                });
             }
         }));
 

@@ -1,0 +1,11 @@
+GridPane > * {
+	-fx-border-color: silver;
+	-fx-border-width: .3;
+	-fx-pref-height: 24;
+    -fx-background-color: white;
+    -fx-min-width: 64;
+}
+
+GridPane Label {
+	-fx-padding: 4;
+}

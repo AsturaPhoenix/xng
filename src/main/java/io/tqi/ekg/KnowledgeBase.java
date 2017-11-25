@@ -26,7 +26,7 @@ import io.reactivex.subjects.Subject;
 import javafx.geometry.Point3D;
 import lombok.RequiredArgsConstructor;
 
-public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
+public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node>, ChangeObservable<Object> {
     private static final long serialVersionUID = -6461427806563494150L;
 
     @RequiredArgsConstructor
@@ -58,7 +58,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
     public enum Common {
         context, transform, javaClass(
-                "class"), object, property, name, exception, source, destination, value, coefficient, nodeCreated(
+                "class"), object, property, name, exception, source, destination, value, coefficient, refractory, nodeCreated(
                         "node created"), nullNode("null");
 
         public final String identifier;
@@ -224,6 +224,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                 }
                 object.setProperty(property, value);
             }
+        },
+        setRefractory {
+            @Override
+            public void impl(final KnowledgeBase kb) {
+                kb.getContext(kb.node(Common.value))
+                        .setRefractory(((Number) kb.getContext(kb.node(Common.refractory)).getValue()).longValue());
+            }
         };
 
         public abstract void impl(final KnowledgeBase kb) throws Exception;
@@ -387,6 +394,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         return rxOutput;
     }
 
+    @Override
     public Observable<Object> rxChange() {
         return rxChange;
     }

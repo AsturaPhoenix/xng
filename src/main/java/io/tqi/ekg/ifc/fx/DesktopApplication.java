@@ -8,6 +8,7 @@ import java.io.PrintStream;
 import java.nio.file.FileSystems;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -19,6 +20,7 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
 import io.tqi.ekg.ChangeObservable;
 import io.tqi.ekg.KnowledgeBase;
+import io.tqi.ekg.KnowledgeBase.Common;
 import io.tqi.ekg.Node;
 import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
@@ -337,13 +339,23 @@ public class DesktopApplication extends Application {
         return new ToolBar(activate, property, delete, text);
     }
 
-    private void addDetail(final GridPane parent, final String label, final javafx.scene.Node value) {
+    private void addDetailRow(final GridPane parent, final javafx.scene.Node... cells) {
         final int row = parent.getChildren().isEmpty() ? 0
                 : GridPane.getRowIndex(parent.getChildren().get(parent.getChildren().size() - 1)) + 1;
+        parent.addRow(row, cells);
+    }
+
+    private void addDetail(final GridPane parent, final String label, final javafx.scene.Node value) {
         final StackPane labelPane = new StackPane(new Label(label)), valuePane = new StackPane(value);
         labelPane.setAlignment(Pos.BASELINE_RIGHT);
         valuePane.setAlignment(Pos.BASELINE_LEFT);
-        parent.addRow(row, labelPane, valuePane);
+        addDetailRow(parent, labelPane, valuePane);
+    }
+
+    private void addDetailHeader(final GridPane parent, final String header) {
+        final StackPane headerPane = new StackPane(new Label(header));
+        GridPane.setColumnSpan(headerPane, 2);
+        addDetailRow(parent, headerPane);
     }
 
     private void addDetail(final GridPane parent, final String label, final Observable<String> value,
@@ -408,6 +420,11 @@ public class DesktopApplication extends Application {
                     addDetail(details, "Comment", node, Node::getComment, node::setComment);
                     addDetail(details, "Refractory", node, Node::getRefractory,
                             v -> node.setRefractory(Long.parseLong(v)));
+
+                    addDetailHeader(details, "Properties");
+                    for (final Entry<Node, Node> prop : node.getProperties().entrySet()) {
+                        addDetail(details, prop.getKey().displayString(), new Label(prop.getValue().displayString()));
+                    }
                 } else if (obj instanceof Association) {
                     final Association assoc = (Association) obj;
                     addDetail(details, "Source", new Label(assoc.source.displayString()));
@@ -420,6 +437,11 @@ public class DesktopApplication extends Application {
                             wrapChangeObservable(assoc.dest.getSynapse(),
                                     () -> assoc.dest.getSynapse().getDecayPeriod(assoc.source)),
                             v -> assoc.dest.getSynapse().setDecayPeriod(assoc.source, Long.parseLong(v)));
+                }
+            } else {
+                addDetailHeader(details, "Context");
+                for (final Entry<Node, Node> prop : kb.node(Common.context).getProperties().entrySet()) {
+                    addDetail(details, prop.getKey().displayString(), new Label(prop.getValue().displayString()));
                 }
             }
         });

@@ -105,6 +105,20 @@ public class NodeTest {
     }
 
     @Test
+    public void testAndRefractory() throws InterruptedException {
+        final Node a = new Node(), b = new Node(), and = new Node();
+        final EmissionMonitor<?> monitor = new EmissionMonitor<>(and.rxActivate());
+        and.getSynapse().setCoefficient(a, .6f);
+        and.getSynapse().setCoefficient(b, .5f);
+        a.activate();
+        b.activate();
+        assertTrue(monitor.didEmit());
+        Thread.sleep(25);
+        b.activate();
+        assertFalse(monitor.didEmit());
+    }
+
+    @Test
     public void testCoincidentInhibition() {
         final Node up = new Node(), down = new Node(), out = new Node();
         final EmissionMonitor<?> monitor = new EmissionMonitor<>(out.rxActivate());

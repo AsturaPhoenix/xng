@@ -15,6 +15,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import com.google.common.base.Throwables;
+
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
@@ -377,8 +379,13 @@ public class DesktopApplication extends Application {
 
     private Observable<String> wrapChangeObservable(final ChangeObservable<?> c, final Supplier<Object> getValue) {
         return c.rxChange().map(o -> Optional.ofNullable(getValue.get())).startWith(Optional.ofNullable(getValue.get()))
-                .distinctUntilChanged().map(opt -> opt.map(Object::toString).orElse(""))
-                .observeOn(JavaFxScheduler.platform());
+                .distinctUntilChanged().map(opt -> opt.map(v -> {
+                    if (v instanceof Throwable) {
+                        return Throwables.getStackTraceAsString((Throwable) v);
+                    } else {
+                        return v.toString();
+                    }
+                }).orElse("")).observeOn(JavaFxScheduler.platform());
     }
 
     private Observable<String> getNodeObservable(final Node node, final Function<Node, Object> getValue) {
@@ -388,7 +395,12 @@ public class DesktopApplication extends Application {
     private void addDetail(final GridPane parent, final String label, final Node node,
             final Function<Node, Object> getValue) {
         final Label value = new Label();
-        getNodeObservable(node, getValue).subscribe(value::setText);
+        final Tooltip tooltip = new Tooltip();
+        getNodeObservable(node, getValue).subscribe(s -> {
+            value.setText(s);
+            tooltip.setText(s);
+        });
+        value.setTooltip(tooltip);
         addDetail(parent, label, value);
     }
 

@@ -27,7 +27,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
     private static final long serialVersionUID = 1779165354354490167L;
 
     public static final long DEBOUNCE_PERIOD = 5;
-    private static final double DECAY_MARGIN = .1;
+    private static final double DECAY_MARGIN = .2;
     private static final double THRESHOLD = 1;
 
     public static class Profile {
@@ -40,6 +40,12 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
 
         private Profile(final Node node, final Disposable subscription) {
             this.coefficient = 1;
+            this.node = node;
+            resetDecay();
+            this.subscription = subscription;
+        }
+
+        public void resetDecay() {
             // The default decay should be roughly proportional to the
             // refractory period of the source node as nodes with shorter
             // refractory periods are likely to be evoked more often, possibly
@@ -48,8 +54,6 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
             // activated again, we want this activation to be decayed by at the
             // decay margin.
             decayPeriod = Math.max((long) (node.getRefractory() / DECAY_MARGIN), 1);
-            this.node = node;
-            this.subscription = subscription;
         }
 
         public float getValue(final long time) {
@@ -184,7 +188,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
         return this;
     }
 
-    public float getDecayPeriod(final Node node) {
+    public long getDecayPeriod(final Node node) {
         final Profile activation = inputs.get(node);
         return activation == null ? 0 : activation.decayPeriod;
     }

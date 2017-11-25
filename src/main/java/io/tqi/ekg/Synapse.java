@@ -53,7 +53,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
         }
 
         public float getValue(final long time) {
-            long dt = time - node.getLastActivation();
+            long dt = Math.max(time - node.getLastActivation(), 0);
             return dt >= decayPeriod ? 0 : coefficient * (1 - dt / (float) decayPeriod);
         }
 
@@ -75,8 +75,8 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
     private void init() {
         inputs = new NodeKeyMap<>();
         rxInput = PublishSubject.create();
-        rxOutput = rxInput.window(rxInput.debounce(DEBOUNCE_PERIOD, TimeUnit.MILLISECONDS))
-                .concatMap(window -> window.sample(DEBOUNCE_PERIOD, TimeUnit.MILLISECONDS)).switchMap(this::evaluate);
+        rxOutput = rxInput.sample(rxInput.throttleFirst(DEBOUNCE_PERIOD, TimeUnit.MILLISECONDS).delay(DEBOUNCE_PERIOD,
+                TimeUnit.MILLISECONDS)).switchMap(this::evaluate);
         rxChange = PublishSubject.create();
     }
 

@@ -36,6 +36,7 @@ public class KnowledgeBaseTest {
         kb.node("roses").setProperty(kb.node("color"), kb.valueNode("red"));
 
         // @formatter:off
+        kb.node("roses are").setRefractory(0);
         kb.node("roses are")
                 .setProperty(kb.node(Common.context), kb.node()
                         .setProperty(kb.node(Common.object), kb.node("roses"))
@@ -46,9 +47,15 @@ public class KnowledgeBaseTest {
     }
 
     private static void assertPropGet(final KnowledgeBase kb) {
-        final EmissionMonitor<String> monitor = new EmissionMonitor<>(kb.rxOutput());
+        final EmissionMonitor<?> sanity1 = new EmissionMonitor<>(kb.node("roses are").rxActivate()),
+                sanity2 = new EmissionMonitor<>(kb.node(BuiltIn.getProperty).rxActivate()),
+                sanity3 = new EmissionMonitor<>(kb.node(BuiltIn.print).rxActivate());
+        final EmissionMonitor<String> valueMonitor = new EmissionMonitor<>(kb.rxOutput());
         kb.node("roses are").activate();
-        assertEquals("red", monitor.emissions().blockingFirst());
+        assertTrue(sanity1.didEmit());
+        assertTrue(sanity2.didEmit());
+        assertTrue(sanity3.didEmit());
+        assertEquals("red", valueMonitor.emissions().blockingFirst());
     }
 
     @Test
@@ -56,6 +63,18 @@ public class KnowledgeBaseTest {
         try (final KnowledgeBase kb = new KnowledgeBase()) {
             setUpPropGet(kb);
             assertPropGet(kb);
+        }
+    }
+
+    @Test
+    public void testPrintReliability() throws InterruptedException {
+        try (final KnowledgeBase kb = new KnowledgeBase()) {
+            setUpPropGet(kb);
+            for (int i = 0; i < 100; i++) {
+                Thread.sleep(2 * Synapse.DEBOUNCE_PERIOD);
+                assertPropGet(kb);
+
+            }
         }
     }
 

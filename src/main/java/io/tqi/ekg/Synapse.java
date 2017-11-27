@@ -11,8 +11,12 @@ import java.util.concurrent.TimeUnit;
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
+import io.reactivex.subjects.ReplaySubject;
 import io.reactivex.subjects.Subject;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
 /**
  * Represents the incoming logical junction of node signals towards a specific
@@ -71,6 +75,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
     private transient Subject<Long> rxInput;
     private transient Observable<Long> rxOutput;
     private transient Subject<Synapse> rxChange;
+    private transient Subject<Evaluation> rxValue;
 
     public Synapse() {
         init();
@@ -79,9 +84,24 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
     private void init() {
         inputs = new NodeKeyMap<>();
         rxInput = PublishSubject.create();
-        rxOutput = rxInput.sample(rxInput.throttleFirst(DEBOUNCE_PERIOD, TimeUnit.MILLISECONDS).delay(DEBOUNCE_PERIOD,
-                TimeUnit.MILLISECONDS)).switchMap(this::evaluate);
+        rxOutput = rxInput.sample(rxInput.delay(DEBOUNCE_PERIOD, TimeUnit.MILLISECONDS)).distinctUntilChanged()
+                .switchMap(this::evaluate);
         rxChange = PublishSubject.create();
+        rxValue = ReplaySubject.createWithSize(EVALUATION_HISTORY);
+    }
+
+    @RequiredArgsConstructor
+    @ToString
+    @EqualsAndHashCode
+    public static class Evaluation {
+        public final long time;
+        public final float value;
+    }
+
+    public static final int EVALUATION_HISTORY = 5;
+
+    public Observable<Evaluation> rxValue() {
+        return rxValue;
     }
 
     /**
@@ -89,7 +109,10 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
      * depending on current state.
      */
     private Observable<Long> evaluate(final long time) {
-        if (getValue(time) >= THRESHOLD) {
+        final float value = getValue(time);
+        rxValue.onNext(new Evaluation(time, value));
+
+        if (value >= THRESHOLD) {
             return Observable.just(time);
         } else {
             final long nextCrit = getNextCriticalPoint(time);

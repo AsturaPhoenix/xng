@@ -147,6 +147,20 @@ public class NodeTest {
     }
 
     @Test
+    public void testDebounceEdge() throws Exception {
+        for (int i = 0; i < 100; i++) {
+            final Node a = new Node(), b = new Node(), and = new Node();
+            final EmissionMonitor<?> monitor = new EmissionMonitor<>(and.rxActivate());
+            and.getSynapse().setCoefficient(a, .6f);
+            and.getSynapse().setCoefficient(b, .6f);
+            a.activate();
+            Thread.sleep(Synapse.DEBOUNCE_PERIOD);
+            b.activate();
+            assertTrue(monitor.didEmit());
+        }
+    }
+
+    @Test
     public void testBlocking() throws Exception {
         final Node node = new Node();
         final PublishSubject<Void> subject = PublishSubject.create();

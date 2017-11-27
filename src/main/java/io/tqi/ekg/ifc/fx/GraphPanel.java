@@ -372,7 +372,8 @@ public class GraphPanel extends StackPane {
             spur.setTranslateX(midpt.getX());
             spur.setTranslateY(midpt.getY());
             spur.setTranslateZ(midpt.getZ());
-            spur.update();
+            if (spur.isVisible())
+                spur.update();
         }
 
         @Override
@@ -381,6 +382,7 @@ public class GraphPanel extends StackPane {
             line.setEffect(SEL_GLOW);
             caption.setEffect(SEL_GLOW);
             spur.line.setEffect(SEL_GLOW);
+            spur.update();
             spur.setVisible(true);
         }
 
@@ -631,7 +633,7 @@ public class GraphPanel extends StackPane {
             }
 
             for (final Entry<io.tqi.ekg.Node, Profile> source : node.getSynapse()) {
-                if (!oldAssocs.contains(source.getKey())) {
+                if (!(source.getValue().getCoefficient() == 0 || oldAssocs.contains(source.getKey()))) {
                     final AssocConnection ac = new AssocConnection(node(source.getKey()));
                     connections.getChildren().add(ac);
                     ac.updateColor();

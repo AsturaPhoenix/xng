@@ -8,6 +8,7 @@ import java.io.PrintStream;
 import java.nio.file.FileSystems;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -29,6 +30,8 @@ import io.tqi.ekg.KnowledgeBase.Common;
 import io.tqi.ekg.Node;
 import io.tqi.ekg.Repl;
 import io.tqi.ekg.SerializingPersistence;
+import io.tqi.ekg.Synapse;
+import io.tqi.ekg.Synapse.Evaluation;
 import io.tqi.ekg.ifc.fx.GraphPanel.Association;
 import io.tqi.ekg.ifc.fx.GraphPanel.Property;
 import javafx.application.Application;
@@ -505,14 +508,59 @@ public class DesktopApplication extends Application {
         addDetail(parent, label, getNodeObservable(node, getValue), setValue);
     }
 
-    private int activationHistoryBegin, activationHistoryLength;
+    private static final int EVALUATION_HISTORY = Synapse.EVALUATION_HISTORY;
+    private int evaluationHistoryBegin, evaluationHistoryLength;
+    private List<Evaluation> evaluationHistory = new ArrayList<>();
+    private Disposable valueSubscription;
 
-    private static Observable<String> getActivationObservable(final Node node, final long now) {
-        return getNodeObservable(node, n -> now - n.getLastActivation() + " ms");
+    private long baseline;
+
+    private String formatTime(final long time) {
+        return baseline - time + " ms";
     }
 
-    private static javafx.scene.Node[] createActivationRow(final Node node, final long now) {
-        return formatRow(createNodeLabel(node), new DynamicLabel().setSource(getActivationObservable(node, now)));
+    private void addEvaluationHistory(final GridPane parent, final Node node) {
+        addDetailHeader(parent, "Synapse history");
+        evaluationHistoryBegin = parent.getChildren().size();
+        evaluationHistoryLength = 0;
+        evaluationHistory.clear();
+
+        valueSubscription = node.getSynapse().rxValue().observeOn(JavaFxScheduler.platform()).subscribe(e -> {
+            if (evaluationHistory.size() >= EVALUATION_HISTORY) {
+                evaluationHistory.subList(EVALUATION_HISTORY - 1, evaluationHistory.size()).clear();
+            }
+            evaluationHistory.add(0, e);
+
+            int i = 0;
+            for (final Evaluation evaluation : evaluationHistory) {
+                if (i < evaluationHistoryLength) {
+                    ((Label) unwrapCell(parent, evaluationHistoryBegin + 2 * i)).setText(formatTime(evaluation.time));
+                    ((Label) unwrapCell(parent, evaluationHistoryBegin + 2 * i + 1))
+                            .setText(Float.toString(evaluation.value));
+                } else {
+                    insertDetailRow(parent, evaluationHistoryBegin + 2 * i, formatRow(
+                            new Label(formatTime(evaluation.time)), new Label(Float.toString(evaluation.value))));
+                }
+                i++;
+            }
+
+            if (evaluationHistoryLength > i) {
+                parent.getChildren().remove(evaluationHistoryBegin + 2 * i,
+                        evaluationHistoryBegin + 2 * evaluationHistoryLength);
+            }
+
+            evaluationHistoryLength = i;
+        });
+    }
+
+    private int activationHistoryBegin, activationHistoryLength;
+
+    private Observable<String> getActivationObservable(final Node node) {
+        return getNodeObservable(node, n -> formatTime(n.getLastActivation()));
+    }
+
+    private javafx.scene.Node[] createActivationRow(final Node node) {
+        return formatRow(createNodeLabel(node), new DynamicLabel().setSource(getActivationObservable(node)));
     }
 
     private void addActivationHistory(final GridPane parent, final int maxLength) {
@@ -520,7 +568,6 @@ public class DesktopApplication extends Application {
         activationHistoryBegin = parent.getChildren().size();
         activationHistoryLength = 0;
 
-        long baseline = Long.MIN_VALUE;
         synchronized (kb.iteratorMutex()) {
             for (final Node node : kb) {
                 if (activationHistoryLength >= maxLength)
@@ -530,41 +577,39 @@ public class DesktopApplication extends Application {
                 if (baseline == Long.MIN_VALUE) {
                     baseline = node.getLastActivation();
                 }
-                addDetailRow(parent, createActivationRow(node, baseline));
+                addDetailRow(parent, createActivationRow(node));
             }
         }
 
         activateSubscription = kb.rxActivate().toFlowable(BackpressureStrategy.DROP)
                 .observeOn(JavaFxScheduler.platform()).subscribe(n -> {
-                    long newBaseline = Long.MIN_VALUE;
                     int i = 0;
                     synchronized (kb.iteratorMutex()) {
                         for (final Node node : kb) {
                             if (i >= maxLength)
                                 break;
 
-                            if (newBaseline == Long.MIN_VALUE) {
-                                newBaseline = node.getLastActivation();
-                            }
-
                             if (i < activationHistoryLength) {
                                 ((DynamicLabel) unwrapCell(parent, activationHistoryBegin + 2 * i))
                                         .setSource(getNodeObservable(node));
                                 ((DynamicLabel) unwrapCell(parent, activationHistoryBegin + 2 * i + 1))
-                                        .setSource(getActivationObservable(node, newBaseline));
+                                        .setSource(getActivationObservable(node));
                             } else {
-                                insertDetailRow(parent, activationHistoryBegin + 2 * i,
-                                        createActivationRow(node, newBaseline));
+                                insertDetailRow(parent, activationHistoryBegin + 2 * i, createActivationRow(node));
                             }
 
                             i++;
                         }
                     }
 
-                    final List<javafx.scene.Node> toRemove = parent.getChildren().subList(
-                            activationHistoryBegin + 2 * i, activationHistoryBegin + 2 * activationHistoryLength);
-                    toRemove.forEach(DesktopApplication::disposeCell);
-                    toRemove.clear();
+                    if (activationHistoryLength > i) {
+                        final List<javafx.scene.Node> toRemove = parent.getChildren().subList(
+                                activationHistoryBegin + 2 * i, activationHistoryBegin + 2 * activationHistoryLength);
+                        toRemove.forEach(DesktopApplication::disposeCell);
+                        toRemove.clear();
+                    }
+
+                    activationHistoryLength = i;
                 });
     }
 
@@ -614,6 +659,12 @@ public class DesktopApplication extends Application {
     }
 
     private javafx.scene.Node createDetails() {
+        synchronized (kb.iteratorMutex()) {
+            final Iterator<Node> init = kb.iterator();
+            baseline = init.hasNext() ? init.next().getLastActivation() : System.currentTimeMillis();
+            kb.rxActivate().subscribe(n -> baseline = n.getLastActivation());
+        }
+
         final GridPane details = new GridPane();
         details.getStylesheets().add(getClass().getResource("details.css").toString());
         details.setPrefWidth(280);
@@ -631,6 +682,9 @@ public class DesktopApplication extends Application {
             if (activateSubscription != null) {
                 activateSubscription.dispose();
             }
+            if (valueSubscription != null) {
+                valueSubscription.dispose();
+            }
             details.getChildren().forEach(DesktopApplication::disposeCell);
             details.getChildren().clear();
 
@@ -644,6 +698,8 @@ public class DesktopApplication extends Application {
                     addDetail(details, "Comment", node, Node::getComment, node::setComment);
                     addDetail(details, "Refractory", node, Node::getRefractory,
                             v -> node.setRefractory(Long.parseLong(v)));
+
+                    addEvaluationHistory(details, node);
 
                     addProperties(details, "Properties", node);
                 } else if (obj instanceof Association) {

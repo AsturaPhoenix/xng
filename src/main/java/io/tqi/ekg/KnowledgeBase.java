@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -305,18 +306,22 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private void mutateIndex(final Node node) {
         final Node contextCopy = node.properties().get(node(Common.context));
         if (contextCopy != null) {
-            for (final Entry<Node, Node> prop : contextCopy.properties().entrySet()) {
-                if (prop.getValue() == node(Common.nullNode)) {
-                    context().remove(prop.getKey());
-                } else {
-                    context().put(prop.getKey(), prop.getValue());
+            synchronized (contextCopy.properties().mutex()) {
+                for (final Entry<Node, Node> prop : contextCopy.properties().entrySet()) {
+                    if (prop.getValue() == node(Common.nullNode)) {
+                        context().remove(prop.getKey());
+                    } else {
+                        context().put(prop.getKey(), prop.getValue());
+                    }
                 }
             }
         }
         final Node transform = node.properties().get(node(Common.transform));
         if (transform != null) {
-            for (final Entry<Node, Node> prop : transform.properties().entrySet()) {
-                context().put(prop.getKey(), context().get(prop.getValue()));
+            synchronized (transform.properties().mutex()) {
+                for (final Entry<Node, Node> prop : transform.properties().entrySet()) {
+                    context().put(prop.getKey(), context().get(prop.getValue()));
+                }
             }
         }
     }
@@ -343,8 +348,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     private void writeObject(final ObjectOutputStream o) throws IOException {
         o.defaultWriteObject();
         final Set<Node> serNodes = new HashSet<>();
-        for (final Node node : nodes) {
-            serNodes.add(node);
+        synchronized (nodes.mutex()) {
+            for (final Node node : nodes) {
+                serNodes.add(node);
+            }
         }
         o.writeObject(serNodes);
     }
@@ -375,8 +382,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
                     "WARNING: Serialized node set dropped at least " + (serNodes.size() - oldSize) + " nodes.");
         }
 
+        final List<Node> sortedNodes = new ArrayList<>(serNodes);
+        sortedNodes.sort((a, b) -> Long.compare(b.getLastActivation(), a.getLastActivation()));
+
         nodes = new NodeQueue();
-        nodes.addAll(serNodes);
+        nodes.addAll(sortedNodes);
 
         init();
     }
@@ -492,5 +502,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     @Override
     public Iterator<Node> iterator() {
         return nodes.iterator();
+    }
+
+    public Observable<Node> rxActivate() {
+        return nodes.rxActivate();
+    }
+
+    public Object iteratorMutex() {
+        return nodes.mutex();
     }
 }

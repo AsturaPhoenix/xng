@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.FileSystems;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -18,6 +19,7 @@ import java.util.function.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 
+import io.reactivex.BackpressureStrategy;
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.rxjavafx.schedulers.JavaFxScheduler;
@@ -40,6 +42,8 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBase;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.ScrollPane.ScrollBarPolicy;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
@@ -83,10 +87,14 @@ public class DesktopApplication extends Application {
         splitPane.setDividerPositions(.7);
         SplitPane.setResizableWithParent(console, false);
 
+        final ScrollPane details = new ScrollPane(createDetails());
+        details.setHbarPolicy(ScrollBarPolicy.NEVER);
+        details.setHmax(0);
+
         final BorderPane borderPane = new BorderPane();
         borderPane.setTop(createToolbar());
         borderPane.setCenter(splitPane);
-        borderPane.setRight(createDetails());
+        borderPane.setRight(details);
         final Scene scene = new Scene(borderPane);
         primaryStage.setScene(scene);
 
@@ -343,44 +351,128 @@ public class DesktopApplication extends Application {
         return new ToolBar(activate, property, delete, text);
     }
 
-    private void addDetailRow(final GridPane parent, final javafx.scene.Node... cells) {
+    private static javafx.scene.Node[] formatRow(final javafx.scene.Node... cells) {
+        final javafx.scene.Node[] formatted = new javafx.scene.Node[cells.length];
+        for (int i = 0; i < cells.length; i++) {
+            final StackPane cell = new StackPane(cells[i]);
+            cell.setAlignment(i == 0 ? Pos.BASELINE_RIGHT : Pos.BASELINE_LEFT);
+            formatted[i] = cell;
+        }
+        return formatted;
+    }
+
+    private static javafx.scene.Node unwrapCell(final GridPane parent, final int i) {
+        return unwrapCell(parent.getChildren().get(i));
+    }
+
+    private static javafx.scene.Node unwrapCell(final javafx.scene.Node cell) {
+        return ((StackPane) cell).getChildren().get(0);
+    }
+
+    private static void addDetailRow(final GridPane parent, final javafx.scene.Node... cells) {
         final int row = parent.getChildren().isEmpty() ? 0
                 : GridPane.getRowIndex(parent.getChildren().get(parent.getChildren().size() - 1)) + 1;
         parent.addRow(row, cells);
     }
 
-    private void addDetail(final GridPane parent, final String label, final javafx.scene.Node value) {
-        final StackPane labelPane = new StackPane(new Label(label)), valuePane = new StackPane(value);
-        labelPane.setAlignment(Pos.BASELINE_RIGHT);
-        valuePane.setAlignment(Pos.BASELINE_LEFT);
-        addDetailRow(parent, labelPane, valuePane);
+    private static void insertDetailRow(final GridPane parent, final int index, final javafx.scene.Node... cells) {
+        final int row = index == 0 ? 0 : GridPane.getRowIndex(parent.getChildren().get(index - 1)) + 1;
+        parent.getChildren().addAll(index, Arrays.asList(cells));
+        for (int i = 0; i < cells.length; i++) {
+            GridPane.setConstraints(cells[i], i, row);
+        }
+        for (int i = index + cells.length; i < parent.getChildren().size(); i++) {
+            final javafx.scene.Node cell = parent.getChildren().get(i);
+            GridPane.setRowIndex(cell, GridPane.getRowIndex(cell) + 1);
+        }
     }
 
-    private void addDetailHeader(final GridPane parent, final String header) {
+    private static void addDetailHeader(final GridPane parent, final String header) {
         final StackPane headerPane = new StackPane(new Label(header));
         GridPane.setColumnSpan(headerPane, 2);
         headerPane.getStyleClass().add("header");
         addDetailRow(parent, headerPane);
     }
 
-    private void addDetail(final GridPane parent, final String label, final Observable<String> value,
-            final Consumer<String> onChange) {
-        final TextField field = new TextField();
-        value.subscribe(v -> {
-            if (!field.isFocused()) {
-                field.setText(v);
+    private static class DynamicLabel extends Label implements Disposable {
+        final Tooltip tooltip = new Tooltip();
+        Disposable subscription;
+
+        DynamicLabel() {
+            setTooltip(tooltip);
+            getStyleClass().add("label");
+        }
+
+        @Override
+        public void dispose() {
+            if (subscription != null) {
+                subscription.dispose();
             }
-        });
-        field.textProperty().addListener((o, a, b) -> {
-            try {
-                onChange.accept(b);
-            } catch (final RuntimeException e) {
-            }
-        });
-        addDetail(parent, label, field);
+        }
+
+        @Override
+        public boolean isDisposed() {
+            return subscription == null || subscription.isDisposed();
+        }
+
+        DynamicLabel setSource(final Observable<String> source) {
+            dispose();
+            subscription = source.subscribe(s -> {
+                setText(s);
+                tooltip.setText(s);
+            });
+            return this;
+        }
     }
 
-    private Observable<String> wrapChangeObservable(final ChangeObservable<?> c, final Supplier<Object> getValue) {
+    private static class DynamicTextField extends TextField implements Disposable {
+        Disposable subscription;
+        ChangeListener<String> changeListener;
+
+        @Override
+        public void dispose() {
+            if (subscription != null) {
+                subscription.dispose();
+            }
+            if (changeListener != null) {
+                textProperty().removeListener(changeListener);
+            }
+        }
+
+        @Override
+        public boolean isDisposed() {
+            return subscription == null || subscription.isDisposed();
+        }
+
+        DynamicTextField setSource(final Observable<String> source, final Consumer<String> onChange) {
+            dispose();
+            source.subscribe(v -> {
+                if (!isFocused()) {
+                    setText(v);
+                }
+            });
+            changeListener = (o, a, b) -> {
+                try {
+                    onChange.accept(b);
+                } catch (final RuntimeException e) {
+                }
+            };
+            textProperty().addListener(changeListener);
+            return this;
+        }
+    }
+
+    private static void addDetail(final GridPane parent, final String label, final javafx.scene.Node value) {
+        addDetailRow(parent, formatRow(new Label(label), value));
+    }
+
+    private static void addDetail(final GridPane parent, final String label, final Observable<String> value,
+            final Consumer<String> onChange) {
+        addDetail(parent, label, new DynamicTextField().setSource(value, onChange));
+    }
+
+    private static Observable<String> wrapChangeObservable(final ChangeObservable<?> c,
+            final Supplier<Object> getValue) {
         return c.rxChange().map(o -> Optional.ofNullable(getValue.get())).startWith(Optional.ofNullable(getValue.get()))
                 .distinctUntilChanged().map(opt -> opt.map(v -> {
                     if (v instanceof Throwable) {
@@ -391,20 +483,21 @@ public class DesktopApplication extends Application {
                 }).orElse("")).observeOn(JavaFxScheduler.platform());
     }
 
-    private Observable<String> getNodeObservable(final Node node, final Function<Node, Object> getValue) {
+    private static Observable<String> getNodeObservable(final Node node) {
+        return getNodeObservable(node, Node::displayString);
+    }
+
+    private static Observable<String> getNodeObservable(final Node node, final Function<Node, Object> getValue) {
         return wrapChangeObservable(node, () -> getValue.apply(node));
+    }
+
+    private static DynamicLabel createNodeLabel(final Node node) {
+        return new DynamicLabel().setSource(getNodeObservable(node));
     }
 
     private void addDetail(final GridPane parent, final String label, final Node node,
             final Function<Node, Object> getValue) {
-        final Label value = new Label();
-        final Tooltip tooltip = new Tooltip();
-        getNodeObservable(node, getValue).subscribe(s -> {
-            value.setText(s);
-            tooltip.setText(s);
-        });
-        value.setTooltip(tooltip);
-        addDetail(parent, label, value);
+        addDetail(parent, label, new DynamicLabel().setSource(getNodeObservable(node, getValue)));
     }
 
     private void addDetail(final GridPane parent, final String label, final Node node,
@@ -412,7 +505,71 @@ public class DesktopApplication extends Application {
         addDetail(parent, label, getNodeObservable(node, getValue), setValue);
     }
 
+    private int activationHistoryBegin, activationHistoryLength;
+
+    private static Observable<String> getActivationObservable(final Node node, final long now) {
+        return getNodeObservable(node, n -> now - n.getLastActivation() + " ms");
+    }
+
+    private static javafx.scene.Node[] createActivationRow(final Node node, final long now) {
+        return formatRow(createNodeLabel(node), new DynamicLabel().setSource(getActivationObservable(node, now)));
+    }
+
+    private void addActivationHistory(final GridPane parent, final int maxLength) {
+        addDetailHeader(parent, "Activations");
+        activationHistoryBegin = parent.getChildren().size();
+        activationHistoryLength = 0;
+
+        long baseline = Long.MIN_VALUE;
+        synchronized (kb.iteratorMutex()) {
+            for (final Node node : kb) {
+                if (activationHistoryLength >= maxLength)
+                    break;
+                activationHistoryLength++;
+
+                if (baseline == Long.MIN_VALUE) {
+                    baseline = node.getLastActivation();
+                }
+                addDetailRow(parent, createActivationRow(node, baseline));
+            }
+        }
+
+        activateSubscription = kb.rxActivate().toFlowable(BackpressureStrategy.DROP)
+                .observeOn(JavaFxScheduler.platform()).subscribe(n -> {
+                    long newBaseline = Long.MIN_VALUE;
+                    int i = 0;
+                    synchronized (kb.iteratorMutex()) {
+                        for (final Node node : kb) {
+                            if (i >= maxLength)
+                                break;
+
+                            if (newBaseline == Long.MIN_VALUE) {
+                                newBaseline = node.getLastActivation();
+                            }
+
+                            if (i < activationHistoryLength) {
+                                ((DynamicLabel) unwrapCell(parent, activationHistoryBegin + 2 * i))
+                                        .setSource(getNodeObservable(node));
+                                ((DynamicLabel) unwrapCell(parent, activationHistoryBegin + 2 * i + 1))
+                                        .setSource(getActivationObservable(node, newBaseline));
+                            } else {
+                                insertDetailRow(parent, activationHistoryBegin + 2 * i,
+                                        createActivationRow(node, newBaseline));
+                            }
+
+                            i++;
+                        }
+                    }
+
+                    final List<javafx.scene.Node> toRemove = parent.getChildren().subList(
+                            activationHistoryBegin + 2 * i, activationHistoryBegin + 2 * activationHistoryLength);
+                    toRemove.forEach(DesktopApplication::disposeCell);
+                    toRemove.clear();
+                });
+    }
+
     private Runnable disposePropertiesListener;
+    private Disposable activateSubscription;
 
     private void addProperties(final GridPane parent, final String header, final Node node) {
         addDetailHeader(parent, header);
@@ -421,7 +578,7 @@ public class DesktopApplication extends Application {
             final int propsStart = parent.getChildren().size();
 
             for (final Entry<Node, Node> prop : Lists.reverse(new ArrayList<>(node.properties().entrySet()))) {
-                addDetail(parent, prop.getKey().displayString(), new Label(prop.getValue().displayString()));
+                addDetailRow(parent, formatRow(createNodeLabel(prop.getKey()), createNodeLabel(prop.getValue())));
             }
 
             MapChangeListener<Node, Node> listener = c -> Platform.runLater(() -> {
@@ -429,17 +586,18 @@ public class DesktopApplication extends Application {
                     int i = propsStart;
                     for (final Entry<Node, Node> prop : Lists.reverse(new ArrayList<>(node.properties().entrySet()))) {
                         if (i < parent.getChildren().size()) {
-                            ((Label) ((StackPane) parent.getChildren().get(i)).getChildren().get(0))
-                                    .setText(prop.getKey().displayString());
-                            ((Label) ((StackPane) parent.getChildren().get(i + 1)).getChildren().get(0))
-                                    .setText(prop.getValue().displayString());
+                            ((DynamicLabel) unwrapCell(parent, i)).setSource(getNodeObservable(prop.getKey()));
+                            ((DynamicLabel) unwrapCell(parent, i + 1)).setSource(getNodeObservable(prop.getValue()));
                         } else {
-                            addDetail(parent, prop.getKey().displayString(),
-                                    new Label(prop.getValue().displayString()));
+                            addDetailRow(parent,
+                                    formatRow(createNodeLabel(prop.getKey()), createNodeLabel(prop.getValue())));
                         }
                         i += 2;
                     }
-                    parent.getChildren().remove(i, parent.getChildren().size());
+                    final List<javafx.scene.Node> toRemove = parent.getChildren().subList(i,
+                            parent.getChildren().size());
+                    toRemove.forEach(DesktopApplication::disposeCell);
+                    toRemove.clear();
                 }
             });
 
@@ -448,14 +606,21 @@ public class DesktopApplication extends Application {
         }
     }
 
+    private static void disposeCell(final javafx.scene.Node cell) {
+        final javafx.scene.Node content = unwrapCell(cell);
+        if (content instanceof Disposable) {
+            ((Disposable) content).dispose();
+        }
+    }
+
     private javafx.scene.Node createDetails() {
         final GridPane details = new GridPane();
         details.getStylesheets().add(getClass().getResource("details.css").toString());
         details.setPrefWidth(280);
         final ColumnConstraints c0 = new ColumnConstraints(), c1 = new ColumnConstraints();
-        c0.setPrefWidth(80);
+        c0.setPrefWidth(140);
         c0.setHalignment(HPos.RIGHT);
-        c1.setPrefWidth(200);
+        c1.setPrefWidth(140);
         details.getColumnConstraints().addAll(c0, c1);
 
         graph.rxSelected().distinctUntilChanged().subscribe(opt -> {
@@ -463,6 +628,10 @@ public class DesktopApplication extends Application {
                 disposePropertiesListener.run();
                 disposePropertiesListener = null;
             }
+            if (activateSubscription != null) {
+                activateSubscription.dispose();
+            }
+            details.getChildren().forEach(DesktopApplication::disposeCell);
             details.getChildren().clear();
 
             if (opt.isPresent()) {
@@ -479,8 +648,8 @@ public class DesktopApplication extends Application {
                     addProperties(details, "Properties", node);
                 } else if (obj instanceof Association) {
                     final Association assoc = (Association) obj;
-                    addDetail(details, "Source", new Label(assoc.source.displayString()));
-                    addDetail(details, "Destination", new Label(assoc.dest.displayString()));
+                    addDetail(details, "Source", createNodeLabel(assoc.source));
+                    addDetail(details, "Destination", createNodeLabel(assoc.dest));
                     addDetail(details, "Coefficient",
                             wrapChangeObservable(assoc.dest.getSynapse(),
                                     () -> assoc.dest.getSynapse().getCoefficient(assoc.source)),
@@ -491,6 +660,7 @@ public class DesktopApplication extends Application {
                             v -> assoc.dest.getSynapse().setDecayPeriod(assoc.source, Long.parseLong(v)));
                 }
             } else {
+                addActivationHistory(details, 5);
                 addProperties(details, "Context", kb.node(Common.context));
             }
         });

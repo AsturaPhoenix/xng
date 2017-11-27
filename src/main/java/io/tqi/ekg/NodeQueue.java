@@ -7,6 +7,9 @@ import java.util.NoSuchElementException;
 
 import com.google.common.collect.Iterables;
 
+import io.reactivex.Observable;
+import io.reactivex.subjects.PublishSubject;
+import io.reactivex.subjects.Subject;
 import lombok.Synchronized;
 
 /**
@@ -67,6 +70,16 @@ public class NodeQueue implements Iterable<Node> {
     private Link head, tail;
     private Object version;
 
+    private Subject<Node> rxActivate = PublishSubject.create();
+
+    public Observable<Node> rxActivate() {
+        return rxActivate;
+    }
+
+    public Object mutex() {
+        return $lock;
+    }
+
     public void add(final Node node) {
         final Link link;
         synchronized ($lock) {
@@ -74,7 +87,10 @@ public class NodeQueue implements Iterable<Node> {
             initAtTail(link);
         }
 
-        node.rxActivate().subscribe(t -> promote(link));
+        node.rxActivate().subscribe(t -> {
+            promote(link);
+            rxActivate.onNext(node);
+        });
     }
 
     public void addAll(final Collection<Node> nodes) {

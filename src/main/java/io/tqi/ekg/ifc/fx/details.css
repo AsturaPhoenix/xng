@@ -6,7 +6,7 @@ GridPane > * {
     -fx-min-width: 64;
 }
 
-GridPane Label {
+GridPane Label, GridPane .label {
 	-fx-padding: 4;
 }
 

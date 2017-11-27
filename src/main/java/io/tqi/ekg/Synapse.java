@@ -27,7 +27,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
     private static final long serialVersionUID = 1779165354354490167L;
 
     public static final long DEBOUNCE_PERIOD = 2;
-    private static final double DECAY_MARGIN = .2;
+    private static final double DECAY_MARGIN = .11;
     private static final double THRESHOLD = 1;
 
     public static class Profile {

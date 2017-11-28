@@ -34,19 +34,19 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
     private static final double DECAY_MARGIN = .2;
     private static final double THRESHOLD = 1;
 
-    public static class Profile {
+    public class Profile {
         @Getter
         private float coefficient;
         @Getter
         private long decayPeriod; // linear for now
         private final Node node;
-        private final Disposable subscription;
+        private Disposable subscription;
 
-        private Profile(final Node node, final Disposable subscription) {
+        private Profile(final Node node) {
             this.coefficient = 1;
             this.node = node;
             resetDecay();
-            this.subscription = subscription;
+            updateSubscription();
         }
 
         public void resetDecay() {
@@ -58,6 +58,15 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
             // activated again, we want this activation to be decayed by at the
             // decay margin.
             decayPeriod = Math.max((long) (node.getRefractory() / DECAY_MARGIN), 1);
+        }
+
+        public void updateSubscription() {
+            if (coefficient > 0 && subscription == null) {
+                subscription = node.rxActivate().subscribe(rxInput::onNext);
+            } else if (coefficient <= 0 && subscription != null) {
+                subscription.dispose();
+                subscription = null;
+            }
         }
 
         public float getValue(final long time) {
@@ -179,16 +188,19 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
             final Profile activation = newActivation(node);
             activation.coefficient = o.readFloat();
             activation.decayPeriod = o.readLong();
+            activation.updateSubscription();
             inputs.put(node, activation);
         }
     }
 
     private Profile newActivation(final Node source) {
-        return new Profile(source, source.rxActivate().subscribe(rxInput::onNext));
+        return new Profile(source);
     }
 
     public Synapse setCoefficient(final Node node, final float coefficient) {
-        inputs.computeIfAbsent(node, this::newActivation).coefficient = coefficient;
+        final Profile activation = inputs.computeIfAbsent(node, this::newActivation);
+        activation.coefficient = coefficient;
+        activation.updateSubscription();
         rxChange.onNext(this);
         return this;
     }

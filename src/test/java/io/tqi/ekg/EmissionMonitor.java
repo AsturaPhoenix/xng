@@ -30,7 +30,7 @@ public class EmissionMonitor<T> {
         return monitor.takeUntil(Observable.timer(250, TimeUnit.MILLISECONDS, Schedulers.io()));
     }
 
-    boolean didEmit() {
+    public boolean didEmit() {
         boolean didEmit = emissions().cast(Object.class).blockingFirst(DID_NOT_ACTIVATE) != DID_NOT_ACTIVATE;
         reset();
         return didEmit;

@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import com.google.common.base.Preconditions;
+
 import lombok.RequiredArgsConstructor;
 
 public class NodeMapBase<K, V, X> extends AbstractMap<K, V> {
@@ -134,6 +136,7 @@ public class NodeMapBase<K, V, X> extends AbstractMap<K, V> {
     }
 
     protected Node.Ref ref(final K key, final Node node) {
+        Preconditions.checkNotNull(node);
         return node.ref(() -> backing.remove(key));
     }
 

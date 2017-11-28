@@ -85,6 +85,7 @@ public class Node implements Serializable, ChangeObservable<Object> {
     @Setter
     private transient Runnable onActivate;
     private transient Subject<Long> rxOutput;
+    private transient Observable<Long> rxActivationHistory;
     private transient Subject<Object> rxChange;
     private transient Completable rxDeleted;
 
@@ -131,9 +132,12 @@ public class Node implements Serializable, ChangeObservable<Object> {
         }
     }
 
+    public static final int ACTIVATION_HISTORY = 5;
+
     private void preInit() {
         rxInput = PublishSubject.create();
         rxOutput = PublishSubject.create();
+        rxActivationHistory = rxOutput.replay(ACTIVATION_HISTORY).autoConnect(0);
         rxInput.observeOn(Schedulers.computation()).subscribe(t -> {
             if (t - lastActivation >= refractory) {
                 if (onActivate != null)
@@ -206,6 +210,10 @@ public class Node implements Serializable, ChangeObservable<Object> {
 
     public Observable<Long> rxActivate() {
         return rxOutput;
+    }
+
+    public Observable<Long> rxActivationHistory() {
+        return rxActivationHistory;
     }
 
     private ObservableNodeMap properties = new ObservableNodeMap();

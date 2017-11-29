@@ -201,10 +201,11 @@ public class NodePhysics {
         final double myLoosening = Math.max(1, counters.assocUsage.getOrDefault(node, 1.0) - 4);
 
         for (final Entry<Node, Profile> assoc : node.getSynapse()) {
-            nextCounters.addAssoc(node, assoc.getKey(), assoc.getValue().getCoefficient());
+            final float k = Math.abs(assoc.getValue().getCoefficient());
+            nextCounters.addAssoc(node, assoc.getKey(), k);
             final double loosening = (myLoosening
                     + Math.max(1, counters.assocUsage.getOrDefault(assoc.getKey(), 1.0) - 4)) / 2;
-            attract(assoc.getKey(), node, .1 * assoc.getValue().getCoefficient() / loosening, 1.2 * loosening);
+            attract(assoc.getKey(), node, .1 * k / loosening, 1.2 * loosening);
         }
 
         final int nProps = node.properties().size();

@@ -300,8 +300,10 @@ public class GraphPanel extends StackPane {
 
         void updateColor() {
             io.tqi.ekg.Node dest = getDest();
-            if (dest != null)
-                setColor(Color.TRANSPARENT.interpolate(Color.RED, dest.getSynapse().getCoefficient(getSource())));
+            if (dest != null) {
+                final float k = dest.getSynapse().getCoefficient(getSource());
+                setColor(Color.TRANSPARENT.interpolate(k > 0 ? Color.RED : Color.PURPLE, Math.abs(k)));
+            }
         }
     }
 

@@ -68,6 +68,16 @@ public class NodeTest {
     }
 
     @Test
+    public void testPropertyChange() {
+        final Node node = new Node(), property = new Node(), value1 = new Node(), value2 = new Node();
+        final EmissionMonitor<?> monitor = new EmissionMonitor<>(node.rxChange());
+        node.properties().put(property, value1);
+        assertTrue(monitor.didEmit());
+        node.properties().put(property, value2);
+        assertTrue(monitor.didEmit());
+    }
+
+    @Test
     public void testAnd() {
         final Node a = new Node(), b = new Node(), and = new Node();
         final EmissionMonitor<?> monitor = new EmissionMonitor<>(and.rxActivate());

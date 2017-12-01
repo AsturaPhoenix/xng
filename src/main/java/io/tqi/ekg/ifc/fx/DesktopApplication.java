@@ -90,7 +90,7 @@ public class DesktopApplication extends Application {
         final javafx.scene.Node console = createConsole();
         final SplitPane splitPane = new SplitPane(graph, console);
         splitPane.setOrientation(Orientation.VERTICAL);
-        splitPane.setDividerPositions(.7);
+        splitPane.setDividerPositions(.8);
         SplitPane.setResizableWithParent(console, false);
 
         final ScrollPane details = new ScrollPane(createDetails());
@@ -751,7 +751,7 @@ public class DesktopApplication extends Application {
                             v -> assoc.dest.getSynapse().setDecayPeriod(assoc.source, Long.parseLong(v)));
                 }
             } else {
-                addActivationHistory(details, 5);
+                addActivationHistory(details, 15);
                 addProperties(details, "Context", kb.node(Common.context));
             }
         });

@@ -107,7 +107,7 @@ public class Synapse implements Serializable, Iterable<Entry<Node, Synapse.Profi
         public final float value;
     }
 
-    public static final int EVALUATION_HISTORY = 5;
+    public static final int EVALUATION_HISTORY = 10;
 
     public Observable<Evaluation> rxValue() {
         return rxValue;

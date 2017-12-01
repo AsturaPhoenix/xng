@@ -336,8 +336,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
             try {
                 builtIn.impl(this);
             } catch (final Exception e) {
-                final Node exceptionNode = node(Common.exception);
-                context().put(exceptionNode, valueNode(e).properties().put(node(Common.source), node));
+                final Node exceptionNode = valueNode(e);
+                exceptionNode.properties().put(node(Common.source), node);
+                context().put(node(Common.exception), exceptionNode);
                 exceptionNode.activate();
             }
         });

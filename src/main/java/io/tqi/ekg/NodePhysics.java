@@ -32,11 +32,12 @@ public class NodePhysics {
     private Link head;
 
     private static class Counters {
-        final Multiset<Node> propUsage = HashMultiset.create();
+        final Multiset<Node> propKeyUsage = HashMultiset.create(), propValueUsage = HashMultiset.create();
         final Map<Node, Double> assocUsage = new HashMap<>();
 
         void clear() {
-            propUsage.clear();
+            propKeyUsage.clear();
+            propValueUsage.clear();
             assocUsage.clear();
         }
 
@@ -208,17 +209,21 @@ public class NodePhysics {
             attract(assoc.getKey(), node, .1 * k / loosening, 1.2 * loosening);
         }
 
-        final int nProps = node.properties().size();
+        final int myPropLoosening = Math.max(1, node.properties().size() - 2);
 
         synchronized (node.properties().mutex()) {
             for (final Entry<Node, Node> prop : node.properties().entrySet()) {
                 if (prop.getValue() == null)
                     continue;
 
-                nextCounters.propUsage.add(prop.getKey());
+                nextCounters.propKeyUsage.add(prop.getKey());
+                nextCounters.propValueUsage.add(prop.getValue());
 
-                attract(prop.getValue(), node, .05 / nProps, 1.2 * nProps);
-                final int nUses = counters.propUsage.count(prop.getKey());
+                final double propLoosening = myPropLoosening
+                        + Math.max(1, counters.propValueUsage.count(prop.getValue()) - 2) / 2;
+
+                attract(prop.getValue(), node, .05 / propLoosening, 1.2 * propLoosening);
+                final int nUses = counters.propKeyUsage.count(prop.getKey());
                 attract(prop.getKey(), node, prop.getValue(), .02 / nUses, 2 * nUses);
             }
         }

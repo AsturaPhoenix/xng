@@ -766,16 +766,22 @@ public class DesktopApplication extends Application {
         input.setPromptText("Input");
         input.setOnAction(e -> {
             output.setText(String.format("%s%s\n", output.getText(), input.getText()));
+            output.positionCaret(output.getText().length());
             repl.sendInput(input.getText());
             input.clear();
         });
 
         output.setPromptText("Output");
         output.setEditable(false);
-        repl.commandOutput().observeOn(JavaFxScheduler.platform())
-                .subscribe(s -> output.setText(String.format("%s! %s\n", output.getText(), s)));
+        repl.commandOutput().observeOn(JavaFxScheduler.platform()).subscribe(s -> {
+            output.setText(String.format("%s! %s\n", output.getText(), s));
+            output.positionCaret(output.getText().length());
+        });
         repl.rxOutput().buffer(repl.rxOutput().debounce(1, TimeUnit.SECONDS)).observeOn(JavaFxScheduler.platform())
-                .subscribe(s -> output.setText(String.format("%s* %s\n", output.getText(), String.join("", s))));
+                .subscribe(s -> {
+                    output.setText(String.format("%s* %s\n", output.getText(), String.join("", s)));
+                    output.positionCaret(output.getText().length());
+                });
 
         System.setOut(new PrintStream(new OutputStream() {
             @Override
@@ -784,6 +790,7 @@ public class DesktopApplication extends Application {
                     if (output.getText().isEmpty() || output.getText().endsWith("\n"))
                         output.appendText("! ");
                     output.appendText(Character.toString((char) b));
+                    output.positionCaret(output.getText().length());
                 });
             }
         }));

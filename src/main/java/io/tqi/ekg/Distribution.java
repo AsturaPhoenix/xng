@@ -1,5 +1,6 @@
 package io.tqi.ekg;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -15,7 +16,9 @@ import lombok.Getter;
  * Unimodal dynamic histogram optimized for performance (generation and
  * aggregation) rather than accuracy.
  */
-public class Distribution {
+public class Distribution implements Serializable {
+    private static final long serialVersionUID = -3135118169738398742L;
+
     private final Random random;
     // sample => weight
     private final NavigableMap<Float, Float> densities = new TreeMap<>();
@@ -24,7 +27,8 @@ public class Distribution {
     private float mode, min, max;
 
     @AllArgsConstructor
-    private static class InvCdfEntry {
+    private static class InvCdfEntry implements Serializable {
+        private static final long serialVersionUID = -1159688567915774709L;
         float cumulativeDensity;
         float value;
     }

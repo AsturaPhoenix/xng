@@ -2,514 +2,553 @@ package io.tqi.ekg;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectInputStream.GetField;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
-
-import com.google.common.base.Strings;
-
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import javafx.geometry.Point3D;
 import lombok.RequiredArgsConstructor;
+import lombok.Value;
 
-public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node>, ChangeObservable<Object> {
-    private static final long serialVersionUID = -6461427806563494150L;
+public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
+  private static final long serialVersionUID = -6461427806563494150L;
 
-    @RequiredArgsConstructor
-    private static class IdentityKey implements Serializable {
-        private static final long serialVersionUID = -2428169144581856842L;
+  @RequiredArgsConstructor
+  private static class IdentityKey implements Serializable {
+    private static final long serialVersionUID = -2428169144581856842L;
 
-        final Serializable value;
+    final Serializable value;
 
-        @Override
-        public int hashCode() {
-            return System.identityHashCode(value);
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            return obj instanceof IdentityKey && value == ((IdentityKey) obj).value;
-        }
-    }
-
-    private NodeValueMap<String> index = new NodeValueMap<>();
-    private NodeValueMap<IdentityKey> valueIndex = new NodeValueMap<>();
-
-    private transient NodeQueue nodes = new NodeQueue();
-    private transient NodePhysics physics;
-
-    private transient Subject<String> rxOutput;
-    private transient Subject<Node> rxNodeAdded;
-    private transient Subject<Object> rxChange;
-
-    public enum Common {
-        context, transform, javaClass(
-                "class"), object, property, name, exception, source, destination, value, coefficient, refractory, nodeCreated(
-                        "node created"), nullNode("null");
-
-        public final String identifier;
-
-        private Common() {
-            identifier = name();
-        }
-
-        private Common(final String identifier) {
-            this.identifier = identifier;
-        }
-    }
-
-    public enum BuiltIn {
-        activate {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                kb.context().get(kb.node(Common.value)).activate();
-            }
-        },
-        clearProperties {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                kb.context().get(kb.node(Common.object)).properties().clear();
-            }
-        },
-        delete {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                kb.context().get(kb.node(Common.object)).delete();
-            }
-        },
-        /**
-         * Gets a static or instance Java field.
-         */
-        field {
-            @Override
-            public void impl(final KnowledgeBase kb) throws Exception {
-                final Node classNode = kb.context().get(kb.node(Common.javaClass)),
-                        objectNode = kb.context().get(kb.node(Common.object)),
-                        fieldNode = kb.context().get(kb.node(Common.name));
-                final Object object;
-                final Class<?> clazz;
-
-                if (objectNode != null) {
-                    object = objectNode.getValue();
-
-                    if (classNode != null) {
-                        clazz = (Class<?>) classNode.getValue();
-                        if (!clazz.isAssignableFrom(object.getClass())) {
-                            throw new IllegalArgumentException("Provided class does not match object class");
-                        }
-                    } else {
-                        clazz = object.getClass();
-                    }
-                } else {
-                    object = null;
-                    clazz = (Class<?>) classNode.getValue();
-                }
-
-                Field field = clazz.getField((String) fieldNode.getValue());
-
-                Object ret = field.get(object);
-                kb.context().put(kb.node(Common.value), kb.valueNode((Serializable) ret));
-            }
-        },
-        /**
-         * Takes two args: {@link Common#object} and {@link Common#property}.
-         */
-        getProperty {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                final Node object = kb.context().get(kb.node(Common.object)),
-                        property = kb.context().get(kb.node(Common.property));
-                kb.context().put(kb.node(Common.value), object.properties().get(property));
-            }
-        },
-        /**
-         * A limited Java interop bridge. Method parameter types must be fully
-         * and exactly specified via "paramN" index entries, null-terminated,
-         * having values of Java classes. Arguments are passed as "argN" index
-         * entries, and must be serializable. Missing arguments are passed null.
-         */
-        method {
-            @Override
-            public void impl(final KnowledgeBase kb) throws Exception {
-                final Node classNode = kb.context().get(kb.node(Common.javaClass)),
-                        objectNode = kb.context().get(kb.node(Common.object)),
-                        methodNode = kb.context().get(kb.node(Common.name));
-                final Object object;
-                final Class<?> clazz;
-
-                if (objectNode != null) {
-                    object = objectNode.getValue();
-
-                    if (classNode != null) {
-                        clazz = (Class<?>) classNode.getValue();
-                        if (!clazz.isAssignableFrom(object.getClass())) {
-                            throw new IllegalArgumentException("Provided class does not match object class");
-                        }
-                    } else {
-                        clazz = object.getClass();
-                    }
-                } else {
-                    object = null;
-                    clazz = (Class<?>) classNode.getValue();
-                }
-
-                ArrayList<Class<?>> params = new ArrayList<>();
-                Node param;
-                for (int i = 1; (param = kb.context().get(kb.param(i))) != null; i++) {
-                    params.add((Class<?>) param.getValue());
-                }
-
-                Method method = clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
-                ArrayList<Object> args = new ArrayList<>();
-                for (int i = 1; i <= params.size(); i++) {
-                    Node arg = kb.context().get(kb.arg(i));
-                    args.add(arg == null ? null : arg.getValue());
-                }
-
-                Object ret = method.invoke(object, args.toArray());
-                if (method.getReturnType() != null) {
-                    kb.context().put(kb.node(Common.value), kb.valueNode((Serializable) ret));
-                }
-            }
-        },
-        findClass {
-            @Override
-            public void impl(final KnowledgeBase kb) throws ClassNotFoundException {
-                kb.context().put(kb.node(Common.javaClass),
-                        kb.valueNode(Class.forName((String) kb.context().get(kb.node(Common.name)).getValue())));
-            }
-        },
-        createNode {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                kb.node();
-            }
-        },
-        print {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                kb.rxOutput.onNext(Objects.toString(kb.context().get(kb.node(Common.value)).getValue()));
-            }
-        },
-        setCoefficient {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                final Node dest = kb.context().get(kb.node(Common.destination));
-                dest.getSynapse().setCoefficient(kb.context().get(kb.node(Common.source)),
-                        ((Number) kb.context().get(kb.node(Common.coefficient)).getValue()).floatValue());
-            }
-        },
-        setProperty {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                final Node object = kb.context().get(kb.node(Common.object)),
-                        property = kb.context().get(kb.node(Common.property)),
-                        value = kb.context().get(kb.node(Common.value));
-                if (property == null) {
-                    throw new NullPointerException();
-                }
-                object.properties().put(property, value);
-            }
-        },
-        setRefractory {
-            @Override
-            public void impl(final KnowledgeBase kb) {
-                kb.context().get(kb.node(Common.value))
-                        .setRefractory(((Number) kb.context().get(kb.node(Common.refractory)).getValue()).longValue());
-            }
-        };
-
-        public abstract void impl(final KnowledgeBase kb) throws Exception;
-    }
-
-    public KnowledgeBase() {
-        init();
-    }
-
-    private void init() {
-        rxOutput = PublishSubject.create();
-        rxChange = PublishSubject.create();
-        physics = new NodePhysics();
-
-        for (final Node node : nodes) {
-            initNode(node);
-        }
-
-        // create any new Common nodes
-        for (final Common common : Common.values()) {
-            node(common);
-        }
-
-        for (final BuiltIn builtIn : BuiltIn.values()) {
-            registerBuiltIn(builtIn);
-        }
-
-        final TreeMap<String, Node> sortedIndex = new TreeMap<>();
-
-        for (final Entry<String, Node> entry : index.entrySet()) {
-            if (Strings.isNullOrEmpty(entry.getKey()))
-                continue;
-
-            final Node node = entry.getValue();
-
-            if (node.getComment() == null) {
-                node.setComment(entry.getKey());
-            }
-
-            if (node.getLocation() == null) {
-                sortedIndex.put(entry.getKey(), node);
-            }
-        }
-
-        int x = 0;
-        for (final Node node : sortedIndex.values()) {
-            node.setLocation(new Point3D(x++, 0, 0));
-        }
-
-        rxNodeAdded = PublishSubject.create();
-        rxNodeAdded.subscribe(n -> {
-            final Node nnn = node(Common.nodeCreated);
-            context().put(nnn, n);
-            nnn.activate();
-        });
-    }
-
-    private void initNode(final Node node) {
-        // fields may be initialized before kb subjects are, in which case kb
-        // init will catch this
-        if (rxChange != null) {
-            node.setOnActivate(() -> mutateIndex(node));
-            node.rxChange().subscribe(rxChange::onNext);
-            physics.add(node);
-        }
-
-        if (rxNodeAdded != null) {
-            rxNodeAdded.onNext(node);
-        }
-    }
-
-    private void mutateIndex(final Node node) {
-        final Node contextCopy = node.properties().get(node(Common.context));
-        if (contextCopy != null) {
-            synchronized (contextCopy.properties().mutex()) {
-                for (final Entry<Node, Node> prop : contextCopy.properties().entrySet()) {
-                    if (prop.getValue() == node(Common.nullNode)) {
-                        context().remove(prop.getKey());
-                    } else {
-                        context().put(prop.getKey(), prop.getValue());
-                    }
-                }
-            }
-        }
-        final Node transform = node.properties().get(node(Common.transform));
-        if (transform != null) {
-            synchronized (transform.properties().mutex()) {
-                for (final Entry<Node, Node> prop : transform.properties().entrySet()) {
-                    context().put(prop.getKey(), context().get(prop.getValue()));
-                }
-            }
-        }
-    }
-
-    private Node registerBuiltIn(final BuiltIn builtIn) {
-        // TODO(rosswang): Keep the original built-in impl node indexed separate
-        // from the main index so that we can rebind the impl to the correct
-        // node after deserialization.
-        final Node node = node(builtIn);
-        node.setOnActivate(() -> {
-            mutateIndex(node);
-            try {
-                builtIn.impl(this);
-            } catch (final Exception e) {
-                final Node exceptionNode = valueNode(new ImmutableException(e));
-                exceptionNode.properties().put(node(Common.source), node);
-                context().put(node(Common.exception), exceptionNode);
-                exceptionNode.activate();
-            }
-        });
-        node.setRefractory(0);
-        return node;
-    }
-
-    private void writeObject(final ObjectOutputStream o) throws IOException {
-        o.defaultWriteObject();
-        final Set<Node> serNodes = new HashSet<>();
-        synchronized (nodes.mutex()) {
-            for (final Node node : nodes) {
-                serNodes.add(node);
-            }
-        }
-        o.writeObject(serNodes);
-    }
-
-    @SuppressWarnings("unchecked")
-    private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
-        final GetField fields = stream.readFields();
-        index = new NodeValueMap<>();
-        index.putAll((Map<String, Node>) fields.get("index", new HashMap<>()));
-        valueIndex = new NodeValueMap<>();
-        valueIndex.putAll((Map<IdentityKey, Node>) fields.get("valueIndex", new HashMap<>()));
-        try {
-            final Map<Node, Node> legacyContext = (Map<Node, Node>) fields.get("context", new HashMap<>());
-            final Node context = node(Common.context);
-            if (legacyContext != null) {
-                for (final Entry<Node, Node> entry : legacyContext.entrySet()) {
-                    context.properties().put(entry.getKey(), entry.getValue());
-                }
-            }
-        } catch (final IllegalArgumentException e) {
-        }
-
-        final Set<Node> serNodes = (Set<Node>) stream.readObject();
-        int oldSize = serNodes.size();
-        serNodes.addAll(index.values());
-        if (serNodes.size() > oldSize) {
-            System.out.println(
-                    "WARNING: Serialized node set dropped at least " + (serNodes.size() - oldSize) + " nodes.");
-        }
-
-        final List<Node> sortedNodes = new ArrayList<>(serNodes);
-        sortedNodes.sort((a, b) -> Long.compare(b.getLastActivation(), a.getLastActivation()));
-
-        nodes = new NodeQueue();
-        nodes.addAll(sortedNodes);
-
-        init();
+    @Override
+    public int hashCode() {
+      return System.identityHashCode(value);
     }
 
     @Override
-    public void close() {
-        rxOutput.onComplete();
-        rxNodeAdded.onComplete();
-        rxChange.onComplete();
+    public boolean equals(Object obj) {
+      return obj instanceof IdentityKey && value == ((IdentityKey) obj).value;
     }
+  }
 
-    public Observable<Node> rxNodeAdded() {
-        return rxNodeAdded;
-    }
+  private ConcurrentMap<IdentityKey, Node> valueIndex = new ConcurrentHashMap<>();
 
-    public Observable<String> rxOutput() {
-        return rxOutput;
-    }
+  private transient NodeQueue nodes = new NodeQueue();
 
-    @Override
-    public Observable<Object> rxChange() {
-        return rxChange;
-    }
+  private transient Subject<String> rxOutput;
+  private transient Subject<Node> rxNodeAdded;
 
+  public enum Common {
+    // invocation
+    invoke, literal, transform, exceptionHandler,
+
+    javaClass, object, name, exception, source, value, refractory, nodeCreated, nullNode
+  }
+
+  public enum BuiltIn {
+    clearProperties {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) {
+        context.require(kb.node(Common.object)).properties.clear();
+        return null;
+      }
+    },
     /**
-     * Gets or creates a node representing a positional argument. These are
-     * typically property names under {@code ARGUMENT} nodes.
-     * 
-     * @param ordinal
-     *            one-based argument index
-     * @return "arg<i>n</i>"
+     * Gets a static or instance Java field.
      */
-    public Node arg(final int ordinal) {
-        return node("arg" + ordinal);
-    }
+    field {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
+        final Node classNode = context.index.get(kb.node(Common.javaClass)),
+            objectNode = context.index.get(kb.node(Common.object)),
+            fieldNode = context.require(kb.node(Common.name));
+        final Object object;
+        final Class<?> clazz;
 
-    /**
-     * Gets or creates a node representing a positional parameter type, for use
-     * with {@link BuiltIn#invoke} as property names under {@code ARGUMENT}
-     * nodes.
-     * 
-     * @param ordinal
-     *            one-based argument index
-     * @return "param<i>n</i>"
-     */
-    public Node param(final int ordinal) {
-        return node("param" + ordinal);
-    }
+        if (objectNode != null) {
+          object = objectNode.getValue();
 
-    public Node node(final Common common) {
-        return node(common.identifier);
-    }
-
-    public Node node(final BuiltIn builtIn) {
-        return node("BuiltIn." + builtIn.name());
-    }
-
-    public Node node(final String identifier) {
-        final boolean[] created = new boolean[1];
-        final Node node = index.computeIfAbsent(identifier, x -> {
-            final Node newNode = new Node();
-            if (identifier != null)
-                newNode.setComment(identifier);
-            created[0] = true;
-            nodes.add(newNode);
-            return newNode;
-        });
-        if (created[0])
-            initNode(node);
-        return node;
-    }
-
-    @SuppressWarnings("unchecked")
-    public Node valueNode(final Serializable value) {
-        // Single-instance resolution for immutable types. Skip for/bootstrap
-        // with Class since that's always single-instance.
-        Serializable resolvingValue = value;
-        if (!(value instanceof Class<?>)) {
-            final Node values = valueNode(value.getClass()).properties().get(node(Common.value));
-            if (values != null && values.getValue() instanceof ConcurrentHashMap) {
-                resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.getValue())
-                        .computeIfAbsent(value, x -> value);
+          if (classNode != null) {
+            clazz = (Class<?>) classNode.getValue();
+            if (!clazz.isAssignableFrom(object.getClass())) {
+              throw new IllegalArgumentException("Provided class does not match object class");
             }
+          } else {
+            clazz = object.getClass();
+          }
+        } else {
+          object = null;
+          clazz = (Class<?>) classNode.getValue();
         }
 
-        final Serializable resolvedValue = resolvingValue;
+        Field field = clazz.getField((String) fieldNode.getValue());
 
-        return valueIndex.computeIfAbsent(new IdentityKey(resolvedValue), x -> {
-            final Node node = new Node(resolvedValue);
-            initNode(node);
-            nodes.add(node);
-            return node;
-        });
+        Object ret = field.get(object);
+        return kb.node((Serializable) ret);
+      }
+    },
+    /**
+     * Takes two args: {@link Common#object} and {@link Common#name}. If {@code object} is omitted,
+     * gets the property from the parent context.
+     */
+    getProperty {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) {
+        final Node object = context.index.get(kb.node(Common.object)),
+            property = context.require(kb.node(Common.name));
+        return object == null ? context.parent.index.get(property)
+            : object.properties.get(property);
+      }
+    },
+    /**
+     * A limited Java interop bridge. Method parameter types must be fully and exactly specified via
+     * "paramN" index entries, null-terminated, having values of Java classes. Arguments are passed
+     * as "argN" index entries, and must be serializable. Missing arguments are passed null.
+     * 
+     * {@link Common#javaClass}: optional class on which to invoke method. If {@link Common#object}
+     * is also provided, this must be a supertype. {@link Common#object}: optional object on which
+     * to invoke method. {@link Common#name}: required name of the method to invoke.
+     */
+    method {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
+        final Node classNode = context.index.get(kb.node(Common.javaClass)),
+            objectNode = context.index.get(kb.node(Common.object)),
+            methodNode = context.require(kb.node(Common.name));
+        final Object object;
+        final Class<?> clazz;
+
+        if (objectNode != null) {
+          object = objectNode.getValue();
+
+          if (classNode != null) {
+            clazz = (Class<?>) classNode.getValue();
+            if (!clazz.isAssignableFrom(object.getClass())) {
+              throw new IllegalArgumentException("Provided class does not match object class");
+            }
+          } else {
+            clazz = object.getClass();
+          }
+        } else {
+          object = null;
+          clazz = (Class<?>) classNode.getValue();
+        }
+
+        ArrayList<Class<?>> params = new ArrayList<>();
+        Node param;
+        for (int i = 1; (param = context.index.get(kb.param(i))) != null; i++) {
+          params.add((Class<?>) param.getValue());
+        }
+
+        Method method =
+            clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
+        ArrayList<Object> args = new ArrayList<>();
+        for (int i = 1; i <= params.size(); i++) {
+          Node arg = context.index.get(kb.arg(i));
+          args.add(arg == null ? null : arg.getValue());
+        }
+
+        Object ret = method.invoke(object, args.toArray());
+        return method.getReturnType() == null ? null : kb.node((Serializable) ret);
+      }
+    },
+    findClass {
+      @Override
+      public Node impl(final KnowledgeBase kb, Context context) throws ClassNotFoundException {
+        return kb.node(Class.forName((String) context.require(kb.node(Common.name)).getValue()));
+      }
+    },
+    createNode {
+      @Override
+      public Node impl(final KnowledgeBase kb, Context context) {
+        return kb.node();
+      }
+    },
+    print {
+      @Override
+      public Node impl(final KnowledgeBase kb, Context context) {
+        kb.rxOutput.onNext(Objects.toString(context.require(kb.node(Common.value)).getValue()));
+        return null;
+      }
+    },
+    /**
+     * <li>{@link Common#object}: optional node on which to set a property. If omitted, sets the
+     * property on the parent context.
+     * <li>{@link Common#name}: required property name.
+     * <li>{@link Common#value}: optional value to set. If null, the property is cleared.
+     * <li>Returns the value previously at this property.
+     */
+    setProperty {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) {
+        final Node object = context.index.get(kb.node(Common.object)),
+            property = context.require(kb.node(Common.name)),
+            value = context.index.get(kb.node(Common.value));
+        if (object == null) {
+          if (value == null) {
+            return context.parent.index.remove(property);
+          } else {
+            return context.parent.index.put(property, value);
+          }
+        } else {
+          if (value == null) {
+            return object.properties.remove(property);
+          } else {
+            return object.properties.put(property, value);
+          }
+        }
+      }
+    },
+    setRefractory {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) {
+        context.require(kb.node(Common.value)).setRefractory(
+            ((Number) context.require(kb.node(Common.refractory)).getValue()).longValue());
+        return null;
+      }
+    },
+    /**
+     * Closes the parent context with the given return value.
+     * 
+     * {@link Common#value}: optional return value.
+     */
+    contextReturn {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) {
+        final Node value = context.index.get(kb.node(Common.value));
+        context.parent.close(value);
+        return null;
+      }
+    };
+
+    public abstract Node impl(KnowledgeBase kb, Context context) throws Exception;
+  }
+
+  public KnowledgeBase() {
+    init();
+    bootstrap();
+  }
+
+  private void init() {
+    rxOutput = PublishSubject.create();
+
+    for (final Node node : nodes) {
+      initNode(node);
     }
 
-    public Node getNode(final String key) {
-        return index.get(key);
+    // create any new Common nodes
+    for (final Common common : Common.values()) {
+      node(common);
     }
 
-    // All kb nodes must be created through a node(...) or valueNode(...) method
-    // to ensure the proper callbacks are set.
-    public Node node() {
-        final Node node = new Node();
-        initNode(node);
-        nodes.add(node);
-        return node;
+    for (final BuiltIn builtIn : BuiltIn.values()) {
+      registerBuiltIn(builtIn);
     }
 
-    public ObservableNodeMap context() {
-        return node(Common.context).properties();
+    rxNodeAdded = PublishSubject.create();
+  }
+
+  private void initNode(final Node node) {
+    node.setOnActivate(context -> maybeInvoke(node, context));
+
+    if (rxNodeAdded != null) {
+      rxNodeAdded.onNext(node);
+    }
+  }
+
+  /**
+   * Invocation activates the node specified by {@link Common#invoke} with a child context
+   * constructed from {@link Common#literal} and {@link Common#transform}. Literal properties are
+   * assigned directly to the new context, and transform properties are copied from the parent
+   * context entry named by the value of the transform property. Transform properties take
+   * precedence over literal properties if present, allowing literals to act as defaults. The return
+   * value, if any, is assigned to the context property named by the node with the invocation, whose
+   * activation triggered the invocation.
+   * 
+   * @param node
+   * @param context
+   */
+  private void maybeInvoke(final Node node, final Context context) {
+    final Node invoke = node.properties.get(node(Common.invoke));
+    if (invoke == null)
+      return;
+
+    final Context childContext = new Context(context);
+    final Node literal = node.properties.get(node(Common.literal));
+    if (literal != null) {
+      synchronized (literal.properties) {
+        for (final Entry<Node, Node> mapping : literal.properties.entrySet()) {
+          childContext.index.put(mapping.getKey(), mapping.getValue());
+        }
+      }
     }
 
-    @Override
-    public Iterator<Node> iterator() {
-        return nodes.iterator();
+    final Node transform = node.properties.get(node(Common.transform));
+    if (transform != null) {
+      synchronized (transform.properties) {
+        for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
+          final Node value = context.index.get(mapping.getValue());
+          if (value != null) {
+            childContext.index.put(mapping.getKey(), value);
+          }
+        }
+      }
     }
 
-    public Observable<Node> rxActivate() {
-        return nodes.rxActivate();
+    invoke.activate(childContext);
+
+    final Node retval;
+    try {
+      retval = childContext.lifetime().get();
+    } catch (final ExecutionException e) {
+      final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
+      if (exceptionHandler != null) {
+        final Node exceptionNode = node(new ImmutableException(e.getCause()));
+        exceptionNode.properties.put(node(Common.source), node);
+        context.index.put(node(Common.exception), exceptionNode);
+
+        exceptionHandler.activate(context);
+      } else {
+        // TODO(rosswang): preserve nodespace stack trace
+        context.close(e.getCause());
+      }
+      return;
+    } catch (final InterruptedException e) {
+      throw new RuntimeException(e);
     }
 
-    public Object iteratorMutex() {
-        return nodes.mutex();
+    if (retval != null) {
+      context.index.put(node, retval);
     }
+  }
+
+  private Node registerBuiltIn(final BuiltIn builtIn) {
+    // TODO(rosswang): Keep the original built-in impl node indexed separate
+    // from the main index so that we can rebind the impl to the correct
+    // node after deserialization.
+    final Node node = node(builtIn);
+    node.setOnActivate(context -> {
+      final Node retval;
+      try {
+        retval = builtIn.impl(this, context);
+      } catch (final Exception e) {
+        context.close(e);
+        return;
+      }
+      context.close(retval);
+    });
+    return node;
+  }
+
+  private void writeObject(final ObjectOutputStream o) throws IOException {
+    o.defaultWriteObject();
+    final List<Node> serNodes = new ArrayList<>();
+    synchronized (nodes.mutex()) {
+      for (final Node node : nodes) {
+        serNodes.add(node);
+      }
+    }
+    o.writeObject(serNodes);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void readObject(final ObjectInputStream stream)
+      throws ClassNotFoundException, IOException {
+    stream.defaultReadObject();
+    nodes = new NodeQueue();
+    nodes.addAll((List<Node>) stream.readObject());
+
+    init();
+  }
+
+  @Override
+  public void close() {
+    rxOutput.onComplete();
+    rxNodeAdded.onComplete();
+  }
+
+  public Observable<Node> rxNodeAdded() {
+    return rxNodeAdded;
+  }
+
+  public Observable<String> rxOutput() {
+    return rxOutput;
+  }
+
+  @Value
+  private class Arg implements Serializable {
+    private static final long serialVersionUID = 1L;
+    int ordinal;
+  }
+
+  @Value
+  private class Param implements Serializable {
+    private static final long serialVersionUID = 1L;
+    int ordinal;
+  }
+
+  /**
+   * Gets or creates a node representing a positional argument. These are typically property names
+   * under {@code ARGUMENT} nodes.
+   * 
+   * @param ordinal one-based argument index
+   * @return "arg<i>n</i>"
+   */
+  public Node arg(final int ordinal) {
+    return node(new Arg(ordinal));
+  }
+
+  /**
+   * Gets or creates a node representing a positional parameter type, for use with
+   * {@link BuiltIn#invoke} as property names under {@code ARGUMENT} nodes.
+   * 
+   * @param ordinal one-based argument index
+   * @return "param<i>n</i>"
+   */
+  public Node param(final int ordinal) {
+    return node(new Param(ordinal));
+  }
+
+  @SuppressWarnings("unchecked")
+  public Node node(final Serializable value) {
+    // Single-instance resolution for immutable types. Skip for/bootstrap
+    // with Class and enum since they're always single-instance.
+    //
+    // An immutable class is designated by having the node for the class
+    // instance have a Common.value property that has a value of a
+    // ConcurrentHashMap, which will be used to resolve values to canonical
+    // instances.
+    Serializable resolvingValue = value;
+    if (!(value instanceof Class<?> || value instanceof Enum)) {
+      final Node values = node(value.getClass()).properties.get(node(Common.value));
+      if (values != null && values.getValue() instanceof ConcurrentHashMap) {
+        resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.getValue())
+            .computeIfAbsent(value, x -> value);
+      }
+    }
+
+    final Serializable resolvedValue = resolvingValue;
+
+    return valueIndex.computeIfAbsent(new IdentityKey(resolvedValue), x -> {
+      final Node node = new Node(resolvedValue);
+      initNode(node);
+      nodes.add(node);
+      return node;
+    });
+  }
+
+  // All kb nodes must be created through a node(...) method to ensure the
+  // proper callbacks are set.
+  public Node node() {
+    final Node node = new Node();
+    initNode(node);
+    nodes.add(node);
+    return node;
+  }
+
+  @Override
+  public Iterator<Node> iterator() {
+    return nodes.iterator();
+  }
+
+  public Observable<Node> rxActivate() {
+    return nodes.rxActivate();
+  }
+
+  public Object iteratorMutex() {
+    return nodes.mutex();
+  }
+
+  public enum Bootstrap {
+    /**
+     * <li>{@link Common#javaClass}: class to mark immutable
+     */
+    markImmutable,
+    /**
+     * <li>{@link Common#javaClass}: class for which to invoke default constructor.
+     * <li>Returns the instance that was created.
+     */
+    newInstance,
+    /**
+     * <li>{@link Common#value}: string to evaluate
+     */
+    eval
+  }
+
+  public class Invocation {
+    public final Node node;
+
+    public Invocation(final Node node, final Node invoke) {
+      this.node = node;
+      node.properties.put(node(Common.invoke), invoke);
+    }
+
+    public Invocation literal(final Node key, final Node value) {
+      node.properties.computeIfAbsent(node(Common.literal), k -> node()).properties.put(key, value);
+      return this;
+    }
+
+    public Invocation transform(final Node key, final Node value) {
+      node.properties.computeIfAbsent(node(Common.transform), k -> node()).properties.put(key,
+          value);
+      return this;
+    }
+
+    public Invocation exceptionHandler(final Node invoke) {
+      node.properties.put(node(Common.exceptionHandler), invoke);
+      return this;
+    }
+  }
+
+  // Creates common support routines and marks basic immutable types.
+  private void bootstrap() {
+    // Since strings are used for reflection at all and markImmutable is
+    // implemented in terms of reflection, we need to bootstrap strings as
+    // immutable.
+    node(String.class).properties.put(node(Common.value),
+        node(new ConcurrentHashMap<Serializable, Serializable>()));
+
+    final Node markImmutable = node(Bootstrap.markImmutable),
+        newInstance = node(Bootstrap.newInstance), eval = node(Bootstrap.eval);
+
+    {
+      new Invocation(markImmutable, newInstance).literal(node(Common.javaClass),
+          node(ConcurrentHashMap.class));
+
+      new Invocation(markImmutable.then(node()), node(BuiltIn.setProperty))
+          .literal(node(Common.name), node(Common.value))
+          .transform(node(Common.object), node(Common.javaClass))
+          .transform(node(Common.value), markImmutable);
+    }
+
+    {
+      new Invocation(newInstance, node(BuiltIn.method))
+          .literal(node(Common.name), node("newInstance"))
+          .transform(node(Common.object), node(Common.javaClass));
+
+      new Invocation(newInstance.then(node()), node(BuiltIn.contextReturn))
+          .transform(node(Common.value), newInstance);
+    }
+
+    {
+      final Node stream = node();
+      eval.then(stream);
+      new Invocation(stream, node(BuiltIn.method)).literal(node(Common.name), node("codePoints"))
+          .transform(node(Common.object), node(Common.value));
+
+      final Node iterator = node();
+      stream.then(iterator);
+      new Invocation(iterator, node(BuiltIn.method)).literal(node(Common.name), node("iterator"))
+          .transform(node(Common.object), stream);
+    }
+  }
 }

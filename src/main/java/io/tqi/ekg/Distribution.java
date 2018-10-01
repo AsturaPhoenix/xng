@@ -17,287 +17,293 @@ import lombok.Getter;
  * aggregation) rather than accuracy.
  */
 public class Distribution implements Serializable {
-    private static final long serialVersionUID = -3135118169738398742L;
+	private static final long serialVersionUID = -3135118169738398742L;
 
-    private final Random random;
-    // sample => weight
-    private final NavigableMap<Float, Float> densities = new TreeMap<>();
-    // min and max represent the min and max values with nonzero density
-    @Getter
-    private float mode, min, max;
+	private final Random random;
+	// sample => weight
+	private final NavigableMap<Float, Float> densities = new TreeMap<>();
+	// min and max represent the min and max values with nonzero density
+	@Getter
+	private float mode, min, max;
 
-    @AllArgsConstructor
-    private static class InvCdfEntry implements Serializable {
-        private static final long serialVersionUID = -1159688567915774709L;
-        float cumulativeDensity;
-        float value;
-    }
+	@AllArgsConstructor
+	private static class InvCdfEntry implements Serializable {
+		private static final long serialVersionUID = -1159688567915774709L;
+		float cumulativeDensity;
+		float value;
+	}
 
-    private final List<InvCdfEntry> invCdf = new ArrayList<>();
+	private final List<InvCdfEntry> invCdf = new ArrayList<>();
 
-    private interface Stepper {
-        Entry<Float, Float> clampOutwards(float at);
+	private interface Stepper {
+		Entry<Float, Float> clampOutwards(float at);
 
-        Entry<Float, Float> stepOutwards(float at);
+		Entry<Float, Float> stepOutwards(float at);
 
-        Entry<Float, Float> clampInwards(float at);
+		Entry<Float, Float> clampInwards(float at);
 
-        Entry<Float, Float> stepInwards(float at);
+		Entry<Float, Float> stepInwards(float at);
 
-        boolean isInRange(float at);
+		boolean isInRange(float at);
 
-        /**
-         * Sets the distribution min or max (as appropriate) to this value.
-         * 
-         * @param zero
-         *            a value where the density crosses zero
-         */
-        void setZero(float zero);
-    }
+		/**
+		 * Sets the distribution min or max (as appropriate) to this value.
+		 * 
+		 * @param zero
+		 *            a value where the density crosses zero
+		 */
+		void setZero(float zero);
+	}
 
-    private class LeftStepper implements Stepper {
-        @Override
-        public Entry<Float, Float> clampOutwards(final float at) {
-            return densities.floorEntry(at);
-        }
+	private class LeftStepper implements Stepper {
+		@Override
+		public Entry<Float, Float> clampOutwards(final float at) {
+			return densities.floorEntry(at);
+		}
 
-        @Override
-        public Entry<Float, Float> stepOutwards(final float at) {
-            return densities.lowerEntry(at);
-        }
+		@Override
+		public Entry<Float, Float> stepOutwards(final float at) {
+			return densities.lowerEntry(at);
+		}
 
-        @Override
-        public Entry<Float, Float> clampInwards(final float at) {
-            return densities.ceilingEntry(at);
-        }
+		@Override
+		public Entry<Float, Float> clampInwards(final float at) {
+			return densities.ceilingEntry(at);
+		}
 
-        @Override
-        public Entry<Float, Float> stepInwards(final float at) {
-            return densities.higherEntry(at);
-        }
+		@Override
+		public Entry<Float, Float> stepInwards(final float at) {
+			return densities.higherEntry(at);
+		}
 
-        @Override
-        public boolean isInRange(final float at) {
-            return at < mode;
-        }
+		@Override
+		public boolean isInRange(final float at) {
+			return at < mode;
+		}
 
-        @Override
-        public void setZero(final float zero) {
-            min = zero;
-        }
-    }
+		@Override
+		public void setZero(final float zero) {
+			min = zero;
+		}
+	}
 
-    private class RightStepper implements Stepper {
-        @Override
-        public Entry<Float, Float> clampOutwards(final float at) {
-            return densities.ceilingEntry(at);
-        }
+	private class RightStepper implements Stepper {
+		@Override
+		public Entry<Float, Float> clampOutwards(final float at) {
+			return densities.ceilingEntry(at);
+		}
 
-        @Override
-        public Entry<Float, Float> stepOutwards(final float at) {
-            return densities.higherEntry(at);
-        }
+		@Override
+		public Entry<Float, Float> stepOutwards(final float at) {
+			return densities.higherEntry(at);
+		}
 
-        @Override
-        public Entry<Float, Float> clampInwards(final float at) {
-            return densities.floorEntry(at);
-        }
+		@Override
+		public Entry<Float, Float> clampInwards(final float at) {
+			return densities.floorEntry(at);
+		}
 
-        @Override
-        public Entry<Float, Float> stepInwards(final float at) {
-            return densities.lowerEntry(at);
-        }
+		@Override
+		public Entry<Float, Float> stepInwards(final float at) {
+			return densities.lowerEntry(at);
+		}
 
-        @Override
-        public boolean isInRange(final float at) {
-            return at > mode;
-        }
+		@Override
+		public boolean isInRange(final float at) {
+			return at > mode;
+		}
 
-        @Override
-        public void setZero(final float zero) {
-            max = zero;
-        }
-    }
+		@Override
+		public void setZero(final float zero) {
+			max = zero;
+		}
+	}
 
-    public Distribution() {
-        this(0);
-    }
+	public Distribution() {
+		this(0);
+	}
 
-    public Distribution(final float mode) {
-        this(new Random(), mode);
-    }
+	public Distribution(final float mode) {
+		this(new Random(), mode);
+	}
 
-    public Distribution(final Random random, final float mode) {
-        this.random = random;
-        densities.put(Float.NEGATIVE_INFINITY, 0f);
-        densities.put(Float.POSITIVE_INFINITY, 0f);
-        min = max = this.mode = mode;
-    }
+	public Distribution(final Random random, final float mode) {
+		this.random = random;
+		this.mode = mode;
+		clear();
+	}
 
-    public void add(final float value, final float weight) {
-        if (weight == 0)
-            return;
+	public void clear() {
+		densities.clear();
+		densities.put(Float.NEGATIVE_INFINITY, 0f);
+		densities.put(Float.POSITIVE_INFINITY, 0f);
+		min = max = mode;
+	}
 
-        if (value == mode) {
-            if (weight > 0) {
-                addToMode(weight);
-            } else {
-                subtractFromMode(weight);
-            }
-        } else {
-            final Stepper stepper = value > mode ? new RightStepper() : new LeftStepper();
-            if (weight > 0) {
-                addToSide(weight, value, stepper);
-            } else {
-                subtractFromSide(weight, value, stepper);
-            }
-        }
+	public void add(final float value, final float weight) {
+		if (weight == 0)
+			return;
 
-        if ((value >= min || value <= max) && min != max) {
-            generateInvCdf();
-        }
-    }
+		if (value == mode) {
+			if (weight > 0) {
+				addToMode(weight);
+			} else {
+				subtractFromMode(weight);
+			}
+		} else {
+			final Stepper stepper = value > mode ? new RightStepper() : new LeftStepper();
+			if (weight > 0) {
+				addToSide(weight, value, stepper);
+			} else {
+				subtractFromSide(weight, value, stepper);
+			}
+		}
 
-    private float getModeDensity() {
-        return densities.floorEntry(mode).getValue();
-    }
+		if ((value >= min || value <= max) && min != max) {
+			generateInvCdf();
+		}
+	}
 
-    private void addToMode(final float weight) {
-        densities.put(mode, getModeDensity() + weight);
-    }
+	private float getModeDensity() {
+		return densities.floorEntry(mode).getValue();
+	}
 
-    private void updateBisectedMode() {
-        final float newMode = (densities.floorKey(mode) + densities.ceilingKey(mode)) / 2;
-        if (Float.isFinite(newMode)) {
-            mode = newMode;
-        }
-    }
+	private void addToMode(final float weight) {
+		densities.put(mode, getModeDensity() + weight);
+	}
 
-    private void subtractFromMode(final float weight) {
-        final float wNew = getModeDensity() + weight;
+	private void updateBisectedMode() {
+		final float newMode = (densities.floorKey(mode) + densities.ceilingKey(mode)) / 2;
+		if (Float.isFinite(newMode)) {
+			mode = newMode;
+		}
+	}
 
-        final boolean leftCut = subtractOutwards(wNew, mode, new LeftStepper());
-        final boolean rightCut = subtractOutwards(wNew, mode, new RightStepper());
+	private void subtractFromMode(final float weight) {
+		final float wNew = getModeDensity() + weight;
 
-        if (leftCut && rightCut) {
-            densities.remove(mode);
-        } else {
-            densities.put(mode, wNew);
-        }
+		final boolean leftCut = subtractOutwards(wNew, mode, new LeftStepper());
+		final boolean rightCut = subtractOutwards(wNew, mode, new RightStepper());
 
-        if (leftCut || rightCut) {
-            updateBisectedMode();
-        }
+		if (leftCut && rightCut) {
+			densities.remove(mode);
+		} else {
+			densities.put(mode, wNew);
+		}
 
-        // If the mode goes negative, this distribution becomes degenerate.
-        if (wNew <= 0) {
-            min = max = mode;
-        }
-    }
+		if (leftCut || rightCut) {
+			updateBisectedMode();
+		}
 
-    private void addToSide(final float weight, final float value, final Stepper stepper) {
-        final boolean wasDegenerate = getModeDensity() <= 0;
+		// If the mode goes negative, this distribution becomes degenerate.
+		if (wNew <= 0) {
+			min = max = mode;
+		}
+	}
 
-        final float w0 = stepper.clampOutwards(value).getValue();
-        final float wNew = w0 + weight;
-        densities.put(value, wNew);
+	private void addToSide(final float weight, final float value, final Stepper stepper) {
+		final boolean wasDegenerate = getModeDensity() <= 0;
 
-        if (w0 <= 0 && wNew > 0) {
-            stepper.setZero(value);
-        }
+		final float w0 = stepper.clampOutwards(value).getValue();
+		final float wNew = w0 + weight;
+		densities.put(value, wNew);
 
-        Entry<Float, Float> next = stepper.stepInwards(value);
-        while (next.getValue() <= wNew && stepper.isInRange(next.getKey())) {
-            densities.remove(next.getKey());
-            next = stepper.stepInwards(next.getKey());
-        }
+		if (w0 <= 0 && wNew > 0) {
+			stepper.setZero(value);
+		}
 
-        if (next.getValue() <= wNew) {
-            if (next.getValue() == wNew) {
-                mode = (next.getKey() + value) / 2;
-            } else {
-                mode = value;
-            }
-            if (wasDegenerate) {
-                min = max = mode;
-            }
-        }
-    }
+		Entry<Float, Float> next = stepper.stepInwards(value);
+		while (next.getValue() <= wNew && stepper.isInRange(next.getKey())) {
+			densities.remove(next.getKey());
+			next = stepper.stepInwards(next.getKey());
+		}
 
-    private void subtractFromSide(final float weight, final float value, final Stepper stepper) {
-        final float w0 = stepper.clampOutwards(value).getValue();
-        final boolean wasMode = getModeDensity() == w0;
-        final float wNew = w0 + weight;
-        densities.put(value, w0);
+		if (next.getValue() <= wNew) {
+			if (next.getValue() == wNew) {
+				mode = (next.getKey() + value) / 2;
+			} else {
+				mode = value;
+			}
+			if (wasDegenerate) {
+				min = max = mode;
+			}
+		}
+	}
 
-        if (w0 > 0 && wNew <= 0) {
-            stepper.setZero(value);
-        }
+	private void subtractFromSide(final float weight, final float value, final Stepper stepper) {
+		final float w0 = stepper.clampOutwards(value).getValue();
+		final boolean wasMode = getModeDensity() == w0;
+		final float wNew = w0 + weight;
+		densities.put(value, w0);
 
-        if (subtractOutwards(wNew, value, stepper) && wasMode) {
-            updateBisectedMode();
-        }
-    }
+		if (w0 > 0 && wNew <= 0) {
+			stepper.setZero(value);
+		}
 
-    private boolean subtractOutwards(final float max, final float startAfter, final Stepper stepper) {
-        Entry<Float, Float> next = stepper.stepOutwards(startAfter);
-        if (next == null || next.getValue() < max) {
-            // subtracting outwards from infinity falls under this case
-            return false;
-        }
+		if (subtractOutwards(wNew, value, stepper) && wasMode) {
+			updateBisectedMode();
+		}
+	}
 
-        float prev = next.getKey();
-        next = stepper.stepOutwards(prev);
-        while (next != null && next.getValue() >= max) {
-            densities.remove(prev);
-            prev = next.getKey();
-            next = stepper.stepOutwards(prev);
-        }
+	private boolean subtractOutwards(final float max, final float startAfter, final Stepper stepper) {
+		Entry<Float, Float> next = stepper.stepOutwards(startAfter);
+		if (next == null || next.getValue() < max) {
+			// subtracting outwards from infinity falls under this case
+			return false;
+		}
 
-        densities.put(prev, max);
-        return true;
-    }
+		float prev = next.getKey();
+		next = stepper.stepOutwards(prev);
+		while (next != null && next.getValue() >= max) {
+			densities.remove(prev);
+			prev = next.getKey();
+			next = stepper.stepOutwards(prev);
+		}
 
-    private void generateInvCdf() {
-        invCdf.clear();
-        float cumulativeDensity = 0;
-        for (Entry<Float, Float> next = densities.floorEntry(min); next.getKey() <= mode; next = densities
-                .higherEntry(next.getKey())) {
-            invCdf.add(new InvCdfEntry(cumulativeDensity, next.getKey()));
-            cumulativeDensity += next.getValue();
-        }
-        // If the mode isn't actually in the ~pdf, this would be a no-op anyway
-        // since it would exactly bisect the sides.
-        if (densities.containsKey(mode)) {
-            invCdf.add(new InvCdfEntry(cumulativeDensity, mode));
-        }
-        for (Entry<Float, Float> next = densities.higherEntry(mode); next.getKey() <= max; next = densities
-                .higherEntry(next.getKey())) {
-            cumulativeDensity += next.getValue();
-            invCdf.add(new InvCdfEntry(cumulativeDensity, next.getKey()));
-        }
+		densities.put(prev, max);
+		return true;
+	}
 
-        for (final InvCdfEntry entry : invCdf) {
-            entry.cumulativeDensity /= cumulativeDensity;
-        }
-    }
+	private void generateInvCdf() {
+		invCdf.clear();
+		float cumulativeDensity = 0;
+		for (Entry<Float, Float> next = densities.floorEntry(min); next.getKey() <= mode; next = densities
+				.higherEntry(next.getKey())) {
+			invCdf.add(new InvCdfEntry(cumulativeDensity, next.getKey()));
+			cumulativeDensity += next.getValue();
+		}
+		// If the mode isn't actually in the ~pdf, this would be a no-op anyway
+		// since it would exactly bisect the sides.
+		if (densities.containsKey(mode)) {
+			invCdf.add(new InvCdfEntry(cumulativeDensity, mode));
+		}
+		for (Entry<Float, Float> next = densities.higherEntry(mode); next.getKey() <= max; next = densities
+				.higherEntry(next.getKey())) {
+			cumulativeDensity += next.getValue();
+			invCdf.add(new InvCdfEntry(cumulativeDensity, next.getKey()));
+		}
 
-    public float generate() {
-        if (min == max)
-            return mode;
+		for (final InvCdfEntry entry : invCdf) {
+			entry.cumulativeDensity /= cumulativeDensity;
+		}
+	}
 
-        // This doesn't actually ever generate max, but we can live with that.
-        final float rand = random.nextFloat();
+	public float generate() {
+		if (min == max)
+			return mode;
 
-        int i = Collections.binarySearch(invCdf, new InvCdfEntry(rand, 0),
-                (a, b) -> Float.compare(a.cumulativeDensity, b.cumulativeDensity));
-        if (i > 0) {
-            return invCdf.get(i).value;
-        } else {
-            final InvCdfEntry lower = invCdf.get(-i - 2);
-            final InvCdfEntry upper = invCdf.get(-i - 1);
-            final float interp = (rand - lower.cumulativeDensity) / (upper.cumulativeDensity - lower.cumulativeDensity);
-            return lower.value + interp * (upper.value - lower.value);
-        }
-    }
+		// This doesn't actually ever generate max, but we can live with that.
+		final float rand = random.nextFloat();
+
+		int i = Collections.binarySearch(invCdf, new InvCdfEntry(rand, 0),
+				(a, b) -> Float.compare(a.cumulativeDensity, b.cumulativeDensity));
+		if (i > 0) {
+			return invCdf.get(i).value;
+		} else {
+			final InvCdfEntry lower = invCdf.get(-i - 2);
+			final InvCdfEntry upper = invCdf.get(-i - 1);
+			final float interp = (rand - lower.cumulativeDensity) / (upper.cumulativeDensity - lower.cumulativeDensity);
+			return lower.value + interp * (upper.value - lower.value);
+		}
+	}
 }

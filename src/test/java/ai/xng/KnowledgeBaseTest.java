@@ -1,4 +1,4 @@
-package io.tqi.ekg;
+package ai.xng;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -7,8 +7,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
-import io.tqi.ekg.KnowledgeBase.BuiltIn;
-import io.tqi.ekg.KnowledgeBase.Common;
+import ai.xng.KnowledgeBase.BuiltIn;
+import ai.xng.KnowledgeBase.Common;
 import lombok.val;
 
 public class KnowledgeBaseTest {

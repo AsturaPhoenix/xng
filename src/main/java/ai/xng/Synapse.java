@@ -1,4 +1,4 @@
-package io.tqi.ekg;
+package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -116,7 +116,7 @@ public class Synapse implements Serializable {
         contextualState.evaluations.put(this, new Evaluation(lastActivation, v0));
       } else {
         v0 = lastEvaluation.value;
-      } ;
+      }
       return v0 * (1 - dt / (float) decayPeriod);
     }
 

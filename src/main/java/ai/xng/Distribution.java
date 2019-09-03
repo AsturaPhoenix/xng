@@ -1,4 +1,4 @@
-package io.tqi.ekg;
+package ai.xng;
 
 import java.io.Serializable;
 import java.util.ArrayList;

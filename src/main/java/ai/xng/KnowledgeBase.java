@@ -1,4 +1,4 @@
-package io.tqi.ekg;
+package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -20,6 +20,15 @@ import io.reactivex.subjects.Subject;
 import lombok.RequiredArgsConstructor;
 import lombok.Value;
 
+/**
+ * Since this is meant to be a proof of concept, encapsulation is not perfect. Particularly, the
+ * following external operations should be avoided:
+ * 
+ * <ul>
+ * <li>{@link Node#setOnActivate(java.util.function.Consumer)}
+ * <li>mutators on {@link Context#index}
+ * </ul>
+ */
 public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
   private static final long serialVersionUID = -6461427806563494150L;
 
@@ -416,6 +425,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    */
   public Node param(final int ordinal) {
     return node(new Param(ordinal));
+  }
+
+  @Value
+  private class ContextPair implements Serializable {
+    private static final long serialVersionUID = 5070278620146038496L;
+    Node key, value;
+  }
+
+  public Node contextEntry(final Node key, final Node value) {
+    return node(new ContextPair(key, value));
   }
 
   @SuppressWarnings("unchecked")

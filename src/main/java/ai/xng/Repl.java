@@ -1,8 +1,8 @@
-package io.tqi.ekg;
+package ai.xng;
 
 import io.reactivex.Observable;
-import io.tqi.ekg.KnowledgeBase.Bootstrap;
-import io.tqi.ekg.KnowledgeBase.Common;
+import ai.xng.KnowledgeBase.Bootstrap;
+import ai.xng.KnowledgeBase.Common;
 import lombok.Getter;
 
 public class Repl {

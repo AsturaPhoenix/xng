@@ -1,4 +1,4 @@
-package io.tqi.ekg;
+package ai.xng;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;

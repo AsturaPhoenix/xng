@@ -1,4 +1,4 @@
-package io.tqi.ekg;
+package ai.xng;
 
 import com.google.common.collect.ImmutableMap;
 

@@ -1,13 +1,13 @@
-package io.tqi.ekg.ifc;
+package ai.xng.ifc;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.FileSystems;
 import java.util.concurrent.TimeUnit;
-import io.tqi.ekg.KnowledgeBase;
-import io.tqi.ekg.Repl;
-import io.tqi.ekg.SerializingPersistence;
+import ai.xng.KnowledgeBase;
+import ai.xng.Repl;
+import ai.xng.SerializingPersistence;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.val;

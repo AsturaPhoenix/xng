@@ -39,5 +39,5 @@ Then
 
 or
 
-2. Import the project in Eclipse from git as a Java project with the name "ekg".
+2. Import the project in Eclipse from git as a Java project with the name "xng".
 3. Right click project/Configure/Convert to Maven project.

@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.NavigableMap;
 import java.util.Random;
 import java.util.TreeMap;
@@ -25,12 +27,24 @@ public class Distribution implements Serializable {
 	// min and max represent the min and max values with nonzero density
 	@Getter
 	private float mode, min, max;
+	private final ReadWriteLock lock = new ReentrantReadWriteLock(false);
 
 	@AllArgsConstructor
 	private static class InvCdfEntry implements Serializable {
 		private static final long serialVersionUID = -1159688567915774709L;
 		float cumulativeDensity;
 		float value;
+	}
+
+	@Override
+	public String toString() {
+		lock.readLock().lock();
+		try {
+			return String.format("%.4g-%.4g-%.4g-%.4g-%.4g-%.4g-%.4g; %.4g(%.2f)", min, percentile(.15f),
+					percentile(.3f), percentile(.5f), percentile(.7f), percentile(.85f), max, mode, getModeDensity());
+		} finally {
+			lock.readLock().unlock();
+		}
 	}
 
 	private final List<InvCdfEntry> invCdf = new ArrayList<>();
@@ -49,8 +63,7 @@ public class Distribution implements Serializable {
 		/**
 		 * Sets the distribution min or max (as appropriate) to this value.
 		 * 
-		 * @param zero
-		 *            a value where the density crosses zero
+		 * @param zero a value where the density crosses zero
 		 */
 		void setZero(float zero);
 	}
@@ -134,33 +147,43 @@ public class Distribution implements Serializable {
 	}
 
 	public void clear() {
-		densities.clear();
-		densities.put(Float.NEGATIVE_INFINITY, 0f);
-		densities.put(Float.POSITIVE_INFINITY, 0f);
-		min = max = mode;
+		lock.writeLock().lock();
+		try {
+			densities.clear();
+			densities.put(Float.NEGATIVE_INFINITY, 0f);
+			densities.put(Float.POSITIVE_INFINITY, 0f);
+			min = max = mode;
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 
 	public void add(final float value, final float weight) {
 		if (weight == 0)
 			return;
 
-		if (value == mode) {
-			if (weight > 0) {
-				addToMode(weight);
+		lock.writeLock().lock();
+		try {
+			if (value == mode) {
+				if (weight > 0) {
+					addToMode(weight);
+				} else {
+					subtractFromMode(weight);
+				}
 			} else {
-				subtractFromMode(weight);
+				final Stepper stepper = value > mode ? new RightStepper() : new LeftStepper();
+				if (weight > 0) {
+					addToSide(weight, value, stepper);
+				} else {
+					subtractFromSide(weight, value, stepper);
+				}
 			}
-		} else {
-			final Stepper stepper = value > mode ? new RightStepper() : new LeftStepper();
-			if (weight > 0) {
-				addToSide(weight, value, stepper);
-			} else {
-				subtractFromSide(weight, value, stepper);
-			}
-		}
 
-		if ((value >= min || value <= max) && min != max) {
-			generateInvCdf();
+			if ((value >= min || value <= max) && min != max) {
+				generateInvCdf();
+			}
+		} finally {
+			lock.writeLock().unlock();
 		}
 	}
 
@@ -215,6 +238,7 @@ public class Distribution implements Serializable {
 		Entry<Float, Float> next = stepper.stepInwards(value);
 		while (next.getValue() <= wNew && stepper.isInRange(next.getKey())) {
 			densities.remove(next.getKey());
+			densities.put(value, wNew);
 			next = stepper.stepInwards(next.getKey());
 		}
 
@@ -234,7 +258,7 @@ public class Distribution implements Serializable {
 		final float w0 = stepper.clampOutwards(value).getValue();
 		final boolean wasMode = getModeDensity() == w0;
 		final float wNew = w0 + weight;
-		densities.put(value, w0);
+		densities.put(value, wNew);
 
 		if (w0 > 0 && wNew <= 0) {
 			stepper.setZero(value);
@@ -289,21 +313,33 @@ public class Distribution implements Serializable {
 	}
 
 	public float generate() {
-		if (min == max)
-			return mode;
-
 		// This doesn't actually ever generate max, but we can live with that.
-		final float rand = random.nextFloat();
+		return percentile(random.nextFloat());
+	}
 
-		int i = Collections.binarySearch(invCdf, new InvCdfEntry(rand, 0),
-				(a, b) -> Float.compare(a.cumulativeDensity, b.cumulativeDensity));
-		if (i > 0) {
-			return invCdf.get(i).value;
-		} else {
-			final InvCdfEntry lower = invCdf.get(-i - 2);
-			final InvCdfEntry upper = invCdf.get(-i - 1);
-			final float interp = (rand - lower.cumulativeDensity) / (upper.cumulativeDensity - lower.cumulativeDensity);
-			return lower.value + interp * (upper.value - lower.value);
+	/**
+	 * @param percentile a percentile in the range [0, 1]
+	 */
+	public float percentile(float percentile) {
+		lock.readLock().lock();
+		try {
+			if (min == max) {
+				return mode;
+			}
+
+			int i = Collections.binarySearch(invCdf, new InvCdfEntry(percentile, 0),
+					(a, b) -> Float.compare(a.cumulativeDensity, b.cumulativeDensity));
+			if (i > 0) {
+				return invCdf.get(i).value;
+			} else {
+				final InvCdfEntry lower = invCdf.get(-i - 2);
+				final InvCdfEntry upper = invCdf.get(-i - 1);
+				final float interp = (percentile - lower.cumulativeDensity)
+						/ (upper.cumulativeDensity - lower.cumulativeDensity);
+				return lower.value + interp * (upper.value - lower.value);
+			}
+		} finally {
+			lock.readLock().unlock();
 		}
 	}
 }

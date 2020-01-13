@@ -49,8 +49,8 @@ public class Context implements Serializable {
   public transient Consumer<Exception> exceptionHandler;
 
   // A synchronous bridge for this context, completed when the return value is
-  // first set or the context first
-  // becomes idle, or completed exceptionally on unhandled exception.
+  // first set or the context first becomes idle, or completed exceptionally on
+  // unhandled exception.
   private transient CompletableFuture<Void> continuation;
 
   public CompletableFuture<Void> continuation() {

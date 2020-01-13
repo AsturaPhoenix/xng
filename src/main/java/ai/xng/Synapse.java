@@ -19,6 +19,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
+import lombok.val;
 
 /**
  * Represents the incoming logical junction of input node signals towards a
@@ -35,10 +36,12 @@ public class Synapse implements Serializable {
   public static final long DEBOUNCE_PERIOD = 2;
   private static final float DECAY_MARGIN = .2f;
   private static final float THRESHOLD = 1;
+  private static final float REINFORCEMENT_MARGIN = .125f, PERTURBATION_WEIGHT = 1;
 
   public class ContextualState {
     private final Subject<Long> rxEvaluate;
     private final Map<Profile, Evaluation> evaluations = Collections.synchronizedMap(new WeakHashMap<>());
+    Evaluation lastActivation;
 
     public ContextualState(final Context context) {
       rxEvaluate = PublishSubject.create();
@@ -48,21 +51,38 @@ public class Synapse implements Serializable {
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
-      for (final Entry<Profile, Evaluation> evaluation : evaluations.entrySet()) {
-        final long t = evaluation.getValue().time;
-        float wt = weight;
-        if (time.isPresent()) {
-          if (t > time.get())
-            continue;
-          if (decayPeriod.isPresent()) {
-            long t0 = time.get() - decayPeriod.get();
-            if (t <= t0)
+      synchronized (evaluations) {
+        for (final Entry<Profile, Evaluation> evaluation : evaluations.entrySet()) {
+          final long t = evaluation.getValue().time;
+          float wt = weight;
+          if (time.isPresent()) {
+            if (t > time.get())
               continue;
-            wt *= (float) (t - t0) / decayPeriod.get();
+            if (decayPeriod.isPresent()) {
+              long t0 = time.get() - decayPeriod.get();
+              if (t <= t0)
+                continue;
+              wt *= (float) (t - t0) / decayPeriod.get();
+            }
+          }
+
+          evaluation.getKey().coefficient.add(evaluation.getValue().value, wt);
+
+          // Additionally, perturb the distribution for negative reinforcement.
+          // There are more sophisticated ways to calculate the expectation and weight but
+          // let's start with basic perturbation.
+          if (wt < 0) {
+            if (lastActivation == null || time.isPresent() && lastActivation.time > evaluation.getValue().time) {
+              // Possibly should have activated but didn't.
+              evaluation.getKey().coefficient.add(evaluation.getValue().value + REINFORCEMENT_MARGIN,
+                  -wt * PERTURBATION_WEIGHT);
+            } else {
+              // Possibly should not have activated but did.
+              evaluation.getKey().coefficient.add(evaluation.getValue().value - REINFORCEMENT_MARGIN,
+                  -wt * PERTURBATION_WEIGHT);
+            }
           }
         }
-
-        evaluation.getKey().coefficient.add(evaluation.getValue().value, wt);
       }
     }
   }
@@ -150,6 +170,7 @@ public class Synapse implements Serializable {
     }
   }
 
+  @Getter
   private transient Map<Node, Profile> inputs;
 
   private transient Subject<Node.Activation> rxOutput;
@@ -192,17 +213,23 @@ public class Synapse implements Serializable {
    * depending on current state.
    */
   private Observable<Long> evaluate(final Context context, final long time) {
-    final float value = getValue(context, time);
-    rxValue.onNext(new ContextualEvaluation(context, new Evaluation(time, value)));
+    val synapseState = context.synapseState(this);
+    // Synchronize for consistency during reinforcement.
+    synchronized (synapseState.evaluations) {
+      final float value = getValue(context, time);
+      val evaluation = new Evaluation(time, value);
+      rxValue.onNext(new ContextualEvaluation(context, evaluation));
 
-    if (value >= THRESHOLD) {
-      return Observable.just(time);
-    } else {
-      final long nextCrit = getNextCriticalPoint(context, time);
-      if (nextCrit == Long.MAX_VALUE) {
-        return Observable.empty();
+      if (value >= THRESHOLD) {
+        synapseState.lastActivation = evaluation;
+        return Observable.just(time);
       } else {
-        return Observable.timer(nextCrit - time, TimeUnit.MILLISECONDS).flatMap(x -> evaluate(context, nextCrit));
+        final long nextCrit = getNextCriticalPoint(context, time);
+        if (nextCrit == Long.MAX_VALUE) {
+          return Observable.empty();
+        } else {
+          return Observable.timer(nextCrit - time, TimeUnit.MILLISECONDS).flatMap(x -> evaluate(context, nextCrit));
+        }
       }
     }
   }
@@ -223,20 +250,33 @@ public class Synapse implements Serializable {
    * activation threshold given current conditions, and the zeros of the
    * activations involved. Activations that have already fully decayed do not
    * affect this calculation.
+   * 
+   * This is a very conservative definition and can be optimized further.
    */
   private long getNextCriticalPoint(final Context context, final long time) {
     float totalValue = 0, totalDecayRate = 0;
     long nextZero = Long.MAX_VALUE;
+    boolean hasInhibitory = false;
     synchronized (inputs) {
       for (final Profile profile : inputs.values()) {
         final float value = profile.getValue(context, time);
         if (value != 0) {
           totalValue += value;
-          totalDecayRate += profile.getLastCoefficient(context) / profile.decayPeriod;
+          float coefficient = profile.getLastCoefficient(context);
+          if (coefficient < 0) {
+            hasInhibitory = true;
+          }
+          totalDecayRate += coefficient / profile.decayPeriod;
           nextZero = Math.min(nextZero, profile.getZero(context));
         }
       }
     }
+
+    // This is a simple optimization for a common case.
+    if (!hasInhibitory) {
+      return Long.MAX_VALUE;
+    }
+
     final long untilThresh = (long) ((1 - totalValue) / -totalDecayRate);
     return untilThresh <= 0 ? nextZero : Math.min(untilThresh + time, nextZero);
   }
@@ -308,5 +348,9 @@ public class Synapse implements Serializable {
     if (profile != null) {
       profile.subscription.dispose();
     }
+  }
+
+  public Evaluation getLastEvaluation(final Context context, final Node incoming) {
+    return context.synapseState(this).evaluations.get(inputs.get(incoming));
   }
 }

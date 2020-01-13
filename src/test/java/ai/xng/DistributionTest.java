@@ -10,16 +10,18 @@ import java.util.Random;
 
 import org.junit.Test;
 
+import lombok.val;
+
 public class DistributionTest {
     @Test
     public void testNoSamples() {
-        final Distribution distribution = new Distribution(1);
+        val distribution = new Distribution(1);
         assertEquals(1, distribution.generate(), 0);
     }
 
     @Test
     public void testSingleSample() {
-        final Distribution distribution = new Distribution();
+        val distribution = new Distribution();
         distribution.add(2, 1);
         assertEquals(2, distribution.getMin(), 0);
         assertEquals(2, distribution.getMax(), 0);
@@ -29,7 +31,7 @@ public class DistributionTest {
 
     @Test
     public void testTwoSameSamples() {
-        final Distribution distribution = new Distribution();
+        val distribution = new Distribution();
         distribution.add(2, 1);
         distribution.add(2, .5f);
         assertEquals(2, distribution.getMin(), 0);
@@ -40,7 +42,7 @@ public class DistributionTest {
 
     @Test
     public void testTwoEvenSamples() {
-        final Distribution distribution = new Distribution();
+        val distribution = new Distribution();
         distribution.add(1, 1);
         distribution.add(2, 1);
         assertEquals(1, distribution.getMin(), 0);
@@ -53,7 +55,7 @@ public class DistributionTest {
 
     @Test
     public void testObliteration() {
-        final Distribution distribution = new Distribution();
+        val distribution = new Distribution();
         distribution.add(1, 1);
         distribution.add(2, 1);
         distribution.add(1.5f, -1);
@@ -66,13 +68,12 @@ public class DistributionTest {
     }
 
     /**
-     * There's an edge case where the obliteration of the mode can result in a
-     * mode recalculation that attempts to bisect against an asymmetric
-     * infinity.
+     * There's an edge case where the obliteration of the mode can result in a mode
+     * recalculation that attempts to bisect against an asymmetric infinity.
      */
     @Test
     public void testInfiniteSideObliteration() {
-        final Distribution distribution = new Distribution();
+        val distribution = new Distribution();
         distribution.add(1, 1);
         distribution.add(0, -1);
         distribution.add(1, -1);
@@ -83,7 +84,7 @@ public class DistributionTest {
 
     @Test
     public void testTruncateSide() {
-        final Distribution distribution = new Distribution();
+        val distribution = new Distribution();
         distribution.add(1, 1);
         distribution.add(2, 1);
         distribution.add(1.25f, -1);
@@ -100,7 +101,7 @@ public class DistributionTest {
 
     @Test
     public void testDistributionWithMode() {
-        final Distribution distribution = new Distribution(new Random(0), 0);
+        val distribution = new Distribution(new Random(0), 0);
         distribution.add(1, 1);
         distribution.add(2, 2);
         distribution.add(4, 3);
@@ -124,7 +125,7 @@ public class DistributionTest {
 
     @Test
     public void testDistributionBisectedMode() {
-        final Distribution distribution = new Distribution(new Random(0), 0);
+        val distribution = new Distribution(new Random(0), 0);
         distribution.add(1, 1);
         distribution.add(2, 2);
         distribution.add(4, 3);
@@ -145,5 +146,74 @@ public class DistributionTest {
         assertEquals(4, samples.get(3 * N / 10), E);
         assertEquals(5, samples.get(9 * N / 10), E);
         assertEquals(6, samples.get(N - 1), E);
+    }
+
+    @Test
+    public void testNonSubsumingAddShift() {
+        val distribution = new Distribution(new Random(0), 0);
+        distribution.add(1, 1);
+        distribution.add(2, 2);
+        distribution.add(4, 3);
+        distribution.add(5, 2);
+        distribution.add(6, 1);
+        val before = distribution.percentile(.25f);
+
+        distribution.add(1, .9f);
+        val after = distribution.percentile(.25f);
+        assertTrue(String.format("Quartile did not shift left as expected (%.2f -> %.2f); %s", before, after,
+                distribution), after < before);
+    }
+
+    /**
+     * This test covers a defect where adding a sample that subsumed others could
+     * skew the distribution the opposite direction (away from the sample that was
+     * added).
+     */
+    @Test
+    public void testSubsumingAddShift() {
+        val distribution = new Distribution(new Random(0), 0);
+        distribution.add(1, 1);
+        distribution.add(2, 2);
+        distribution.add(4, 3);
+        distribution.add(5, 2);
+        distribution.add(6, 1);
+        val before = distribution.percentile(.25f);
+
+        distribution.add(1, 1.1f);
+        val after = distribution.percentile(.25f);
+        assertTrue(String.format("Quartile did not shift left as expected (%.2f -> %.2f); %s", before, after,
+                distribution), after < before);
+    }
+
+    @Test
+    public void testNonSubsumingSubtractShift() {
+        val distribution = new Distribution(new Random(0), 0);
+        distribution.add(1, 1);
+        distribution.add(2, 2);
+        distribution.add(4, 3);
+        distribution.add(5, 2);
+        distribution.add(6, 1);
+        val before = distribution.percentile(.25f);
+
+        distribution.add(2, -.9f);
+        val after = distribution.percentile(.25f);
+        assertTrue(String.format("Quartile did not shift right as expected (%.2f -> %.2f); %s", before, after,
+                distribution), after > before);
+    }
+
+    @Test
+    public void testSubsumingSubtractShift() {
+        val distribution = new Distribution(new Random(0), 0);
+        distribution.add(1, 1);
+        distribution.add(2, 2);
+        distribution.add(4, 3);
+        distribution.add(5, 2);
+        distribution.add(6, 1);
+        val before = distribution.percentile(.25f);
+
+        distribution.add(2, -1.1f);
+        val after = distribution.percentile(.25f);
+        assertTrue(String.format("Quartile did not shift right as expected (%.2f -> %.2f); %s", before, after,
+                distribution), after > before);
     }
 }

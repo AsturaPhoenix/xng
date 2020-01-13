@@ -44,6 +44,7 @@ public class Node implements Serializable {
             rxOutput.onNext(new Activation(context, newTimestamp));
           }
         }
+        context.releaseRef();
       });
       context.lifetime().thenRun(rxInput::onComplete);
     }
@@ -63,6 +64,7 @@ public class Node implements Serializable {
   @Setter
   private long refractory = DEFAULT_REFRACTORY;
 
+  // TODO(rosswang): Can we get rid of onActivate and only use rxActivate instead?
   @Setter
   private transient Consumer<Context> onActivate;
   private transient Subject<Activation> rxOutput;
@@ -106,6 +108,7 @@ public class Node implements Serializable {
   }
 
   public void activate(final Context context) {
+    context.addRef();
     context.nodeState(this).rxInput.onNext(System.currentTimeMillis());
   }
 

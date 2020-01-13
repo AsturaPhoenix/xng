@@ -20,12 +20,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 
 /**
- * Represents the incoming logical junction of input node signals towards a specific output node.
+ * Represents the incoming logical junction of input node signals towards a
+ * specific output node.
  * 
- * Minimal effort is made to preserve activation across serialization boundaries since behavior
- * while the system is down is discontinuous anyway. In the future, it is likely that either we will
- * switch to relative time and fully support serialization or else completely clear activation on
- * deserialization.
+ * Minimal effort is made to preserve activation across serialization boundaries
+ * since behavior while the system is down is discontinuous anyway. In the
+ * future, it is likely that either we will switch to relative time and fully
+ * support serialization or else completely clear activation on deserialization.
  */
 public class Synapse implements Serializable {
   private static final long serialVersionUID = 1779165354354490167L;
@@ -36,13 +37,13 @@ public class Synapse implements Serializable {
 
   public class ContextualState {
     private final Subject<Long> rxEvaluate;
-    private final Map<Profile, Evaluation> evaluations =
-        Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<Profile, Evaluation> evaluations = Collections.synchronizedMap(new WeakHashMap<>());
 
     public ContextualState(final Context context) {
       rxEvaluate = PublishSubject.create();
-      rxEvaluate.switchMap(t -> evaluate(context, t))
-          .subscribe(t -> rxOutput.onNext(new Node.Activation(context, t)));
+      rxEvaluate.switchMap(t -> evaluate(context, t).doFinally(context::releaseRef)).subscribe(t -> {
+        rxOutput.onNext(new Node.Activation(context, t));
+      });
       context.lifetime().thenRun(rxEvaluate::onComplete);
     }
   }
@@ -74,9 +75,9 @@ public class Synapse implements Serializable {
     }
 
     /**
-     * Only subscriptions to positive coefficients are kept; negative coefficients can still
-     * contribute to evaluation, but naturally they can never themselves result in a signal being
-     * propagated so they do not require a subscription.
+     * Only subscriptions to positive coefficients are kept; negative coefficients
+     * can still contribute to evaluation, but naturally they can never themselves
+     * result in a signal being propagated so they do not require a subscription.
      */
     public void updateSubscription() {
       if (coefficient.getMax() > 0 && subscription == null) {
@@ -90,6 +91,7 @@ public class Synapse implements Serializable {
     private void onActivate(final Node.Activation activation) {
       // Schedules an evaluation in the appropriate context, which will
       // sum the incoming signals.
+      activation.context.addRef();
       activation.context.synapseState(Synapse.this).rxEvaluate.onNext(activation.timestamp);
     }
 
@@ -167,8 +169,8 @@ public class Synapse implements Serializable {
   }
 
   /**
-   * Emits an activation signal or schedules a re-evaluation at a future time, depending on current
-   * state.
+   * Emits an activation signal or schedules a re-evaluation at a future time,
+   * depending on current state.
    */
   private Observable<Long> evaluate(final Context context, final long time) {
     final float value = getValue(context, time);
@@ -178,9 +180,11 @@ public class Synapse implements Serializable {
       return Observable.just(time);
     } else {
       final long nextCrit = getNextCriticalPoint(context, time);
-      return nextCrit == Long.MAX_VALUE ? Observable.empty()
-          : Observable.timer(nextCrit - time, TimeUnit.MILLISECONDS)
-              .flatMap(x -> evaluate(context, nextCrit));
+      if (nextCrit == Long.MAX_VALUE) {
+        return Observable.empty();
+      } else {
+        return Observable.timer(nextCrit - time, TimeUnit.MILLISECONDS).flatMap(x -> evaluate(context, nextCrit));
+      }
     }
   }
 
@@ -195,10 +199,11 @@ public class Synapse implements Serializable {
   }
 
   /**
-   * Gets the next time the synapse should be evaluated if current conditions hold. This is the
-   * minimum of the next time the synapse would cross the activation threshold given current
-   * conditions, and the zeros of the activations involved. Activations that have already fully
-   * decayed do not affect this calculation.
+   * Gets the next time the synapse should be evaluated if current conditions
+   * hold. This is the minimum of the next time the synapse would cross the
+   * activation threshold given current conditions, and the zeros of the
+   * activations involved. Activations that have already fully decayed do not
+   * affect this calculation.
    */
   private long getNextCriticalPoint(final Context context, final long time) {
     float totalValue = 0, totalDecayRate = 0;
@@ -266,7 +271,8 @@ public class Synapse implements Serializable {
 
   /**
    * @param node      the input node
-   * @param decayRate the linear signal decay period, in milliseconds from activation to 0
+   * @param decayRate the linear signal decay period, in milliseconds from
+   *                  activation to 0
    */
   public Synapse setDecayPeriod(final Node node, final long decayPeriod) {
     inputs.computeIfAbsent(node, this::newProfile).decayPeriod = decayPeriod;

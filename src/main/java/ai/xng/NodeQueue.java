@@ -10,12 +10,14 @@ import com.google.common.collect.Iterables;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import lombok.RequiredArgsConstructor;
 import lombok.Synchronized;
 
 /**
  * A collection of nodes ordered by most recent activation. This collection
  * holds weak references to its nodes. This collection is thread-safe.
  */
+@RequiredArgsConstructor
 public class NodeQueue implements Iterable<Node> {
   private class Link {
     Link previous, next;
@@ -59,6 +61,7 @@ public class NodeQueue implements Iterable<Node> {
     }
   }
 
+  private final Context context;
   private Link head, tail;
   private Object version;
 
@@ -76,9 +79,11 @@ public class NodeQueue implements Iterable<Node> {
     final Link link = new Link(node);
     initAtTail(link);
 
-    node.rxActivate().subscribe(t -> {
-      promote(link);
-      rxActivate.onNext(node);
+    node.rxActivate().subscribe(a -> {
+      if (context == null || a.context == context) {
+        promote(link);
+        rxActivate.onNext(node);
+      }
     });
   }
 
@@ -101,7 +106,7 @@ public class NodeQueue implements Iterable<Node> {
     } else {
       link.next.previous = link.previous;
     }
-    
+
     version = null;
   }
 
@@ -134,7 +139,8 @@ public class NodeQueue implements Iterable<Node> {
   }
 
   /**
-   * For thread safety, iteration should be done while a lock on {@link #mutex()} is held.
+   * For thread safety, iteration should be done while a lock on {@link #mutex()}
+   * is held.
    */
   @Synchronized
   @Override

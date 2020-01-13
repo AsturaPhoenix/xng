@@ -27,7 +27,7 @@ public class EmissionMonitor<T> {
     public Observable<T> emissions() {
         // Using the computation scheduler for monitoring can lead to deadlocks
         // when tests artificially block computation threads.
-        return monitor.takeUntil(Observable.timer(250, TimeUnit.MILLISECONDS, Schedulers.io()));
+        return monitor.take(250, TimeUnit.MILLISECONDS, Schedulers.io());
     }
 
     public boolean didEmit() {

@@ -7,8 +7,8 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,8 +21,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.Value;
 
 /**
- * Since this is meant to be a proof of concept, encapsulation is not perfect. Particularly, the
- * following external operations should be avoided:
+ * Since this is meant to be a proof of concept, encapsulation is not perfect.
+ * Particularly, the following external operations should be avoided:
  * 
  * <ul>
  * <li>{@link Node#setOnActivate(java.util.function.Consumer)}
@@ -51,7 +51,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
   private ConcurrentMap<IdentityKey, Node> valueIndex = new ConcurrentHashMap<>();
 
-  private transient NodeQueue nodes = new NodeQueue();
+  private transient Collection<Node> nodes = new ArrayList<>();
 
   private transient Subject<String> rxOutput;
   private transient Subject<Node> rxNodeAdded;
@@ -78,8 +78,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
         final Node classNode = context.index.get(kb.node(Common.javaClass)),
-            objectNode = context.index.get(kb.node(Common.object)),
-            fieldNode = context.require(kb.node(Common.name));
+            objectNode = context.index.get(kb.node(Common.object)), fieldNode = context.require(kb.node(Common.name));
         final Object object;
         final Class<?> clazz;
 
@@ -106,33 +105,32 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       }
     },
     /**
-     * Takes two args: {@link Common#object} and {@link Common#name}. If {@code object} is omitted,
-     * gets the property from the parent context.
+     * Takes two args: {@link Common#object} and {@link Common#name}. If
+     * {@code object} is omitted, gets the property from the parent context.
      */
     getProperty {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
-        final Node object = context.index.get(kb.node(Common.object)),
-            property = context.require(kb.node(Common.name));
-        return object == null ? context.parent.index.get(property)
-            : object.properties.get(property);
+        final Node object = context.index.get(kb.node(Common.object)), property = context.require(kb.node(Common.name));
+        return object == null ? context.parent.index.get(property) : object.properties.get(property);
       }
     },
     /**
-     * A limited Java interop bridge. Method parameter types must be fully and exactly specified via
-     * "paramN" index entries, null-terminated, having values of Java classes. Arguments are passed
-     * as "argN" index entries, and must be serializable. Missing arguments are passed null.
+     * A limited Java interop bridge. Method parameter types must be fully and
+     * exactly specified via "paramN" index entries, null-terminated, having values
+     * of Java classes. Arguments are passed as "argN" index entries, and must be
+     * serializable. Missing arguments are passed null.
      * 
-     * {@link Common#javaClass}: optional class on which to invoke method. If {@link Common#object}
-     * is also provided, this must be a supertype. {@link Common#object}: optional object on which
-     * to invoke method. {@link Common#name}: required name of the method to invoke.
+     * {@link Common#javaClass}: optional class on which to invoke method. If
+     * {@link Common#object} is also provided, this must be a supertype.
+     * {@link Common#object}: optional object on which to invoke method.
+     * {@link Common#name}: required name of the method to invoke.
      */
     method {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
         final Node classNode = context.index.get(kb.node(Common.javaClass)),
-            objectNode = context.index.get(kb.node(Common.object)),
-            methodNode = context.require(kb.node(Common.name));
+            objectNode = context.index.get(kb.node(Common.object)), methodNode = context.require(kb.node(Common.name));
         final Object object;
         final Class<?> clazz;
 
@@ -158,8 +156,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
           params.add((Class<?>) param.getValue());
         }
 
-        Method method =
-            clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
+        Method method = clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
         ArrayList<Object> args = new ArrayList<>();
         for (int i = 1; i <= params.size(); i++) {
           Node arg = context.index.get(kb.arg(i));
@@ -190,17 +187,17 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       }
     },
     /**
-     * <li>{@link Common#object}: optional node on which to set a property. If omitted, sets the
-     * property on the parent context.
+     * <li>{@link Common#object}: optional node on which to set a property. If
+     * omitted, sets the property on the parent context.
      * <li>{@link Common#name}: required property name.
-     * <li>{@link Common#value}: optional value to set. If null, the property is cleared.
+     * <li>{@link Common#value}: optional value to set. If null, the property is
+     * cleared.
      * <li>Returns the value previously at this property.
      */
     setProperty {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
-        final Node object = context.index.get(kb.node(Common.object)),
-            property = context.require(kb.node(Common.name)),
+        final Node object = context.index.get(kb.node(Common.object)), property = context.require(kb.node(Common.name)),
             value = context.index.get(kb.node(Common.value));
         if (object == null) {
           if (value == null) {
@@ -220,8 +217,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     setRefractory {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
-        context.require(kb.node(Common.value)).setRefractory(
-            ((Number) context.require(kb.node(Common.refractory)).getValue()).longValue());
+        context.require(kb.node(Common.value))
+            .setRefractory(((Number) context.require(kb.node(Common.refractory)).getValue()).longValue());
         return null;
       }
     },
@@ -275,13 +272,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   /**
-   * Invocation activates the node specified by {@link Common#invoke} with a child context
-   * constructed from {@link Common#literal} and {@link Common#transform}. Literal properties are
-   * assigned directly to the new context, and transform properties are copied from the parent
-   * context entry named by the value of the transform property. Transform properties take
-   * precedence over literal properties if present, allowing literals to act as defaults. The return
-   * value, if any, is assigned to the context property named by the node with the invocation, whose
-   * activation triggered the invocation.
+   * Invocation activates the node specified by {@link Common#invoke} with a child
+   * context constructed from {@link Common#literal} and {@link Common#transform}.
+   * Literal properties are assigned directly to the new context, and transform
+   * properties are copied from the parent context entry named by the value of the
+   * transform property. Transform properties take precedence over literal
+   * properties if present, allowing literals to act as defaults. The return
+   * value, if any, is assigned to the context property named by the node with the
+   * invocation, whose activation triggered the invocation.
    * 
    * @param node
    * @param context
@@ -360,21 +358,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
   private void writeObject(final ObjectOutputStream o) throws IOException {
     o.defaultWriteObject();
-    final List<Node> serNodes = new ArrayList<>();
-    synchronized (nodes.mutex()) {
-      for (final Node node : nodes) {
-        serNodes.add(node);
-      }
+    synchronized (nodes) {
+      o.writeObject(nodes);
     }
-    o.writeObject(serNodes);
   }
 
   @SuppressWarnings("unchecked")
-  private void readObject(final ObjectInputStream stream)
-      throws ClassNotFoundException, IOException {
+  private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
     stream.defaultReadObject();
-    nodes = new NodeQueue();
-    nodes.addAll((List<Node>) stream.readObject());
+    nodes = (Collection<Node>) stream.readObject();
 
     init();
   }
@@ -406,8 +398,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   /**
-   * Gets or creates a node representing a positional argument. These are typically property names
-   * under {@code ARGUMENT} nodes.
+   * Gets or creates a node representing a positional argument. These are
+   * typically property names under {@code ARGUMENT} nodes.
    * 
    * @param ordinal one-based argument index
    * @return "arg<i>n</i>"
@@ -450,8 +442,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     if (!(value instanceof Class<?> || value instanceof Enum)) {
       final Node values = node(value.getClass()).properties.get(node(Common.value));
       if (values != null && values.getValue() instanceof ConcurrentHashMap) {
-        resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.getValue())
-            .computeIfAbsent(value, x -> value);
+        resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.getValue()).computeIfAbsent(value,
+            x -> value);
       }
     }
 
@@ -460,7 +452,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return valueIndex.computeIfAbsent(new IdentityKey(resolvedValue), x -> {
       final Node node = new Node(resolvedValue);
       initNode(node);
-      nodes.add(node);
+      synchronized (nodes) {
+        nodes.add(node);
+      }
       return node;
     });
   }
@@ -470,7 +464,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   public Node node() {
     final Node node = new Node();
     initNode(node);
-    nodes.add(node);
+    synchronized (nodes) {
+      nodes.add(node);
+    }
     return node;
   }
 
@@ -479,12 +475,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return nodes.iterator();
   }
 
-  public Observable<Node> rxActivate() {
-    return nodes.rxActivate();
-  }
-
   public Object iteratorMutex() {
-    return nodes.mutex();
+    return nodes;
   }
 
   public enum Bootstrap {
@@ -517,8 +509,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     public Invocation transform(final Node key, final Node value) {
-      node.properties.computeIfAbsent(node(Common.transform), k -> node()).properties.put(key,
-          value);
+      node.properties.computeIfAbsent(node(Common.transform), k -> node()).properties.put(key, value);
       return this;
     }
 
@@ -533,29 +524,24 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // Since strings are used for reflection at all and markImmutable is
     // implemented in terms of reflection, we need to bootstrap strings as
     // immutable.
-    node(String.class).properties.put(node(Common.value),
-        node(new ConcurrentHashMap<Serializable, Serializable>()));
+    node(String.class).properties.put(node(Common.value), node(new ConcurrentHashMap<Serializable, Serializable>()));
 
-    final Node markImmutable = node(Bootstrap.markImmutable),
-        newInstance = node(Bootstrap.newInstance), eval = node(Bootstrap.eval);
+    final Node markImmutable = node(Bootstrap.markImmutable), newInstance = node(Bootstrap.newInstance),
+        eval = node(Bootstrap.eval);
 
     {
-      new Invocation(markImmutable, newInstance).literal(node(Common.javaClass),
-          node(ConcurrentHashMap.class));
+      new Invocation(markImmutable, newInstance).literal(node(Common.javaClass), node(ConcurrentHashMap.class));
 
       new Invocation(markImmutable.then(node()), node(BuiltIn.setProperty))
-          .literal(node(Common.name), node(Common.value))
-          .transform(node(Common.object), node(Common.javaClass))
+          .literal(node(Common.name), node(Common.value)).transform(node(Common.object), node(Common.javaClass))
           .transform(node(Common.value), markImmutable);
     }
 
     {
-      new Invocation(newInstance, node(BuiltIn.method))
-          .literal(node(Common.name), node("newInstance"))
+      new Invocation(newInstance, node(BuiltIn.method)).literal(node(Common.name), node("newInstance"))
           .transform(node(Common.object), node(Common.javaClass));
 
-      new Invocation(newInstance.then(node()), node(BuiltIn.contextReturn))
-          .transform(node(Common.value), newInstance);
+      new Invocation(newInstance.then(node()), node(BuiltIn.contextReturn)).transform(node(Common.value), newInstance);
     }
 
     {

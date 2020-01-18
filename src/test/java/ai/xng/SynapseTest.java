@@ -13,7 +13,7 @@ public class SynapseTest {
     val monitor = new EmissionMonitor<>(s.rxActivate());
 
     s.setCoefficient(incoming, 1);
-    incoming.activate(new Context());
+    incoming.activate(new Context(Node::new));
     assertTrue(monitor.didEmit());
   }
 
@@ -25,7 +25,7 @@ public class SynapseTest {
     s.setCoefficient(a, 2);
     s.setDecayPeriod(a, 1000);
     s.setCoefficient(b, 0);
-    val context = new Context();
+    val context = new Context(Node::new);
     a.activate(context);
     assertTrue(monitor.didEmit());
     b.activate(context);

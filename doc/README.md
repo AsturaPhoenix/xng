@@ -36,11 +36,13 @@ Since every node represents an atom of data, every node is permitted a native (i
 
 Furthermore every node is allowed a map from node keys to node values. This allows us to implement higher level scripting behavior and facilitates explicit computation.
 
+When values are queried, set, or cleared, [EAV](https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model) proxy nodes are activated in the local context. These nodes signify the (object, key) and (object, key, value) tuples. Future work may generalize activation to other contexts and/or latch these activations rather than pulse them.
+
 #### Contexts (stack frames)
 
-To improve parallelism and facilitate attribution, node activation is evaluated in contexts. Contexts are mutually independent, so nodes activated under a particular context do not affect nodes in other contexts (except through structural alterations).
+To improve parallelism and facilitate attribution, node activation is evaluated in contexts. Nodes activated under a particular context do not affect nodes in other contexts (except through structural alterations).
 
-Each context also includes an ambient map of node keys to node values, serving as an auxiliary working memory to facilitate explicit computation. This should be treated akin to an open-ended register bank.
+Each context is itself a node. The properties of that node behave as an ambient map of keys to values, serving as an auxiliary working memory to facilitate explicit computation. This should be treated akin to an open-ended register bank.
 
 #### Calling convention
 
@@ -50,9 +52,13 @@ The calling convention is encoded in the dictionary storage of a particular node
 
 ![Call node with invoke, literal, and transform properties.](calling_convention.png)
 
-The keys here are nodes assigned special meaning by the system, including "invoke", "literal", and "transform". When a node with an "invoke" property is activated, it acts as a subroutine call, and its causal chain is suspended (that is, subsequent activations do not occur) until the call has completed (returned or become idle). The node identified by the "invoke" key is the entrypoint of the subroutine, which is activated in the new context. The new context is a child of the invoking context and is prepopulated with keys and values specified by the "literal" and "transform" nodes, if present. "literal" key-value pairs are imparted directly onto the child context, while "transform" pairs transform the calling context such that the property map is a mapping from the child keys to parent keys.
+The keys here are nodes assigned special meaning by the system, including "invoke", "literal", and "transform". When a node with an "invoke" property is activated, it acts as a subroutine call, and its causal chain is suspended (that is, subsequent activations do not occur) until the call has returned a value or become idle. The node identified by the "invoke" key is the entrypoint of the subroutine, which is activated in the new context. The new context is a child of the invoking context and is prepopulated with keys and values specified by the "literal" and "transform" nodes, if present. "literal" key-value pairs are imparted directly onto the child context, while "transform" pairs transform the calling context such that the property map is a mapping from the child keys to parent keys.
 
-Returning closes the context, preventing any further evaluation. A return value, if provided, is placed in the calling context at the key of the invocation node.
+The parent context node is available at a special entry on the context. Child contexts may use this to affect their parent context.
+
+Return values are assigned by setting another special entry on the context. This value is also assigned to the calling context, keyed by the invocation node. If the invoking causal chain has not yet continued, it is signaled to continue at this point. Subsequent return values can be assigned as well for a generator- or stream-like return pattern. Each time, the appropriate EAV proxy nodes are activated as well, in both contexts.
+
+Runtime exceptions may occur and are handled by activating an exception handler node specified on the invoking context. If no exception handler is specified, the causal chain does not continue (the invocation node subsequently will not downstream an activation) and the exception is rethrown in the parent context.
 
 For alternatives considered, see [Return semantics](https://docs.google.com/document/d/1U33hYAovcBOEtXT3TJOVQVr8OlJJkWpQPzqIL3nnsWA).
 
@@ -65,14 +71,6 @@ _k_-armed bandit is a classic demonstration of reinforcement learning. However, 
 For a naive approach, consider the following network, which just represents the problem to be learned as the function that selects which arm to pull.
 
 ![Select node branching to return nodes for each arm](naive_bandit.png)
-
-> This raises some open questions, including how should reinforcement work with closed contexts? Also, can we attribute reinforcement to nodes in such a meta way? i.e. A more direct approach would have us invoke the “pull” node as a result of the “select” (or entrypoint), which would be a nice opportunity for both Hebbian learning and reinforcement due to the change in utility. However, at the same time not being able to put bounds on the context/evaluation makes it harder to segregate trials and fall back on a random pull.
->
-> Probably two possibilities here: model it more direct, or solve these meta problems. Modeling it more directly is outright easier; it’s the natural way for such a system to work. However, as is pretty obvious here, modeling it using scripting primitives is so much more convenient.
->
-> It’s possible this is a natural tradeoff, and that we need to live with it. However at some point it is likely we’ll also need feedback mechanisms for more explicit structural modifications (e.g. “this function should have returned ‘a’); it’s probably worth at least figuring out how those would work now.
-
-> We can train a subroutine by executing it in an interactive context; it's not necessary to drop into an invocation sub-context to evaluate it. I wonder if we should drop the context-closing behavior of return statements after all.
 
 ### Hello World
 

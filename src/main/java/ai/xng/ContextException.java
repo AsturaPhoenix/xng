@@ -9,12 +9,12 @@ import com.google.common.collect.ImmutableMap;
 public class ContextException extends IllegalArgumentException {
   private static final long serialVersionUID = 6398651175390307056L;
 
-  public final ImmutableMap<Node, Node> index;
-  public final Node missingKey;
+  public final ImmutableMap<Node, Node> properties;
+  public final Node missingProperty;
 
-  public ContextException(final Context context, final Node missingKey) {
-    super("Context missing required key " + missingKey);
-    this.index = ImmutableMap.copyOf(context.index);
-    this.missingKey = missingKey;
+  public ContextException(final Context context, final Node missingProperty) {
+    super("Context missing required property " + missingProperty);
+    this.properties = ImmutableMap.copyOf(context.node.properties);
+    this.missingProperty = missingProperty;
   }
 }

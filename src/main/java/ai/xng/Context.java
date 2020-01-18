@@ -1,48 +1,85 @@
 package ai.xng;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.Subject;
 
-public class Context {
-  public final Context parent;
+/**
+ * A node value that signifies that a node is behaving as an
+ * evaluation/execution context. Properties of such nodes are used as contextual
+ * memory.
+ * 
+ * Although this class is {@link Serializable} for use as a node value, most of
+ * its state is transient. That is, although contexts are nodes, activations are
+ * not expected to remain valid across serialization.
+ */
+public class Context implements Serializable {
+  private static final long serialVersionUID = 3575759895941990217L;
 
-  public final ConcurrentMap<Node, Node> index = new ConcurrentHashMap<Node, Node>();
-
-  private final Map<Node, Node.ContextualState> nodeStates = new ConcurrentHashMap<>();
-  private final Map<Synapse, Synapse.ContextualState> synapseStates = new ConcurrentHashMap<>();
+  private transient Map<Node, Node.ContextualState> nodeStates;
+  private transient Map<Synapse, Synapse.ContextualState> synapseStates;
 
   private final NodeQueue activations = new NodeQueue(this);
 
+  private transient Subject<Boolean> rxActive;
+  private transient AtomicInteger refCount;
+
+  // The node representing this context.
+  public final Node node;
+
+  // The node that constructed this context. This is used as the key where the
+  // return value(s) will be stored in the parent context.
+  public final Node invocation;
+
   /**
-   * A {@link CompletableFuture} that signals when the context has been disposed
-   * and completes with its return value, if any. Contextual states should listen
-   * to this to know when to stop propagating.
+   * The exception handler for this context. This defaults to completing
+   * {@link #continuation} exceptionally, unless overridden.
    */
-  private final CompletableFuture<Node> lifetime = new CompletableFuture<>();
+  public transient Consumer<Exception> exceptionHandler;
 
-  private final Subject<Boolean> rxActive = BehaviorSubject.createDefault(false);
-  private final AtomicInteger refCount = new AtomicInteger();
+  // A synchronous bridge for this context, completed when the return value is
+  // first set or the context first
+  // becomes idle, or completed exceptionally on unhandled exception.
+  private transient CompletableFuture<Void> continuation;
 
-  public Context() {
-    this(null);
+  public CompletableFuture<Void> continuation() {
+    return continuation;
   }
 
-  public Context(final Context parent) {
-    this.parent = parent;
-    if (parent != null) {
-      parent.lifetime().thenRun(() -> lifetime.complete(null));
-    }
+  public Context(final Function<Serializable, Node> nodeFactory, final Node invocation) {
+    init();
+    this.invocation = invocation;
+    node = nodeFactory.apply(this);
   }
 
-  public CompletableFuture<Node> lifetime() {
-    return lifetime;
+  public Context(final Function<Serializable, Node> nodeFactory) {
+    this(nodeFactory, null);
+  }
+
+  private void init() {
+    nodeStates = new ConcurrentHashMap<>();
+    synapseStates = new ConcurrentHashMap<>();
+
+    rxActive = BehaviorSubject.createDefault(false);
+    refCount = new AtomicInteger();
+
+    continuation = new CompletableFuture<>();
+    exceptionHandler = continuation::completeExceptionally;
+  }
+
+  private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
+    init();
+    stream.defaultReadObject();
   }
 
   public Observable<Boolean> rxActive() {
@@ -78,22 +115,10 @@ public class Context {
     return synapseStates.computeIfAbsent(synapse, s -> s.new ContextualState(this));
   }
 
-  public void close() {
-    close((Node) null);
-  }
-
-  public void close(Node value) {
-    lifetime.complete(value);
-  }
-
-  public void close(Throwable t) {
-    lifetime.completeExceptionally(t);
-  }
-
-  public Node require(final Node key) {
-    final Node value = index.get(key);
+  public Node require(final Node property) {
+    final Node value = node.properties.get(property);
     if (value == null) {
-      throw new ContextException(this, key);
+      throw new ContextException(this, property);
     }
     return value;
   }

@@ -6,7 +6,7 @@ import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.Consumer;
+import java.util.Objects;
 import io.reactivex.Observable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
@@ -22,6 +22,10 @@ public class Node implements Serializable {
 
   private static final long DEFAULT_REFRACTORY = 10;
 
+  public static interface OnActivate {
+    void run(Context context) throws Exception;
+  }
+
   @RequiredArgsConstructor
   @EqualsAndHashCode
   public static class Activation {
@@ -35,23 +39,31 @@ public class Node implements Serializable {
 
     public ContextualState(final Context context) {
       rxInput.observeOn(Schedulers.io()).subscribe(t -> {
-        if (t - lastActivation >= refractory) {
-          if (onActivate != null)
-            onActivate.accept(context);
-          synchronized (this) {
-            long newTimestamp = System.currentTimeMillis();
-            lastActivation = newTimestamp;
-            rxOutput.onNext(new Activation(context, newTimestamp));
+        try {
+          if (t - lastActivation >= refractory) {
+            if (onActivate != null)
+              onActivate.run(context);
+            synchronized (this) {
+              long newTimestamp = System.currentTimeMillis();
+              lastActivation = newTimestamp;
+              rxOutput.onNext(new Activation(context, newTimestamp));
+            }
           }
+        } catch (final Exception e) {
+          // Caution, this may behave strangely if invocations happen against contexts
+          // that have been deserialized since contexts are intended to be ephemeral and
+          // overridden exception handlers will be lost.
+          // TODO(rosswang): preserve nodespace stack trace
+          context.exceptionHandler.accept(e);
+        } finally {
+          context.releaseRef();
         }
-        context.releaseRef();
       });
-      context.lifetime().thenRun(rxInput::onComplete);
     }
   }
 
   @Getter
-  private Serializable value;
+  private final Serializable value;
 
   public long getLastActivation(final Context context) {
     final ContextualState state = context.nodeState(this);
@@ -66,19 +78,12 @@ public class Node implements Serializable {
 
   // TODO(rosswang): Can we get rid of onActivate and only use rxActivate instead?
   @Setter
-  private transient Consumer<Context> onActivate;
+  private transient OnActivate onActivate;
   private transient Subject<Activation> rxOutput;
 
   @Getter
   @Setter
   private boolean pinned;
-
-  @Getter
-  private String comment;
-
-  public void setComment(final String value) {
-    comment = value;
-  }
 
   public Node() {
     this(null);
@@ -100,8 +105,7 @@ public class Node implements Serializable {
     synapse.rxActivate().subscribe(a -> activate(a.context));
   }
 
-  private void readObject(final ObjectInputStream stream)
-      throws ClassNotFoundException, IOException {
+  private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
     preInit();
     stream.defaultReadObject();
     postInit();
@@ -121,9 +125,6 @@ public class Node implements Serializable {
   @Override
   public String toString() {
     val sb = new StringBuilder(Integer.toHexString(hashCode()));
-    if (comment != null) {
-      sb.append(": ").append(comment);
-    }
     if (value != null) {
       sb.append(" = ").append(value);
     }
@@ -131,7 +132,7 @@ public class Node implements Serializable {
   }
 
   public String displayString() {
-    return value == null ? comment : value.toString();
+    return Objects.toString(value);
   }
 
   /**

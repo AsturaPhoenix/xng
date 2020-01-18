@@ -38,7 +38,7 @@ public class NodeTest {
 
   private static void testActivation(final Node node) {
     val monitor = new EmissionMonitor<>(node.rxActivate());
-    val context = new Context();
+    val context = new Context(Node::new);
     val activeMonitor = new EmissionMonitor<>(context.rxActive());
     node.activate(context);
     assertSame(context, monitor.emissions().blockingFirst().context);
@@ -62,13 +62,13 @@ public class NodeTest {
     and.synapse.setCoefficient(a, .8f);
     and.synapse.setCoefficient(b, .8f);
 
-    val context1 = new Context();
+    val context1 = new Context(Node::new);
     val activeMonitor1 = new EmissionMonitor<>(context1.rxActive());
     a.activate(context1);
     assertFalse(monitor.didEmit());
     assertEquals(Arrays.asList(false, true, false), activeMonitor1.emissions().toList().blockingGet());
 
-    val context2 = new Context();
+    val context2 = new Context(Node::new);
     val activeMonitor2 = new EmissionMonitor<>(context2.rxActive());
     a.activate(context2);
     b.activate(context2);
@@ -82,8 +82,8 @@ public class NodeTest {
     val monitor = new EmissionMonitor<>(and.rxActivate());
     and.synapse.setCoefficient(a, .8f);
     and.synapse.setCoefficient(b, .8f);
-    a.activate(new Context());
-    b.activate(new Context());
+    a.activate(new Context(Node::new));
+    b.activate(new Context(Node::new));
     assertFalse(monitor.didEmit());
   }
 
@@ -96,9 +96,9 @@ public class NodeTest {
     nodes = TestUtil.serialize(nodes);
 
     val monitor = new EmissionMonitor<>(nodes[2].rxActivate());
-    nodes[0].activate(new Context());
+    nodes[0].activate(new Context(Node::new));
     assertFalse(monitor.didEmit());
-    val andContext = new Context();
+    val andContext = new Context(Node::new);
     nodes[0].activate(andContext);
     nodes[1].activate(andContext);
     assertTrue(monitor.didEmit());
@@ -109,7 +109,7 @@ public class NodeTest {
     val node = new Node();
     node.setRefractory(1000);
     val monitor = new EmissionMonitor<>(node.rxActivate());
-    val context = new Context();
+    val context = new Context(Node::new);
     node.activate(context);
     node.activate(context);
     assertEquals(1, (long) monitor.emissions().count().blockingGet());
@@ -122,7 +122,7 @@ public class NodeTest {
     and.synapse.setCoefficient(a, .6f);
     and.synapse.setCoefficient(b, .5f);
     and.setRefractory(10000);
-    val context = new Context();
+    val context = new Context(Node::new);
     a.activate(context);
     b.activate(context);
     assertTrue(monitor.didEmit());
@@ -136,7 +136,7 @@ public class NodeTest {
     val monitor = new EmissionMonitor<>(out.rxActivate());
     out.synapse.setCoefficient(up, 1);
     out.synapse.setCoefficient(down, -1);
-    val context = new Context();
+    val context = new Context(Node::new);
     down.activate(context);
     up.activate(context);
     assertFalse(monitor.didEmit());
@@ -150,7 +150,7 @@ public class NodeTest {
     out.synapse.setDecayPeriod(up, 1000);
     out.synapse.setCoefficient(down, -3);
     out.synapse.setDecayPeriod(down, 300);
-    val context = new Context();
+    val context = new Context(Node::new);
     down.activate(context);
     up.activate(context);
     assertFalse(monitor.didEmit());
@@ -165,7 +165,7 @@ public class NodeTest {
       val monitor = new EmissionMonitor<>(and.rxActivate());
       and.synapse.setCoefficient(a, .6f);
       and.synapse.setCoefficient(b, .6f);
-      val context = new Context();
+      val context = new Context(Node::new);
       a.activate(context);
       Thread.sleep(Synapse.DEBOUNCE_PERIOD);
       b.activate(context);
@@ -179,7 +179,7 @@ public class NodeTest {
     final PublishSubject<Void> subject = PublishSubject.create();
     node.setOnActivate(context -> subject.ignoreElements().blockingAwait());
     val monitor = new EmissionMonitor<>(node.rxActivate());
-    val context = new Context();
+    val context = new Context(Node::new);
     node.activate(context);
     assertFalse(monitor.didEmit());
     assertTrue(context.rxActive().blockingFirst());
@@ -194,7 +194,7 @@ public class NodeTest {
     final PublishSubject<Void> subject = PublishSubject.create();
     a.setOnActivate(c -> subject.ignoreElements().blockingAwait());
     val monitor = new EmissionMonitor<>(b.rxActivate());
-    val context = new Context();
+    val context = new Context(Node::new);
     val activeMonitor = new EmissionMonitor<>(context.rxActive());
     a.activate(context);
     assertFalse(monitor.didEmit());
@@ -209,7 +209,7 @@ public class NodeTest {
     a.then(b);
     final PublishSubject<Void> subject = PublishSubject.create();
     b.setOnActivate(c -> subject.onComplete());
-    a.activate(new Context());
+    a.activate(new Context(Node::new));
     assertTrue(subject.isEmpty().blockingGet());
   }
 }

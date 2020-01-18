@@ -44,7 +44,6 @@ public class Synapse implements Serializable {
       rxEvaluate.switchMap(t -> evaluate(context, t).doFinally(context::releaseRef)).subscribe(t -> {
         rxOutput.onNext(new Node.Activation(context, t));
       });
-      context.lifetime().thenRun(rxEvaluate::onComplete);
     }
   }
 

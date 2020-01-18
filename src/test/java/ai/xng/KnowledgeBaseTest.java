@@ -28,12 +28,12 @@ public class KnowledgeBaseTest {
   private static void testPrint(final KnowledgeBase kb) throws Exception {
     val monitor = new EmissionMonitor<>(kb.rxOutput());
 
-    val context = new Context();
-    context.index.put(kb.node(Common.value), kb.node("foo"));
+    val context = new Context(kb::node);
+    context.node.properties.put(kb.node(Common.value), kb.node("foo"));
     kb.node(BuiltIn.print).activate(context);
     assertEquals("foo", monitor.emissions().blockingFirst());
     // ensure that the context closes
-    context.lifetime().get(1, TimeUnit.SECONDS);
+    context.continuation().get(1, TimeUnit.SECONDS);
   }
 
   @Test
@@ -65,9 +65,7 @@ public class KnowledgeBaseTest {
     kb.new Invocation(rosesAre, kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), roses)
         .literal(kb.node(Common.name), color);
 
-    rosesAre.then(kb.new Invocation(kb.node(), kb.node(BuiltIn.print))
-        .transform(kb.node(Common.value), rosesAre).node);
-
+    rosesAre.then(kb.new Invocation(kb.node(), kb.node(BuiltIn.print)).transform(kb.node(Common.value), rosesAre).node);
 
   }
 
@@ -77,7 +75,8 @@ public class KnowledgeBaseTest {
         sanity3 = new EmissionMonitor<>(kb.node(BuiltIn.print).rxActivate());
     val valueMonitor = new EmissionMonitor<>(kb.rxOutput());
 
-    kb.node("roses are").activate(new Context());
+    final Context context = new Context(kb::node);
+    kb.node("roses are").activate(context);
     assertTrue(sanity1.didEmit());
     assertTrue(sanity2.didEmit());
     assertTrue(sanity3.didEmit());
@@ -119,12 +118,12 @@ public class KnowledgeBaseTest {
 
       final Node invocation = kb.node();
       kb.new Invocation(invocation, kb.node(BuiltIn.print)).exceptionHandler(exceptionHandler);
-      invocation.activate(new Context());
+      invocation.activate(new Context(kb::node));
 
       val activation = monitor.emissions().blockingFirst();
-      final Node exception = activation.context.index.get(kb.node(Common.exception));
-      // TODO(rosswang): Once we support node-space stack traces, the deepest frame in this case may
-      // be BuiltIn.print, followed by invocation.
+      final Node exception = activation.context.node.properties.get(kb.node(Common.exception));
+      // TODO(rosswang): Once we support node-space stack traces, the deepest frame in
+      // this case may be BuiltIn.print, followed by invocation.
       assertSame(invocation, exception.properties.get(kb.node(Common.source)));
     }
   }

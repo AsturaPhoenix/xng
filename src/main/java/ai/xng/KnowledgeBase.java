@@ -7,13 +7,17 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
+
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
@@ -60,6 +64,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // invocation
     invoke, literal, transform, exceptionHandler,
 
+    // When a value is assigned to this key, it is also assigned to the parent
+    // context keyed by the invocation node.
+    returnValue,
+
+    parentContext,
+
+    // node tuple types
+    contextPair, contextProperty, eavTriple, objectProperty,
+
     javaClass, object, name, exception, source, value, refractory, nodeCreated, nullNode
   }
 
@@ -77,8 +90,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     field {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
-        final Node classNode = context.index.get(kb.node(Common.javaClass)),
-            objectNode = context.index.get(kb.node(Common.object)), fieldNode = context.require(kb.node(Common.name));
+        final Node classNode = context.node.properties.get(kb.node(Common.javaClass)),
+            objectNode = context.node.properties.get(kb.node(Common.object)),
+            fieldNode = context.require(kb.node(Common.name));
         final Object object;
         final Class<?> clazz;
 
@@ -107,12 +121,29 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     /**
      * Takes two args: {@link Common#object} and {@link Common#name}. If
      * {@code object} is omitted, gets the property from the parent context.
+     * 
+     * Additionally, invokes AV/EAV nodes for the retrieved property in the parent
+     * context.
      */
     getProperty {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
-        final Node object = context.index.get(kb.node(Common.object)), property = context.require(kb.node(Common.name));
-        return object == null ? context.parent.index.get(property) : object.properties.get(property);
+        final Node object = context.node.properties.get(kb.node(Common.object)),
+            property = context.require(kb.node(Common.name));
+        final Context parent = kb.getParent(context);
+        final Node value;
+
+        if (object == null) {
+          value = parent.node.properties.get(property);
+          kb.node(kb.new NodeTuple(Common.contextPair, property, value)).activate(parent);
+          kb.node(kb.new NodeTuple(Common.contextProperty, property)).activate(parent);
+        } else {
+          value = object.properties.get(property);
+          kb.node(kb.new NodeTuple(Common.eavTriple, object, property, value)).activate(parent);
+          kb.node(kb.new NodeTuple(Common.objectProperty, object, property)).activate(parent);
+        }
+
+        return value;
       }
     },
     /**
@@ -129,8 +160,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     method {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
-        final Node classNode = context.index.get(kb.node(Common.javaClass)),
-            objectNode = context.index.get(kb.node(Common.object)), methodNode = context.require(kb.node(Common.name));
+        final Node classNode = context.node.properties.get(kb.node(Common.javaClass)),
+            objectNode = context.node.properties.get(kb.node(Common.object)),
+            methodNode = context.require(kb.node(Common.name));
         final Object object;
         final Class<?> clazz;
 
@@ -152,14 +184,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
         ArrayList<Class<?>> params = new ArrayList<>();
         Node param;
-        for (int i = 1; (param = context.index.get(kb.param(i))) != null; i++) {
+        for (int i = 1; (param = context.node.properties.get(kb.param(i))) != null; i++) {
           params.add((Class<?>) param.getValue());
         }
 
         Method method = clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
         ArrayList<Object> args = new ArrayList<>();
         for (int i = 1; i <= params.size(); i++) {
-          Node arg = context.index.get(kb.arg(i));
+          Node arg = context.node.properties.get(kb.arg(i));
           args.add(arg == null ? null : arg.getValue());
         }
 
@@ -193,25 +225,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
      * <li>{@link Common#value}: optional value to set. If null, the property is
      * cleared.
      * <li>Returns the value previously at this property.
+     * 
+     * Additionally, invokes AV/EAV nodes for the new property in the parent
+     * context.
+     * 
+     * The special context key {@link Common#returnValue} is mirrored to the parent
+     * context keyed by the invocation node, and may trigger the continuation of the
+     * invocation activation chain.
      */
     setProperty {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
-        final Node object = context.index.get(kb.node(Common.object)), property = context.require(kb.node(Common.name)),
-            value = context.index.get(kb.node(Common.value));
-        if (object == null) {
-          if (value == null) {
-            return context.parent.index.remove(property);
-          } else {
-            return context.parent.index.put(property, value);
-          }
-        } else {
-          if (value == null) {
-            return object.properties.remove(property);
-          } else {
-            return object.properties.put(property, value);
-          }
-        }
+        return kb.setProperty(kb.getParent(context), context.node.properties.get(kb.node(Common.object)),
+            context.require(kb.node(Common.name)), context.node.properties.get(kb.node(Common.value)));
       }
     },
     setRefractory {
@@ -219,19 +245,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       public Node impl(final KnowledgeBase kb, final Context context) {
         context.require(kb.node(Common.value))
             .setRefractory(((Number) context.require(kb.node(Common.refractory)).getValue()).longValue());
-        return null;
-      }
-    },
-    /**
-     * Closes the parent context with the given return value.
-     * 
-     * {@link Common#value}: optional return value.
-     */
-    contextReturn {
-      @Override
-      public Node impl(final KnowledgeBase kb, final Context context) {
-        final Node value = context.index.get(kb.node(Common.value));
-        context.parent.close(value);
         return null;
       }
     };
@@ -272,6 +285,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   /**
+   * Attempts to get the parent context of a given context. If the context does
+   * not have a parent, the original context is used instead. If the parent node
+   * is not a context, {@link ClassCastException} is thrown.
+   * 
+   * There is also an edge case where the parent node has a null value, in which
+   * case null is returned.
+   */
+  private Context getParent(final Context context) {
+    final Node parentNode = context.node.properties.get(node(Common.parentContext));
+    return parentNode == null ? context : (Context) parentNode.getValue();
+  }
+
+  /**
    * Invocation activates the node specified by {@link Common#invoke} with a child
    * context constructed from {@link Common#literal} and {@link Common#transform}.
    * Literal properties are assigned directly to the new context, and transform
@@ -284,17 +310,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    * @param node
    * @param context
    */
-  private void maybeInvoke(final Node node, final Context context) {
+  private void maybeInvoke(final Node node, final Context context) throws Exception {
     final Node invoke = node.properties.get(node(Common.invoke));
     if (invoke == null)
       return;
 
-    final Context childContext = new Context(context);
+    final Context childContext = new Context(this::node, node);
+    setProperty(childContext, null, node(Common.parentContext), context.node);
+
     final Node literal = node.properties.get(node(Common.literal));
     if (literal != null) {
       synchronized (literal.properties) {
         for (final Entry<Node, Node> mapping : literal.properties.entrySet()) {
-          childContext.index.put(mapping.getKey(), mapping.getValue());
+          setProperty(childContext, null, mapping.getKey(), mapping.getValue());
         }
       }
     }
@@ -303,38 +331,38 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     if (transform != null) {
       synchronized (transform.properties) {
         for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
-          final Node value = context.index.get(mapping.getValue());
+          final Node value = context.node.properties.get(mapping.getValue());
           if (value != null) {
-            childContext.index.put(mapping.getKey(), value);
+            setProperty(childContext, null, mapping.getKey(), value);
           }
         }
       }
     }
 
-    invoke.activate(childContext);
-
-    final Node retval;
-    try {
-      retval = childContext.lifetime().get();
-    } catch (final ExecutionException e) {
-      final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
-      if (exceptionHandler != null) {
-        final Node exceptionNode = node(new ImmutableException(e.getCause()));
+    final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
+    if (exceptionHandler != null) {
+      childContext.exceptionHandler = e -> {
+        final Node exceptionNode = node(new ImmutableException(e));
         exceptionNode.properties.put(node(Common.source), node);
-        context.index.put(node(Common.exception), exceptionNode);
-
-        exceptionHandler.activate(context);
-      } else {
-        // TODO(rosswang): preserve nodespace stack trace
-        context.close(e.getCause());
-      }
-      return;
-    } catch (final InterruptedException e) {
-      throw new RuntimeException(e);
+        // Right now we use the same context for the exception handler, so if another
+        // exception is thrown the exception handler is invoked again (and is likely to
+        // hit a refractory dedup). We should consider changing this once contexts can
+        // inherit activations.
+        setProperty(childContext, null, node(Common.exception), exceptionNode);
+        exceptionHandler.activate(childContext);
+      };
     }
 
-    if (retval != null) {
-      context.index.put(node, retval);
+    invoke.activate(childContext);
+
+    try {
+      childContext.continuation().join();
+    } catch (final CompletionException e) {
+      if (e.getCause() instanceof Exception) {
+        throw (Exception) e.getCause();
+      } else {
+        throw e;
+      }
     }
   }
 
@@ -343,16 +371,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // from the main index so that we can rebind the impl to the correct
     // node after deserialization.
     final Node node = node(builtIn);
-    node.setOnActivate(context -> {
-      final Node retval;
-      try {
-        retval = builtIn.impl(this, context);
-      } catch (final Exception e) {
-        context.close(e);
-        return;
-      }
-      context.close(retval);
-    });
+    node.setOnActivate(context -> setProperty(context, null, node(Common.returnValue), builtIn.impl(this, context)));
     return node;
   }
 
@@ -385,12 +404,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return rxOutput;
   }
 
+  /**
+   * Immutable class labeling a positional argument. This class is marked
+   * immutable by the {@code KnowledgeBase}.
+   */
   @Value
   private class Arg implements Serializable {
     private static final long serialVersionUID = 1L;
     int ordinal;
   }
 
+  /**
+   * Immutable class labeling a positional parameter. This class is marked
+   * immutable by the {@code KnowledgeBase}.
+   */
   @Value
   private class Param implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -419,14 +446,61 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return node(new Param(ordinal));
   }
 
+  /**
+   * Class representing a variant of node tuple. Although not technically
+   * immutable, since the node semantics are by identity, this class is marked
+   * immutable by the {@code KnowledgeBase}.
+   */
   @Value
-  private class ContextPair implements Serializable {
+  private class NodeTuple implements Serializable {
     private static final long serialVersionUID = 5070278620146038496L;
-    Node key, value;
+    Node type;
+    List<Node> tuple;
+
+    public NodeTuple(final Common type, final Node... tuple) {
+      this.type = node(type);
+      this.tuple = Collections.unmodifiableList(Arrays.asList(tuple));
+    }
   }
 
-  public Node contextEntry(final Node key, final Node value) {
-    return node(new ContextPair(key, value));
+  /**
+   * @param context the context to be used if {@code object} is null. This is also
+   *                the context in which EAV nodes are activated.
+   * @return the previous value of the property, if any.
+   */
+  private Node setProperty(final Context context, final Node object, final Node property, final Node value) {
+    final Node old;
+
+    if (object == null) {
+      if (value == null) {
+        old = context.node.properties.remove(property);
+      } else {
+        old = context.node.properties.put(property, value);
+      }
+      node(new NodeTuple(Common.contextPair, property, value)).activate(context);
+      node(new NodeTuple(Common.contextProperty, property)).activate(context);
+
+      if (property.getValue() == Common.returnValue) {
+        if (context.invocation != null) {
+          setProperty(getParent(context), null, context.invocation, value);
+        }
+        context.continuation().complete(null);
+      }
+    } else {
+      if (value == null) {
+        old = object.properties.remove(property);
+      } else {
+        old = object.properties.put(property, value);
+      }
+      node(new NodeTuple(Common.eavTriple, object, property, value)).activate(context);
+      node(new NodeTuple(Common.objectProperty, object, property)).activate(context);
+    }
+
+    return old;
+  }
+
+  private void markImmutable(Class<?> type) {
+    node(type).properties.put(node(Common.value), node(new ConcurrentHashMap<Serializable, Serializable>()));
   }
 
   @SuppressWarnings("unchecked")
@@ -524,7 +598,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // Since strings are used for reflection at all and markImmutable is
     // implemented in terms of reflection, we need to bootstrap strings as
     // immutable.
-    node(String.class).properties.put(node(Common.value), node(new ConcurrentHashMap<Serializable, Serializable>()));
+    markImmutable(String.class);
+    // We also need to mark args, params, and node tuples as immutable as they're
+    // all potentially touched in the markImmutable invocation.
+    markImmutable(Arg.class);
+    markImmutable(Param.class);
+    markImmutable(NodeTuple.class);
 
     final Node markImmutable = node(Bootstrap.markImmutable), newInstance = node(Bootstrap.newInstance),
         eval = node(Bootstrap.eval);
@@ -541,7 +620,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       new Invocation(newInstance, node(BuiltIn.method)).literal(node(Common.name), node("newInstance"))
           .transform(node(Common.object), node(Common.javaClass));
 
-      new Invocation(newInstance.then(node()), node(BuiltIn.contextReturn)).transform(node(Common.value), newInstance);
+      new Invocation(newInstance.then(node()), node(BuiltIn.setProperty))
+          .literal(node(Common.name), node(Common.returnValue)).transform(node(Common.value), newInstance);
     }
 
     {

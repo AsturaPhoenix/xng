@@ -1,5 +1,9 @@
 package ai.xng;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
 import java.util.Iterator;
@@ -14,18 +18,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.Synchronized;
 
 /**
- * A collection of nodes ordered by most recent activation. This collection
- * holds weak references to its nodes. This collection is thread-safe.
+ * A collection of nodes ordered by most recent activation. This collection is
+ * thread-safe.
+ * 
+ * This collection used to hold weak references to its nodes. This behavior may
+ * be reintroduced in the future.
  */
-@RequiredArgsConstructor
-public class NodeQueue implements Iterable<Node> {
+public class NodeQueue implements Iterable<Node>, Serializable {
+  private static final long serialVersionUID = -2635392533122747827L;
+
+  @RequiredArgsConstructor
   private class Link {
     Link previous, next;
-    Node node;
-
-    Link(final Node node) {
-      this.node = node;
-    }
+    final Node node;
   }
 
   private class NodeQueueIterator implements Iterator<Node> {
@@ -62,13 +67,41 @@ public class NodeQueue implements Iterable<Node> {
   }
 
   private final Context context;
-  private Link head, tail;
-  private Object version;
+  private transient Link head, tail;
+  private transient Object version;
 
-  private Subject<Node> rxActivate = PublishSubject.create();
+  private transient Subject<Node> rxActivate;
 
   public Observable<Node> rxActivate() {
     return rxActivate;
+  }
+
+  public NodeQueue(final Context context) {
+    this.context = context;
+    init();
+  }
+
+  private void init() {
+    rxActivate = PublishSubject.create();
+  }
+
+  private void writeObject(final ObjectOutputStream o) throws IOException {
+    o.defaultWriteObject();
+    synchronized ($lock) {
+      for (final Node node : this) {
+        o.writeObject(node);
+      }
+      o.writeObject(null);
+    }
+  }
+
+  private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
+    stream.defaultReadObject();
+    init();
+    Node node;
+    while ((node = (Node) stream.readObject()) != null) {
+      add(node);
+    }
   }
 
   public Object mutex() {

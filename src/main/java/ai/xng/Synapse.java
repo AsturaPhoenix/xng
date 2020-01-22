@@ -6,6 +6,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Map.Entry;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,25 @@ public class Synapse implements Serializable {
       rxEvaluate.switchMap(t -> evaluate(context, t).doFinally(context::releaseRef)).subscribe(t -> {
         rxOutput.onNext(new Node.Activation(context, t));
       });
+    }
+
+    public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
+      for (final Entry<Profile, Evaluation> evaluation : evaluations.entrySet()) {
+        final long t = evaluation.getValue().time;
+        float wt = weight;
+        if (time.isPresent()) {
+          if (t > time.get())
+            continue;
+          if (decayPeriod.isPresent()) {
+            long t0 = time.get() - decayPeriod.get();
+            if (t <= t0)
+              continue;
+            wt *= (float) (t - t0) / decayPeriod.get();
+          }
+        }
+
+        evaluation.getKey().coefficient.add(evaluation.getValue().value, wt);
+      }
     }
   }
 

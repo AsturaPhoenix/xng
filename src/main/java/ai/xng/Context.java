@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -121,5 +122,12 @@ public class Context implements Serializable {
       throw new ContextException(this, property);
     }
     return value;
+  }
+
+  public void reinforce(final Optional<Long> time, final Optional<Long> decayPeriod, final float weight) {
+    // There are definitely more efficient ways to do this.
+    for (final Synapse.ContextualState synapseState : synapseStates.values()) {
+      synapseState.reinforce(time, decayPeriod, weight);
+    }
   }
 }

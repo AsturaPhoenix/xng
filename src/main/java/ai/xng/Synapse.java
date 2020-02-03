@@ -96,7 +96,7 @@ public class Synapse implements Serializable {
     private Disposable subscription;
 
     private Profile(final Node incoming) {
-      this.coefficient = new Distribution(1);
+      this.coefficient = new UnimodalHistogram(1);
       this.incoming = incoming;
       resetDecay();
       updateSubscription();

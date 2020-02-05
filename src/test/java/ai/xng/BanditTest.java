@@ -134,7 +134,7 @@ public class BanditTest {
 
                 System.out.println(harness.pulls);
 
-                if (harness.pulls > 10000) {
+                if (harness.pulls > 100) {
                     fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).\n%s", harness.pulls,
                             harness.reward / harness.pulls / best.bandit.p, harness.reward / harness.pulls,
                             harness.report()));

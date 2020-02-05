@@ -1,7 +1,7 @@
 package ai.xng;
 
 public interface Distribution {
-	void clear();
+	void set(final float value);
 
 	void add(final float value, final float weight);
 

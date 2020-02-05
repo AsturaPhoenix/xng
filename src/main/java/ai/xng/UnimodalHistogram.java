@@ -142,18 +142,18 @@ public class UnimodalHistogram implements Distribution, Serializable {
 
     public UnimodalHistogram(final Random random, final float mode) {
         this.random = random;
-        this.mode = mode;
-        clear();
+        set(mode);
     }
 
     @Override
-    public void clear() {
+    public void set(final float value) {
         lock.writeLock().lock();
         try {
             densities.clear();
             densities.put(Float.NEGATIVE_INFINITY, 0f);
             densities.put(Float.POSITIVE_INFINITY, 0f);
             min = max = mode;
+            add(value, 1);
         } finally {
             lock.writeLock().unlock();
         }

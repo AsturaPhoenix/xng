@@ -96,7 +96,7 @@ public class Synapse implements Serializable {
     private Disposable subscription;
 
     private Profile(final Node incoming) {
-      this.coefficient = new UnimodalHistogram(1);
+      this.coefficient = new NormalDistribution(1);
       this.incoming = incoming;
       resetDecay();
       updateSubscription();
@@ -317,8 +317,7 @@ public class Synapse implements Serializable {
 
   public Synapse setCoefficient(final Node node, final float coefficient) {
     final Profile activation = inputs.computeIfAbsent(node, this::newProfile);
-    activation.coefficient.clear();
-    activation.coefficient.add(coefficient, 1);
+    activation.coefficient.set(coefficient);
     activation.updateSubscription();
     return this;
   }

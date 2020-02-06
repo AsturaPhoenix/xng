@@ -18,8 +18,8 @@ public class NormalDistribution implements Distribution, Serializable {
     private static final long serialVersionUID = -4582334729234682748L;
     /** Number of standard deviations to include on each side. */
     private static final float TRUNCATE_BEYOND = 3;
-    private static final float SPREAD_EXPANSION = .2f;
-    private static final float MAX_SPREAD = 1, MIN_WEIGHT = 1, DEFAULT_WEIGHT = 1;
+    private static final int FIT_ITERATIONS = 5;
+    public static final float MAX_SPREAD = 1, MIN_WEIGHT = 1, DEFAULT_WEIGHT = 1;
 
     private final Random random;
     @Getter
@@ -61,6 +61,55 @@ public class NormalDistribution implements Distribution, Serializable {
         standardDeviation = 0;
     }
 
+    private float relPdf(final float value) {
+        if (standardDeviation == 0) {
+            return value == mean ? 1 : 0;
+        } else {
+            final float x = (value - mean) / standardDeviation;
+            return (float) Math.exp(-x * x / 2);
+        }
+    }
+
+    private float pdf(final float value) {
+        return standardDeviation == 0 ? relPdf(value) : relPdf(value) / (standardDeviation * 2 * (float) Math.PI);
+    }
+
+    public float getDensity(final float value) {
+        return value < getMin() || value > getMax() ? 0 : pdf(value);
+    }
+
+    private void fitSpread(final float value, final float density) {
+        final float dx = value - mean;
+
+        final float s0 = standardDeviation;
+
+        // The pdf peaks at value for a given mean when the value is 1 standard
+        // deviation away. If we fall short there, that's the best we can do until the
+        // mean moves closer.
+        standardDeviation = Math.abs(dx);
+        if (pdf(value) <= density) {
+            return;
+        }
+
+        standardDeviation = s0;
+
+        for (int i = 0; i < FIT_ITERATIONS; ++i) {
+            float dpds;
+            if (standardDeviation > 0) {
+                dpds = (dx * dx / (standardDeviation * standardDeviation) - 1) / standardDeviation;
+                if (dpds == 0) {
+                    // err on the side of narrowing (this can only happen for lowering density)
+                    dpds = 1000;
+                }
+            } else {
+                dpds = dx == 0 ? -1000 : 1000;
+            }
+
+            standardDeviation = Floats.constrainToRange(standardDeviation + (density - pdf(value)) / dpds,
+                    dx / TRUNCATE_BEYOND, MAX_SPREAD);
+        }
+    }
+
     @Override
     public void add(final float value, float weight) {
         if (weight == 0)
@@ -68,36 +117,24 @@ public class NormalDistribution implements Distribution, Serializable {
 
         lock.writeLock().lock();
         try {
-            final float dx = value - mean;
+            final float sampleWeight = this.weight * pdf(value);
 
-            if (weight < 0) {
-                // For negative reinforcement, modulate by the mean-relative density to discount
-                // samples with less basis in reality.
-                if (standardDeviation > 0) {
-                    final float x = dx / standardDeviation;
-                    weight *= Math.exp(-x * x / 2);
-                } else if (value != mean) {
-                    return;
-                }
-
-                weight = Math.max(weight, -this.weight / 2);
+            // Limit negative weights when current weight is low.
+            if (this.weight + weight < MIN_WEIGHT / 2) {
+                weight = MIN_WEIGHT / 2 - this.weight;
             }
 
-            float newWeight = this.weight + weight;
-            standardDeviation = Math.min(
-                    (float) Math.sqrt(Math.max(
-                            (this.weight * standardDeviation * standardDeviation + weight * dx * dx) / newWeight, 0)),
-                    MAX_SPREAD);
-            mean = (this.weight * mean + weight * value) / newWeight;
-            if (newWeight < MIN_WEIGHT) {
-                standardDeviation += (MIN_WEIGHT - newWeight) * SPREAD_EXPANSION;
-                this.weight = MIN_WEIGHT;
+            float dw;
+            if (standardDeviation == 0) {
+                dw = value == mean ? weight : -weight;
             } else {
-                this.weight = newWeight;
+                dw = weight * Math.max(1 - Math.abs(value - mean) / standardDeviation, -1);
             }
-        } finally
 
-        {
+            mean = (this.weight * mean + weight * value) / (this.weight + weight);
+            fitSpread(value, (sampleWeight + weight) / Math.max(this.weight + weight, MIN_WEIGHT));
+            this.weight = Math.max(this.weight + dw, MIN_WEIGHT);
+        } finally {
             lock.writeLock().unlock();
         }
     }
@@ -114,7 +151,7 @@ public class NormalDistribution implements Distribution, Serializable {
 
     @Override
     public float generate() {
-        return Floats.constrainToRange((float) random.nextGaussian() * getStandardDeviation() + mean, getMin(),
-                getMax());
+        final float value = (float) random.nextGaussian() * getStandardDeviation() + mean;
+        return value < getMin() || value > getMax() ? mean : value;
     }
 }

@@ -114,8 +114,8 @@ public class BanditTest {
     }
 
     /**
-     * Implements Bernouli Bandit by plugging a minimal network into a tailored test
-     * harness.
+     * Implements Bernoulli Bandit by plugging a minimal network into a tailored
+     * test harness.
      */
     @Test
     public void testMinimalBinaryBandit() {
@@ -134,7 +134,7 @@ public class BanditTest {
 
                 System.out.println(harness.pulls);
 
-                if (harness.pulls > 100) {
+                if (harness.pulls > 10000) {
                     fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).\n%s", harness.pulls,
                             harness.reward / harness.pulls / best.bandit.p, harness.reward / harness.pulls,
                             harness.report()));

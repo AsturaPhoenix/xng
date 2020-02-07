@@ -62,11 +62,13 @@ public class BanditTest {
                         float reinforcement;
                         if (record.bandit.pull()) {
                             ++reward;
-                            System.out.printf("%.4g: =) (%.2f)\n", record.bandit.p, reward / pulls);
                             reinforcement = 1;
+                            System.out.printf("%.4g: =) (%.2f; %.2f)\n", record.bandit.p, reward / pulls,
+                                    reinforcement);
                         } else {
-                            System.out.printf("%.4g: =( (%.2f)\n", record.bandit.p, reward / pulls);
                             reinforcement = reward / (reward - pulls);
+                            System.out.printf("%.4g: =( (%.2f; %.2f)\n", record.bandit.p, reward / pulls,
+                                    reinforcement);
                         }
 
                         activation.context.reinforce(Optional.empty(), Optional.empty(), reinforcement);

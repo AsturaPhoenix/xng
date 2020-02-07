@@ -71,17 +71,20 @@ public class Synapse implements Serializable {
           // Additionally, perturb the distribution for negative reinforcement.
           // There are more sophisticated ways to calculate the expectation and weight but
           // let's start with basic perturbation.
-          if (wt < 0) {
-            if (lastActivation == null || time.isPresent() && lastActivation.time > evaluation.getValue().time) {
-              // Possibly should have activated but didn't.
-              evaluation.getKey().coefficient.add(evaluation.getValue().value + REINFORCEMENT_MARGIN,
-                  -wt * PERTURBATION_WEIGHT);
-            } else {
-              // Possibly should not have activated but did.
-              evaluation.getKey().coefficient.add(evaluation.getValue().value - REINFORCEMENT_MARGIN,
-                  -wt * PERTURBATION_WEIGHT);
-            }
-          }
+          // if (wt < 0) {
+          // if (lastActivation == null || time.isPresent() && lastActivation.time >
+          // evaluation.getValue().time) {
+          // // Possibly should have activated but didn't.
+          // evaluation.getKey().coefficient.add(evaluation.getValue().value +
+          // REINFORCEMENT_MARGIN,
+          // -wt * PERTURBATION_WEIGHT);
+          // } else {
+          // // Possibly should not have activated but did.
+          // evaluation.getKey().coefficient.add(evaluation.getValue().value -
+          // REINFORCEMENT_MARGIN,
+          // -wt * PERTURBATION_WEIGHT);
+          // }
+          // }
         }
       }
     }
@@ -96,7 +99,7 @@ public class Synapse implements Serializable {
     private Disposable subscription;
 
     private Profile(final Node incoming) {
-      this.coefficient = new NormalDistribution(1);
+      this.coefficient = new ThresholdDistribution(1);
       this.incoming = incoming;
       resetDecay();
       updateSubscription();

@@ -125,6 +125,7 @@ public class BanditTest {
             val best = harness.bandits.stream().max((a, b) -> Double.compare(a.bandit.p, b.bandit.p)).get();
 
             int consecutiveBest = 0;
+            double efficacy = 0;
 
             while (consecutiveBest < 100) {
                 val pulls = harness.runTrial();
@@ -136,15 +137,22 @@ public class BanditTest {
 
                 System.out.println(harness.pulls);
 
+                efficacy = harness.reward / harness.pulls / best.bandit.p;
+
                 if (harness.pulls > 10000) {
-                    fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).\n%s", harness.pulls,
-                            harness.reward / harness.pulls / best.bandit.p, harness.reward / harness.pulls,
-                            harness.report()));
+                    if (efficacy > .9) {
+                        System.out.printf("Did not converge after %d pulls, but efficacy was %.2f (%.2f).\n",
+                                harness.pulls, efficacy, harness.reward / harness.pulls);
+                        return;
+                    } else {
+                        fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).\n%s",
+                                harness.pulls, efficacy, harness.reward / harness.pulls, harness.report()));
+                    }
                 }
             }
 
-            System.out.printf("Converged after around %d pulls with %.2f efficacy (%.2f).\n", harness.pulls,
-                    harness.reward / harness.pulls / best.bandit.p, harness.reward / harness.pulls);
+            System.out.printf("Converged after around %d pulls with %.2f efficacy (%.2f).\n", harness.pulls, efficacy,
+                    harness.reward / harness.pulls);
         }
     }
 }

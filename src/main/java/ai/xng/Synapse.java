@@ -36,7 +36,6 @@ public class Synapse implements Serializable {
   public static final long DEBOUNCE_PERIOD = 2;
   private static final float DECAY_MARGIN = .2f;
   private static final float THRESHOLD = 1;
-  private static final float REINFORCEMENT_MARGIN = .125f, PERTURBATION_WEIGHT = 1;
 
   public class ContextualState {
     private final Subject<Long> rxEvaluate;
@@ -67,24 +66,6 @@ public class Synapse implements Serializable {
           }
 
           evaluation.getKey().coefficient.add(evaluation.getValue().value, wt);
-
-          // Additionally, perturb the distribution for negative reinforcement.
-          // There are more sophisticated ways to calculate the expectation and weight but
-          // let's start with basic perturbation.
-          // if (wt < 0) {
-          // if (lastActivation == null || time.isPresent() && lastActivation.time >
-          // evaluation.getValue().time) {
-          // // Possibly should have activated but didn't.
-          // evaluation.getKey().coefficient.add(evaluation.getValue().value +
-          // REINFORCEMENT_MARGIN,
-          // -wt * PERTURBATION_WEIGHT);
-          // } else {
-          // // Possibly should not have activated but did.
-          // evaluation.getKey().coefficient.add(evaluation.getValue().value -
-          // REINFORCEMENT_MARGIN,
-          // -wt * PERTURBATION_WEIGHT);
-          // }
-          // }
         }
       }
     }

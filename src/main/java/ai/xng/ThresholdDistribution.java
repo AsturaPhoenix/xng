@@ -131,6 +131,9 @@ public class ThresholdDistribution implements Distribution, Serializable {
             // be kept relatively small, and we do obviously want to reduce spread as weight
             // increases. Perhaps it has something to do with the relation between variance
             // and sample size.
+            //
+            // It may be possible to simplify the left and right spreads by expanding bias;
+            // this may be a worthwhile investigation in the future.
             return SPREAD_FACTOR * (weightBelow + weightAbove) / (float) Math.sqrt(1 + weightCommon);
         } finally {
             lock.readLock().unlock();

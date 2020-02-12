@@ -19,7 +19,7 @@ public class ThresholdDistributionTest {
         distribution.add(1, 1);
 
         assertEquals(1, distribution.getMode(), 0);
-        assertEquals(2, distribution.getWeight(), 0);
+        assertEquals(ThresholdDistribution.DEFAULT_WEIGHT + 1, distribution.getWeight(), 0);
 
         assertEquals(1, distribution.getMin(), 0);
         assertEquals(1, distribution.getMax(), 0);
@@ -62,6 +62,6 @@ public class ThresholdDistributionTest {
         }
 
         assertEquals(distribution.getThreshold(), total / 10000, .02f);
-        assertEquals(distribution.getBias(), (above - below) / 10000.f, .02f);
+        assertEquals(distribution.getCovariance(), (above - below) / 10000.f, .02f);
     }
 }

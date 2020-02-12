@@ -38,52 +38,20 @@ public class ThresholdDistribution implements Distribution, Serializable {
     private static final long serialVersionUID = -2101048901598646069L;
     /** Number of "standard deviations" to include on each side. */
     public static final float TRUNCATE_BEYOND = 3;
-    public static final float SPREAD_FACTOR = .01f, DEFAULT_WEIGHT = 1;
+    public static final float BASE_SPREAD = .2f, POSITIVE_WEIGHT_SPREAD = .1f, NEGATIVE_WEIGHT_SPREAD = .5f,
+            DEFAULT_WEIGHT = 10;
 
     private final Random random;
     @Getter
-    private float threshold, weightCommon, weightAbove, weightBelow;
+    private float threshold, covariance, weight;
     private final ReadWriteLock lock = new ReentrantReadWriteLock(false);
 
     @Override
     public String toString() {
         lock.readLock().lock();
         try {
-            return String.format("%.4g x [%.4g-%.4g] (%.2f: %.2f-%.2f-%.2f)", threshold, threshold - getLeftSpread(),
-                    threshold + getRightSpread(), getBias(), weightBelow, weightCommon, weightAbove);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * A rough (anti-)skew metric ranging from [-1, 1], based on tail weights. (e.g.
-     * negative bias corresponds to positive skew.)
-     * 
-     * A pure bias metric for a two-bin distribution with one bin on each side of
-     * the threshold can be formulated as {@code 2 * weightAbove / (weightBelow +
-     * weightAbove) - 1}. To accommodate the middle bin here, we effectively add
-     * half of it to each tail bin.
-     */
-    public float getBias() {
-        lock.readLock().lock();
-        try {
-            return weightCommon > 0 || weightAbove > 0 || weightBelow > 0
-                    ? (weightCommon + 2 * weightAbove) / (weightCommon + weightBelow + weightAbove) - 1
-                    : 0;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * A rough metric for the total weight of the distribution, calculated as the
-     * sum of the middle bin weight with the average of the tail bin weights.
-     */
-    public float getWeight() {
-        lock.readLock().lock();
-        try {
-            return weightCommon + (weightBelow + weightAbove) / 2;
+            return String.format("%.4g x [%.4g-%.4g] (%.4f x %.4f)", threshold, threshold - getLeftSpread(),
+                    threshold + getRightSpread(), weight, covariance);
         } finally {
             lock.readLock().unlock();
         }
@@ -112,9 +80,8 @@ public class ThresholdDistribution implements Distribution, Serializable {
         lock.writeLock().lock();
         try {
             threshold = value;
-            weightCommon = DEFAULT_WEIGHT;
-            weightAbove = 0;
-            weightBelow = 0;
+            covariance = 1;
+            weight = DEFAULT_WEIGHT;
         } finally {
             lock.writeLock().unlock();
         }
@@ -127,14 +94,9 @@ public class ThresholdDistribution implements Distribution, Serializable {
     public float getSpread() {
         lock.readLock().lock();
         try {
-            // This seems to work well, though I don't really know why. SPREAD_FACTOR should
-            // be kept relatively small, and we do obviously want to reduce spread as weight
-            // increases. Perhaps it has something to do with the relation between variance
-            // and sample size.
-            //
-            // It may be possible to simplify the left and right spreads by expanding bias;
-            // this may be a worthwhile investigation in the future.
-            return SPREAD_FACTOR * (weightBelow + weightAbove) / (float) Math.sqrt(1 + weightCommon);
+            return BASE_SPREAD * (float) Math.sqrt(1 - Math.abs(covariance))
+                    * (1 + Math.max(0, NEGATIVE_WEIGHT_SPREAD * -weight))
+                    / (1 + Math.max(0, POSITIVE_WEIGHT_SPREAD * weight));
         } finally {
             lock.readLock().unlock();
         }
@@ -143,7 +105,7 @@ public class ThresholdDistribution implements Distribution, Serializable {
     public float getLeftSpread() {
         lock.readLock().lock();
         try {
-            return getSpread() * (1 + getBias()) / 2;
+            return getSpread() * (1 + covariance) / 2;
         } finally {
             lock.readLock().unlock();
         }
@@ -152,28 +114,10 @@ public class ThresholdDistribution implements Distribution, Serializable {
     public float getRightSpread() {
         lock.readLock().lock();
         try {
-            return getSpread() * (1 - getBias()) / 2;
+            return getSpread() * (1 - covariance) / 2;
         } finally {
             lock.readLock().unlock();
         }
-    }
-
-    private float asymmetricNormal(final float value, final float standardDeviation) {
-        if (standardDeviation == 0) {
-            return value == threshold ? 1 : 0;
-        } else {
-            final float x = (value - threshold) / standardDeviation;
-            return (float) Math.exp(-x * x / 2);
-        }
-    }
-
-    /**
-     * A hand-wavy continuous curve that looks like a normal distribution but
-     * doesn't really represent the PDF of this distribution. It is however useful
-     * for weighting bin allotments, maybe.
-     */
-    private float relPdf(final float value) {
-        return asymmetricNormal(value, value < threshold ? getLeftSpread() : getRightSpread());
     }
 
     @Override
@@ -183,21 +127,27 @@ public class ThresholdDistribution implements Distribution, Serializable {
 
         lock.writeLock().lock();
         try {
-            final float inertia = getWeight();
-            // I don't know why this "works". Perhaps it's just because it looks vaguely
-            // like the CDF under each bin?
-            final float relativeDensity = relPdf(value);
+            float inertia = Math.max(1, getWeight());
 
-            if (weight > -inertia + 1) {
-                threshold = (inertia * threshold + weight * value) / (inertia + weight);
+            if (weight < DEFAULT_WEIGHT - inertia) {
+                inertia = DEFAULT_WEIGHT - weight;
             }
 
-            weightCommon = Math.max(0, weightCommon + weight * (2 * relativeDensity - 1));
-            weightBelow = Math.max(0, weightBelow + weight * (value < threshold ? 1 - 2 * relativeDensity : -1));
-            weightAbove = Math.max(0, weightAbove + weight * (value > threshold ? 1 - 2 * relativeDensity : -1));
+            covariance = (inertia * covariance + weight * stableSign(value - threshold)) / (inertia + Math.abs(weight));
+            threshold = (inertia * threshold + weight * value) / (inertia + weight);
+
+            this.weight += weight * stableSign(value - threshold) * covariance;
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    private float stableSign(float x) {
+        return x > 0 ? 1 : x < 0 ? -1 : covarianceSign();
+    }
+
+    private float covarianceSign() {
+        return covariance > 0 ? 1 : covariance < 0 ? -1 : 0;
     }
 
     @Override
@@ -225,7 +175,7 @@ public class ThresholdDistribution implements Distribution, Serializable {
         lock.readLock().lock();
         try {
             float value;
-            if (random.nextFloat() >= (getBias() + 1) / 2) {
+            if (random.nextFloat() >= (covariance + 1) / 2) {
                 value = threshold - (float) Math.abs(random.nextGaussian()) * getLeftSpread();
             } else {
                 value = threshold + (float) Math.abs(random.nextGaussian()) * getRightSpread();

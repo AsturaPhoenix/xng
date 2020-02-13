@@ -39,6 +39,16 @@ public class ThresholdDistributionTest {
         assertTrue(distribution.getMax() > 1);
     }
 
+    @Test
+    public void testSubtractFromDepletedMean() {
+        val distribution = new ThresholdDistribution(1);
+        distribution.add(1, -1);
+
+        assertEquals(1, distribution.getMode(), 0);
+        assertTrue(distribution.getMin() < 1);
+        assertTrue(distribution.getMax() > 1);
+    }
+
     /**
      * The average of values sampled from a biased threshold distribution should
      * still be the threshold. However, the count of values on each side of the

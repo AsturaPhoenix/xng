@@ -38,8 +38,7 @@ public class ThresholdDistribution implements Distribution, Serializable {
     private static final long serialVersionUID = -2101048901598646069L;
     /** Number of "standard deviations" to include on each side. */
     public static final float TRUNCATE_BEYOND = 3;
-    public static final float BASE_SPREAD = .2f, POSITIVE_WEIGHT_SPREAD = .1f, NEGATIVE_WEIGHT_SPREAD = .5f,
-            DEFAULT_WEIGHT = 10;
+    public static final float BASE_SPREAD = .0001f, NEGATIVE_WEIGHT_SPREAD = .1f, DEFAULT_WEIGHT = 1;
 
     private final Random random;
     @Getter
@@ -50,8 +49,8 @@ public class ThresholdDistribution implements Distribution, Serializable {
     public String toString() {
         lock.readLock().lock();
         try {
-            return String.format("%.4g x [%.4g-%.4g] (%.4f x %.4f)", threshold, threshold - getLeftSpread(),
-                    threshold + getRightSpread(), weight, covariance);
+            return String.format("%.4g x [%.4g-%.4g] (%.4f / %.4f)", threshold, threshold - getLeftSpread(),
+                    threshold + getRightSpread(), covariance * weight, weight);
         } finally {
             lock.readLock().unlock();
         }
@@ -94,9 +93,8 @@ public class ThresholdDistribution implements Distribution, Serializable {
     public float getSpread() {
         lock.readLock().lock();
         try {
-            return BASE_SPREAD * (float) Math.sqrt(1 - Math.abs(covariance))
-                    * (1 + Math.max(0, NEGATIVE_WEIGHT_SPREAD * -weight))
-                    / (1 + Math.max(0, POSITIVE_WEIGHT_SPREAD * weight));
+            return BASE_SPREAD * Math.max(1, weight) * (1 - Math.abs(covariance))
+                    * (1 + NEGATIVE_WEIGHT_SPREAD * Math.max(0, -weight));
         } finally {
             lock.readLock().unlock();
         }
@@ -120,6 +118,27 @@ public class ThresholdDistribution implements Distribution, Serializable {
         }
     }
 
+    private float asymmetricNormal(final float value, final float standardDeviation) {
+        if (standardDeviation == 0) {
+            return value == threshold ? 1 : 0;
+        } else {
+            final float x = (value - threshold) / standardDeviation;
+            return (float) Math.exp(-x * x / 2);
+        }
+    }
+
+    private float relPdf(final float value) {
+        final float leftSpread = getLeftSpread(), rightSpread = getRightSpread();
+        final float raw = asymmetricNormal(value, value < threshold ? leftSpread : rightSpread);
+        if (value > threshold && leftSpread < rightSpread) {
+            return raw * leftSpread / rightSpread;
+        } else if (value < threshold && leftSpread > rightSpread) {
+            return raw * rightSpread / leftSpread;
+        } else {
+            return raw;
+        }
+    }
+
     @Override
     public void add(final float value, final float weight) {
         if (weight == 0)
@@ -127,27 +146,23 @@ public class ThresholdDistribution implements Distribution, Serializable {
 
         lock.writeLock().lock();
         try {
-            float inertia = Math.max(1, getWeight());
+            final float covInertia = Math.max(1, this.weight);
+            final float dm = weight * (value - threshold);
+            final float moment = covariance * covInertia + dm;
+            covariance = moment / (covInertia + Math.abs(dm));
 
-            if (weight < DEFAULT_WEIGHT - inertia) {
-                inertia = DEFAULT_WEIGHT - weight;
+            final float inertia = Math.max(this.weight, -2 * weight);
+
+            if (weight < 0) {
+                covariance *= inertia / (inertia - weight);
             }
 
-            covariance = (inertia * covariance + weight * stableSign(value - threshold)) / (inertia + Math.abs(weight));
-            threshold = (inertia * threshold + weight * value) / (inertia + weight);
-
-            this.weight += weight * stableSign(value - threshold) * covariance;
+            final float dw = relPdf(value) * weight;
+            threshold = (inertia * threshold + dw * value) / (inertia + dw);
+            this.weight += dw;
         } finally {
             lock.writeLock().unlock();
         }
-    }
-
-    private float stableSign(float x) {
-        return x > 0 ? 1 : x < 0 ? -1 : covarianceSign();
-    }
-
-    private float covarianceSign() {
-        return covariance > 0 ? 1 : covariance < 0 ? -1 : 0;
     }
 
     @Override

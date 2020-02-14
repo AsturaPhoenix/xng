@@ -77,13 +77,13 @@ public class Synapse implements Serializable {
     @Getter
     private long decayPeriod; // linear for now
     private final Node incoming;
-    private Disposable subscription;
+    private final Disposable subscription;
 
     private Profile(final Node incoming) {
       this.coefficient = new ThresholdDistribution(0);
       this.incoming = incoming;
       resetDecay();
-      updateSubscription();
+      subscription = incoming.rxActivate().subscribe(this::onActivate);
     }
 
     public void resetDecay() {
@@ -95,20 +95,6 @@ public class Synapse implements Serializable {
       // activated again, we want this activation to be decayed by at the
       // decay margin.
       decayPeriod = Math.max((long) (incoming.getRefractory() / DECAY_MARGIN), 1);
-    }
-
-    /**
-     * Only subscriptions to positive coefficients are kept; negative coefficients
-     * can still contribute to evaluation, but naturally they can never themselves
-     * result in a signal being propagated so they do not require a subscription.
-     */
-    public void updateSubscription() {
-      if (coefficient.getMax() > 0 && subscription == null) {
-        subscription = incoming.rxActivate().subscribe(this::onActivate);
-      } else if (coefficient.getMax() <= 0 && subscription != null) {
-        subscription.dispose();
-        subscription = null;
-      }
     }
 
     private void onActivate(final Node.Activation activation) {
@@ -290,7 +276,6 @@ public class Synapse implements Serializable {
       final Profile profile = new Profile(node);
       profile.coefficient = (Distribution) o.readObject();
       profile.decayPeriod = o.readLong();
-      profile.updateSubscription();
       inputs.put(node, profile);
     }
   }
@@ -302,7 +287,6 @@ public class Synapse implements Serializable {
   public Synapse setCoefficient(final Node node, final float coefficient) {
     val profile = profile(node);
     profile.coefficient.set(coefficient);
-    profile.updateSubscription();
     return this;
   }
 

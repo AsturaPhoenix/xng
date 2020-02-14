@@ -3,13 +3,20 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.ArrayDeque;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterators;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.BehaviorSubject;
@@ -76,11 +83,19 @@ public class Context implements Serializable {
 
     continuation = new CompletableFuture<>();
     exceptionHandler = continuation::completeExceptionally;
+
+    activations.rxActivate().subscribe(node -> {
+      synchronized (activations.mutex()) {
+        final List<Node> recent = Iterators.find(new HebbianReinforcementWindow(Optional.empty()),
+            deck -> deck.get(0) == node);
+        hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT, HEBBIAN_IMPLICIT_INCREMENT);
+      }
+    });
   }
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
-    init();
     stream.defaultReadObject();
+    init();
   }
 
   public Observable<Boolean> rxActive() {
@@ -125,9 +140,80 @@ public class Context implements Serializable {
   }
 
   public void reinforce(final Optional<Long> time, final Optional<Long> decayPeriod, final float weight) {
+    synchronized (activations.mutex()) {
+      for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(time); window.hasNext();) {
+        hebbianReinforcement(window.next(), time, weight * HEBBIAN_EXPLICIT_WEIGHT_FACTOR, HEBBIAN_EXPLICIT_INCREMENT);
+      }
+    }
+
     // There are definitely more efficient ways to do this.
     for (final Synapse.ContextualState synapseState : synapseStates.values()) {
       synapseState.reinforce(time, decayPeriod, weight);
+    }
+  }
+
+  public static long HEBBIAN_MAX_GLOBAL = 15000, HEBBIAN_MAX_LOCAL = 500;
+  public static float HEBBIAN_IMPLICIT_WEIGHT = .1f, HEBBIAN_EXPLICIT_WEIGHT_FACTOR = .1f;
+  public static float HEBBIAN_IMPLICIT_INCREMENT = .1f, HEBBIAN_EXPLICIT_INCREMENT = .5f;
+
+  private class HebbianReinforcementWindow implements Iterator<List<Node>> {
+    final Optional<Long> time;
+    final Iterator<Node> activations = Context.this.activations.iterator();
+    Node next;
+    final Queue<Node> deck = new ArrayDeque<>();
+
+    HebbianReinforcementWindow(final Optional<Long> time) {
+      this.time = time;
+      do {
+        draw();
+      } while (next != null && time.isPresent() && next.getLastActivation(Context.this) > time.get());
+    }
+
+    private void draw() {
+      if (activations.hasNext()) {
+        next = activations.next();
+        if (time.isPresent() && next.getLastActivation(Context.this) < time.get() - HEBBIAN_MAX_GLOBAL) {
+          next = null;
+        }
+      } else {
+        next = null;
+      }
+    }
+
+    @Override
+    public boolean hasNext() {
+      return next != null || !deck.isEmpty();
+    }
+
+    @Override
+    public List<Node> next() {
+      while (next != null && (deck.isEmpty()
+          || next.getLastActivation(Context.this) >= deck.peek().getLastActivation(Context.this) - HEBBIAN_MAX_LOCAL)) {
+        deck.add(next);
+        draw();
+      }
+
+      final List<Node> snapshot = ImmutableList.copyOf(deck);
+
+      deck.remove();
+
+      return snapshot;
+    }
+  }
+
+  private void hebbianReinforcement(final List<Node> snapshot, final Optional<Long> time, final float baseWeight,
+      final float increment) {
+    final Node posterior = snapshot.get(0);
+    final float posteriorTime = posterior.getLastActivation(this);
+    final float posteriorWeight = time.isPresent()
+        ? baseWeight * (1 - (float) (time.get() - posteriorTime) / HEBBIAN_MAX_GLOBAL)
+        : baseWeight;
+
+    for (final Node prior : snapshot.subList(1, snapshot.size())) {
+      final Distribution distribution = posterior.synapse.profile(prior).getCoefficient();
+      final float weight = posteriorWeight
+          * (1 - (float) (posteriorTime - prior.getLastActivation(this)) / HEBBIAN_MAX_LOCAL);
+      distribution.add(distribution.getMode() + increment, weight);
     }
   }
 }

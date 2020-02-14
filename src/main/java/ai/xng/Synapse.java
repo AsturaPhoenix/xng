@@ -80,7 +80,7 @@ public class Synapse implements Serializable {
     private Disposable subscription;
 
     private Profile(final Node incoming) {
-      this.coefficient = new ThresholdDistribution(1);
+      this.coefficient = new ThresholdDistribution(0);
       this.incoming = incoming;
       resetDecay();
       updateSubscription();
@@ -287,7 +287,7 @@ public class Synapse implements Serializable {
     final int size = o.readInt();
     for (int i = 0; i < size; i++) {
       final Node node = (Node) o.readObject();
-      final Profile profile = newProfile(node);
+      final Profile profile = new Profile(node);
       profile.coefficient = (Distribution) o.readObject();
       profile.decayPeriod = o.readLong();
       profile.updateSubscription();
@@ -295,20 +295,20 @@ public class Synapse implements Serializable {
     }
   }
 
-  private Profile newProfile(final Node source) {
-    return new Profile(source);
+  public Profile profile(final Node node) {
+    return inputs.computeIfAbsent(node, Profile::new);
   }
 
   public Synapse setCoefficient(final Node node, final float coefficient) {
-    final Profile activation = inputs.computeIfAbsent(node, this::newProfile);
-    activation.coefficient.set(coefficient);
-    activation.updateSubscription();
+    val profile = profile(node);
+    profile.coefficient.set(coefficient);
+    profile.updateSubscription();
     return this;
   }
 
   public float getCoefficient(final Node node) {
-    final Profile activation = inputs.get(node);
-    return activation == null ? 0 : activation.coefficient.getMode();
+    final Profile profile = inputs.get(node);
+    return profile == null ? 0 : profile.coefficient.getMode();
   }
 
   /**
@@ -317,13 +317,13 @@ public class Synapse implements Serializable {
    *                  activation to 0
    */
   public Synapse setDecayPeriod(final Node node, final long decayPeriod) {
-    inputs.computeIfAbsent(node, this::newProfile).decayPeriod = decayPeriod;
+    profile(node).decayPeriod = decayPeriod;
     return this;
   }
 
   public long getDecayPeriod(final Node node) {
-    final Profile activation = inputs.get(node);
-    return activation == null ? 0 : activation.decayPeriod;
+    final Profile profile = inputs.get(node);
+    return profile == null ? 0 : profile.decayPeriod;
   }
 
   public void dissociate(final Node node) {

@@ -85,11 +85,11 @@ public class Context implements Serializable {
     exceptionHandler = continuation::completeExceptionally;
 
     activations.rxActivate().subscribe(node -> {
+      final List<Node> recent;
       synchronized (activations.mutex()) {
-        final List<Node> recent = Iterators.find(new HebbianReinforcementWindow(Optional.empty()),
-            deck -> deck.get(0) == node);
-        hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT, HEBBIAN_IMPLICIT_INCREMENT);
+        recent = Iterators.find(new HebbianReinforcementWindow(Optional.empty()), deck -> deck.get(0) == node);
       }
+      hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT);
     });
   }
 
@@ -142,7 +142,7 @@ public class Context implements Serializable {
   public void reinforce(final Optional<Long> time, final Optional<Long> decayPeriod, final float weight) {
     synchronized (activations.mutex()) {
       for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(time); window.hasNext();) {
-        hebbianReinforcement(window.next(), time, weight * HEBBIAN_EXPLICIT_WEIGHT_FACTOR, HEBBIAN_EXPLICIT_INCREMENT);
+        hebbianReinforcement(window.next(), time, weight * HEBBIAN_EXPLICIT_WEIGHT_FACTOR);
       }
     }
 
@@ -154,7 +154,6 @@ public class Context implements Serializable {
 
   public static long HEBBIAN_MAX_GLOBAL = 15000, HEBBIAN_MAX_LOCAL = 500;
   public static float HEBBIAN_IMPLICIT_WEIGHT = .1f, HEBBIAN_EXPLICIT_WEIGHT_FACTOR = .1f;
-  public static float HEBBIAN_IMPLICIT_INCREMENT = .1f, HEBBIAN_EXPLICIT_INCREMENT = .5f;
 
   private class HebbianReinforcementWindow implements Iterator<List<Node>> {
     final Optional<Long> time;
@@ -201,19 +200,24 @@ public class Context implements Serializable {
     }
   }
 
-  private void hebbianReinforcement(final List<Node> snapshot, final Optional<Long> time, final float baseWeight,
-      final float increment) {
+  private void hebbianReinforcement(final List<Node> snapshot, final Optional<Long> time, final float baseWeight) {
     final Node posterior = snapshot.get(0);
-    final float posteriorTime = posterior.getLastActivation(this);
+    final long posteriorTime = posterior.getLastActivation(this);
     final float posteriorWeight = time.isPresent()
         ? baseWeight * (1 - (float) (time.get() - posteriorTime) / HEBBIAN_MAX_GLOBAL)
         : baseWeight;
 
     for (final Node prior : snapshot.subList(1, snapshot.size())) {
-      final Distribution distribution = posterior.synapse.profile(prior).getCoefficient();
-      final float weight = posteriorWeight
-          * (1 - (float) (posteriorTime - prior.getLastActivation(this)) / HEBBIAN_MAX_LOCAL);
-      distribution.add(distribution.getMode() + increment, weight);
+      final Synapse.Evaluation priorEvaluation = posterior.synapse.getPrecedingEvaluation(this, prior, posteriorTime);
+      if (priorEvaluation == null)
+        // This can happen near initialization, where there is no history and the
+        // recency queue is in random order.
+        continue;
+
+      final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
+      final float target = 1 - posterior.synapse.getValue(this, priorEvaluation.time) + priorEvaluation.value;
+
+      posterior.synapse.profile(prior).getCoefficient().add(target, weight);
     }
   }
 }

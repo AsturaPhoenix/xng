@@ -4,16 +4,19 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Map.Entry;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
+
+import com.google.common.collect.Iterators;
+
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
-import io.reactivex.subjects.ReplaySubject;
 import io.reactivex.subjects.Subject;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -39,7 +42,7 @@ public class Synapse implements Serializable {
 
   public class ContextualState {
     private final Subject<Long> rxEvaluate;
-    private final Map<Profile, Evaluation> evaluations = Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<Node, ArrayDeque<Evaluation>> evaluations = Collections.synchronizedMap(new WeakHashMap<>());
     Evaluation lastActivation;
 
     public ContextualState(final Context context) {
@@ -51,21 +54,26 @@ public class Synapse implements Serializable {
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
       synchronized (evaluations) {
-        for (final Entry<Profile, Evaluation> evaluation : evaluations.entrySet()) {
-          final long t = evaluation.getValue().time;
-          float wt = weight;
-          if (time.isPresent()) {
-            if (t > time.get())
-              continue;
-            if (decayPeriod.isPresent()) {
-              long t0 = time.get() - decayPeriod.get();
-              if (t <= t0)
-                continue;
-              wt *= (float) (t - t0) / decayPeriod.get();
+        for (final Entry<Node, ArrayDeque<Evaluation>> entry : evaluations.entrySet()) {
+          final Profile profile = inputs.get(entry.getKey());
+          synchronized (entry.getValue()) {
+            for (final Evaluation evaluation : entry.getValue()) {
+              final long t = evaluation.time;
+              float wt = weight;
+              if (time.isPresent()) {
+                if (t > time.get())
+                  continue;
+                if (decayPeriod.isPresent()) {
+                  long t0 = time.get() - decayPeriod.get();
+                  if (t <= t0)
+                    continue;
+                  wt *= (float) (t - t0) / decayPeriod.get();
+                }
+              }
+
+              profile.coefficient.add(evaluation.value, wt);
             }
           }
-
-          evaluation.getKey().coefficient.add(evaluation.getValue().value, wt);
         }
       }
     }
@@ -105,34 +113,29 @@ public class Synapse implements Serializable {
     }
 
     public float getValue(final Context context, final long time) {
-      // We lazily re-evaluate inhibitory coefficients, so check whether
-      // we need to re-evaluate now.
-      long lastActivation = incoming.getLastActivation(context);
-      long dt = Math.max(time - lastActivation, 0);
+      // TODO(rosswang): it may be an interesting simplification to restrict that
+      // nodes may only be activated once per context. Then we might be able to get
+      // rid of refractory periods and decays, but it would have implications for
+      // temporal processing (in particular we'd force discrete time steps).
 
-      if (dt >= decayPeriod) {
-        return 0;
-      }
+      final long lastActivation = incoming.getLastActivation(context);
 
       final ContextualState contextualState = context.synapseState(Synapse.this);
-      // TODO(rosswang): it may be an interesting simplification to
-      // restrict that nodes may only be activated once per context. Then
-      // we might be able to get rid of refractory periods and decays, but
-      // it would have implications for temporal processing (in particular
-      // we'd force discrete time steps).
-      final Evaluation lastEvaluation = contextualState.evaluations.get(this);
-      final float v0;
-      if (lastEvaluation == null || lastEvaluation.time != lastActivation) {
-        v0 = coefficient.generate();
-        contextualState.evaluations.put(this, new Evaluation(lastActivation, v0));
-      } else {
-        v0 = lastEvaluation.value;
-      }
-      return v0 * (1 - dt / (float) decayPeriod);
-    }
+      final ArrayDeque<Evaluation> evaluations = contextualState.evaluations.computeIfAbsent(incoming,
+          node -> new ArrayDeque<>());
 
-    public float getLastCoefficient(final Context context) {
-      return context.synapseState(Synapse.this).evaluations.get(this).value;
+      synchronized (evaluations) {
+        // We lazily re-evaluate inhibitory coefficients, so check whether we need to
+        // re-evaluate now.
+        if (evaluations.isEmpty() || evaluations.peekLast().time < lastActivation) {
+          evaluations.add(new Evaluation(lastActivation, coefficient.generate()));
+        }
+
+        return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).transform(e -> {
+          final long dt = time - e.time;
+          return dt < decayPeriod ? e.value * (1 - (float) dt / decayPeriod) : 0;
+        }).or(0.f);
+      }
     }
 
     private long getZero(final Context context) {
@@ -144,7 +147,6 @@ public class Synapse implements Serializable {
   private transient Map<Node, Profile> inputs;
 
   private transient Subject<Node.Activation> rxOutput;
-  private transient Subject<ContextualEvaluation> rxValue;
 
   public Synapse() {
     init();
@@ -153,7 +155,6 @@ public class Synapse implements Serializable {
   private void init() {
     inputs = Collections.synchronizedMap(new WeakHashMap<>());
     rxOutput = PublishSubject.create();
-    rxValue = ReplaySubject.createWithSize(EVALUATION_HISTORY);
   }
 
   @RequiredArgsConstructor
@@ -172,12 +173,6 @@ public class Synapse implements Serializable {
     public final Evaluation evaluation;
   }
 
-  public static final int EVALUATION_HISTORY = 10;
-
-  public Observable<ContextualEvaluation> rxValue() {
-    return rxValue;
-  }
-
   /**
    * Emits an activation signal or schedules a re-evaluation at a future time,
    * depending on current state.
@@ -187,11 +182,9 @@ public class Synapse implements Serializable {
     // Synchronize for consistency during reinforcement.
     synchronized (synapseState.evaluations) {
       final float value = getValue(context, time);
-      val evaluation = new Evaluation(time, value);
-      rxValue.onNext(new ContextualEvaluation(context, evaluation));
 
       if (value >= THRESHOLD) {
-        synapseState.lastActivation = evaluation;
+        synapseState.lastActivation = new Evaluation(time, value);
         return Observable.just(time);
       } else {
         final long nextCrit = getNextCriticalPoint(context, time);
@@ -232,11 +225,10 @@ public class Synapse implements Serializable {
         final float value = profile.getValue(context, time);
         if (value != 0) {
           totalValue += value;
-          float coefficient = profile.getLastCoefficient(context);
-          if (coefficient < 0) {
+          if (value < 0) {
             hasInhibitory = true;
           }
-          totalDecayRate += coefficient / profile.decayPeriod;
+          totalDecayRate += value / profile.decayPeriod;
           nextZero = Math.min(nextZero, profile.getZero(context));
         }
       }
@@ -318,6 +310,22 @@ public class Synapse implements Serializable {
   }
 
   public Evaluation getLastEvaluation(final Context context, final Node incoming) {
-    return context.synapseState(this).evaluations.get(inputs.get(incoming));
+    final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
+    if (evaluations == null)
+      return null;
+
+    synchronized (evaluations) {
+      return evaluations.peekLast();
+    }
+  }
+
+  public Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {
+    final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
+    if (evaluations == null)
+      return null;
+
+    synchronized (evaluations) {
+      return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
+    }
   }
 }

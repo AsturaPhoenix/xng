@@ -153,7 +153,7 @@ public class Context implements Serializable {
   }
 
   public static long HEBBIAN_MAX_GLOBAL = 15000, HEBBIAN_MAX_LOCAL = 500;
-  public static float HEBBIAN_IMPLICIT_WEIGHT = .1f, HEBBIAN_EXPLICIT_WEIGHT_FACTOR = .1f;
+  public static float HEBBIAN_IMPLICIT_WEIGHT = .10f, HEBBIAN_EXPLICIT_WEIGHT_FACTOR = .01f;
 
   private class HebbianReinforcementWindow implements Iterator<List<Node>> {
     final Optional<Long> time;
@@ -165,13 +165,15 @@ public class Context implements Serializable {
       this.time = time;
       do {
         draw();
+        // Drain until we reach the effective time.
       } while (next != null && time.isPresent() && next.getLastActivation(Context.this) > time.get());
     }
 
     private void draw() {
       if (activations.hasNext()) {
         next = activations.next();
-        if (time.isPresent() && next.getLastActivation(Context.this) < time.get() - HEBBIAN_MAX_GLOBAL) {
+        final long lastActivation = next.getLastActivation(Context.this);
+        if (time.isPresent() && lastActivation < time.get() - HEBBIAN_MAX_GLOBAL || lastActivation == 0) {
           next = null;
         }
       } else {
@@ -208,11 +210,15 @@ public class Context implements Serializable {
         : baseWeight;
 
     for (final Node prior : snapshot.subList(1, snapshot.size())) {
-      final Synapse.Evaluation priorEvaluation = posterior.synapse.getPrecedingEvaluation(this, prior, posteriorTime);
-      if (priorEvaluation == null)
-        // This can happen near initialization, where there is no history and the
-        // recency queue is in random order.
-        continue;
+      Synapse.Evaluation priorEvaluation = posterior.synapse.getPrecedingEvaluation(this, prior, posteriorTime);
+      assert priorEvaluation == null || priorEvaluation.time > 0;
+
+      if (priorEvaluation == null) {
+        // New connection; treat as a prior evaluation of 0.
+        priorEvaluation = new Synapse.Evaluation(prior.getLastActivation(this), 0);
+        // TODO: Also add initial inertia based on node activation history. For now this
+        // is just 1 at 0.
+      }
 
       final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
       final float target = 1 - posterior.synapse.getValue(this, priorEvaluation.time) + priorEvaluation.value;

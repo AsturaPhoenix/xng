@@ -123,6 +123,8 @@ public class Synapse implements Serializable {
 
       synchronized (Synapse.this.$lock) {
         final long lastActivation = incoming.getLastActivation(context);
+        if (lastActivation == 0)
+          return 0;
 
         final ContextualState contextualState = context.synapseState(Synapse.this);
         final ArrayDeque<Evaluation> evaluations = contextualState.evaluations.computeIfAbsent(incoming,

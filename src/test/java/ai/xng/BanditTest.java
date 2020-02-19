@@ -119,23 +119,9 @@ public class BanditTest {
 
             if (newPulls.isEmpty()) {
                 context.reinforce(Optional.empty(), Optional.empty(), -.1f);
-                System.out.println(report());
             }
 
             return newPulls;
-        }
-
-        @Override
-        public void onActivate(final BanditRecord record, final Node.Activation activation) {
-            super.onActivate(record, activation);
-            System.out.println(report());
-        }
-
-        public String report() {
-            return bandits.stream().sorted((a, b) -> -Double.compare(a.bandit.p, b.bandit.p))
-                    .map(record -> String.format("%.4g: %s", record.bandit.p,
-                            record.node.synapse.getInputs().get(choose).getCoefficient()))
-                    .collect(Collectors.joining("\n"));
         }
     }
 

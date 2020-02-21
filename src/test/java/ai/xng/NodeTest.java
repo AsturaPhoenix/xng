@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map.Entry;
 
@@ -145,17 +146,22 @@ public class NodeTest {
   @Test
   public void testShortPullDown() throws Exception {
     val up = new Node(), down = new Node(), out = new Node();
-    val monitor = new EmissionMonitor<>(out.rxActivate());
-    out.synapse.setCoefficient(up, 2);
+
+    val activations = new ArrayList<Long>();
+    long beginning = System.currentTimeMillis();
+    out.rxActivate().subscribe(a -> activations.add(a.timestamp - beginning));
+
+    out.synapse.setCoefficient(up, 2.1f);
     out.synapse.setDecayPeriod(up, 1000);
     out.synapse.setCoefficient(down, -3);
-    out.synapse.setDecayPeriod(down, 300);
+    out.synapse.setDecayPeriod(down, 500);
     val context = new Context(Node::new);
+    down.rxActivate().subscribe(a -> up.activate(context));
     down.activate(context);
-    up.activate(context);
-    assertFalse(monitor.didEmit());
-    Thread.sleep(500);
-    assertTrue(monitor.didEmit());
+    context.rxActive().filter(active -> !active).blockingFirst();
+
+    assertEquals(activations.toString(), 1, activations.size());
+    assertTrue(activations.get(0) + " !> 400", activations.get(0) > 400);
   }
 
   @Test

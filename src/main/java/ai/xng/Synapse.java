@@ -5,6 +5,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Map.Entry;
@@ -50,9 +51,9 @@ public class Synapse implements Serializable {
 
     public ContextualState(final Context context) {
       rxEvaluate = PublishSubject.create();
-      rxEvaluate.switchMap(t -> evaluate(context, t).doFinally(context::releaseRef)).subscribe(t -> {
-        rxOutput.onNext(new Node.Activation(context, t));
-      });
+      // addRef: Profile::onActivate
+      rxEvaluate.switchMap(t -> evaluate(context, t).doFinally(context::releaseRef))
+          .subscribe(t -> rxOutput.onNext(new Node.Activation(context, t)));
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
@@ -111,6 +112,7 @@ public class Synapse implements Serializable {
     private void onActivate(final Node.Activation activation) {
       // Schedules an evaluation in the appropriate context, which will
       // sum the incoming signals.
+      // releaseRef: ContextualState::ContextualState
       activation.context.addRef();
       activation.context.synapseState(Synapse.this).rxEvaluate.onNext(activation.timestamp);
     }
@@ -126,9 +128,11 @@ public class Synapse implements Serializable {
         if (lastActivation == 0)
           return 0;
 
-        final ContextualState contextualState = context.synapseState(Synapse.this);
-        final ArrayDeque<Evaluation> evaluations = contextualState.evaluations.computeIfAbsent(incoming,
-            node -> new ArrayDeque<>());
+        // The following is basically Synapse::getPrecedingEvaluation but with a
+        // computeIfAbsent for the deque and the evaluation, and an extrapolation
+        // afterwards.
+        final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations
+            .computeIfAbsent(incoming, node -> new ArrayDeque<>());
 
         // We lazily re-evaluate inhibitory coefficients, so check whether we need to
         // re-evaluate now.
@@ -136,15 +140,14 @@ public class Synapse implements Serializable {
           evaluations.add(new Evaluation(lastActivation, coefficient.generate()));
         }
 
-        return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).transform(e -> {
-          final long dt = time - e.time;
-          return dt < decayPeriod ? e.value * (1 - (float) dt / decayPeriod) : 0;
-        }).or(0.f);
+        return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time)
+            .transform(e -> extrapolateEvaluation(e, time)).or(0.f);
       }
     }
 
-    private long getZero(final Context context) {
-      return incoming.getLastActivation(context) + decayPeriod;
+    public float extrapolateEvaluation(final Evaluation evaluation, final long time) {
+      final long dt = time - evaluation.time;
+      return dt < decayPeriod ? evaluation.value * (1 - (float) dt / decayPeriod) : 0;
     }
   }
 
@@ -174,14 +177,15 @@ public class Synapse implements Serializable {
    */
   @Synchronized
   private Observable<Long> evaluate(final Context context, final long time) {
-    if (getValue(context, time) >= THRESHOLD) {
+    val value = getValue(context, time);
+    if (value >= THRESHOLD) {
       return Observable.just(time);
     } else {
-      final long nextCrit = getNextCriticalPoint(context, time);
-      if (nextCrit == Long.MAX_VALUE) {
+      final long nextThreshold = getNextThreshold(context, time);
+      if (nextThreshold == Long.MAX_VALUE) {
         return Observable.empty();
       } else {
-        return Observable.timer(nextCrit - time, TimeUnit.MILLISECONDS).flatMap(x -> evaluate(context, nextCrit));
+        return Observable.timer(nextThreshold - time, TimeUnit.MILLISECONDS).map(z -> nextThreshold);
       }
     }
   }
@@ -191,38 +195,58 @@ public class Synapse implements Serializable {
     return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
   }
 
+  private static class EvaluationDecayProfile {
+    Evaluation evaluation;
+    float decayRate;
+    long expiration;
+  }
+
   /**
-   * Gets the next time the synapse should be evaluated if current conditions
-   * hold. This is the minimum of the next time the synapse would cross the
-   * activation threshold given current conditions, and the zeros of the
-   * activations involved. Activations that have already fully decayed do not
-   * affect this calculation.
-   * 
-   * This is a very conservative definition and can be optimized further.
+   * Gets the next time the synapse should activate if current conditions hold, or
+   * {@link Long#MAX_VALUE} if an activation is not on the horizon.
    */
-  private long getNextCriticalPoint(final Context context, final long time) {
+  private long getNextThreshold(final Context context, long time) {
+    val decayProfiles = new ArrayList<EvaluationDecayProfile>(inputs.size());
+
+    // We'll walk these back as profiles expire. If the roundoff error is too
+    // severe, we can revisit.
     float totalValue = 0, totalDecayRate = 0;
-    long nextZero = Long.MAX_VALUE;
-    boolean hasInhibitory = false;
+
     for (final Profile profile : inputs.values()) {
-      final float value = profile.getValue(context, time);
-      if (value != 0) {
-        totalValue += value;
-        if (value < 0) {
-          hasInhibitory = true;
-        }
-        totalDecayRate += value / profile.decayPeriod;
-        nextZero = Math.min(nextZero, profile.getZero(context));
+      val decayProfile = new EvaluationDecayProfile();
+      decayProfile.evaluation = getPrecedingEvaluation(context, profile.incoming, time);
+      if (decayProfile.evaluation == null)
+        continue;
+
+      decayProfile.expiration = decayProfile.evaluation.time + profile.decayPeriod;
+      if (time >= decayProfile.expiration)
+        continue;
+
+      decayProfile.decayRate = decayProfile.evaluation.value / profile.decayPeriod;
+      decayProfiles.add(decayProfile);
+
+      totalValue += profile.extrapolateEvaluation(decayProfile.evaluation, time);
+      totalDecayRate += decayProfile.decayRate;
+    }
+
+    // Descend by expiration; we'll pop from the back as evaluations expire.
+    decayProfiles.sort((a, b) -> Long.compare(b.expiration, a.expiration));
+
+    while (!decayProfiles.isEmpty()) {
+      assert totalValue < THRESHOLD;
+      val expiringProfile = decayProfiles.remove(decayProfiles.size() - 1);
+
+      if (totalDecayRate < 0) {
+        final long nextThresh = time + (long) Math.ceil((THRESHOLD - totalValue) / -totalDecayRate);
+        if (nextThresh <= expiringProfile.expiration)
+          return nextThresh;
       }
-    }
 
-    // This is a simple optimization for a common case.
-    if (!hasInhibitory) {
-      return Long.MAX_VALUE;
+      totalValue -= (expiringProfile.expiration - time) * totalDecayRate;
+      time = expiringProfile.expiration;
+      totalDecayRate -= expiringProfile.decayRate;
     }
-
-    final long untilThresh = (long) ((1 - totalValue) / -totalDecayRate);
-    return untilThresh <= 0 ? nextZero : Math.min(untilThresh + time, nextZero);
+    return Long.MAX_VALUE;
   }
 
   public Observable<Node.Activation> rxActivate() {

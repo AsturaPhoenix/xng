@@ -46,6 +46,7 @@ public class Node implements Serializable {
             synchronized (this) {
               long newTimestamp = System.currentTimeMillis();
               lastActivation = newTimestamp;
+              // continuation: Synapse.Profile::onActivate
               rxOutput.onNext(new Activation(context, newTimestamp));
             }
           }
@@ -56,6 +57,7 @@ public class Node implements Serializable {
           // TODO(rosswang): preserve nodespace stack trace
           context.exceptionHandler.accept(e);
         } finally {
+          // addRef: Node::activate
           context.releaseRef();
         }
       });
@@ -112,6 +114,7 @@ public class Node implements Serializable {
   }
 
   public void activate(final Context context) {
+    // releaseRef: ContextualState::ContextualState
     context.addRef();
     context.nodeState(this).rxInput.onNext(System.currentTimeMillis());
   }

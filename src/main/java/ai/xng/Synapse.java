@@ -11,6 +11,8 @@ import java.util.Optional;
 import java.util.Map.Entry;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.common.collect.Iterators;
 
@@ -21,7 +23,6 @@ import io.reactivex.subjects.Subject;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.Synchronized;
 import lombok.ToString;
 import lombok.val;
 
@@ -57,7 +58,7 @@ public class Synapse implements Serializable {
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
-      synchronized (Synapse.this.$lock) {
+      try (val lock = new DebugLock(Synapse.this.lock)) {
         for (final Entry<Node, ArrayDeque<Evaluation>> entry : evaluations.entrySet()) {
           final Profile profile = inputs.get(entry.getKey());
           for (final Evaluation evaluation : entry.getValue()) {
@@ -104,7 +105,7 @@ public class Synapse implements Serializable {
       // time the refractory period has elapsed and the node may thus be
       // activated again, we want this activation to be decayed by at the
       // decay margin.
-      synchronized (Synapse.this.$lock) {
+      try (val lock = new DebugLock(Synapse.this.lock)) {
         decayPeriod = Math.max((long) (incoming.getRefractory() / DECAY_MARGIN), 1);
       }
     }
@@ -123,7 +124,7 @@ public class Synapse implements Serializable {
       // rid of refractory periods and decays, but it would have implications for
       // temporal processing (in particular we'd force discrete time steps).
 
-      synchronized (Synapse.this.$lock) {
+      try (val lock = new DebugLock(Synapse.this.lock)) {
         final long lastActivation = incoming.getLastActivation(context);
         if (lastActivation == 0)
           return 0;
@@ -151,6 +152,8 @@ public class Synapse implements Serializable {
     }
   }
 
+  private final Lock lock = new ReentrantLock();
+
   private transient Map<Node, Profile> inputs;
   private transient Subject<Node.Activation> rxOutput;
 
@@ -175,24 +178,26 @@ public class Synapse implements Serializable {
    * Emits an activation signal or schedules a re-evaluation at a future time,
    * depending on current state.
    */
-  @Synchronized
   private Observable<Long> evaluate(final Context context, final long time) {
-    val value = getValue(context, time);
-    if (value >= THRESHOLD) {
-      return Observable.just(time);
-    } else {
-      final long nextThreshold = getNextThreshold(context, time);
-      if (nextThreshold == Long.MAX_VALUE) {
-        return Observable.empty();
+    try (val lock = new DebugLock(lock)) {
+      val value = getValue(context, time);
+      if (value >= THRESHOLD) {
+        return Observable.just(time);
       } else {
-        return Observable.timer(nextThreshold - time, TimeUnit.MILLISECONDS).map(z -> nextThreshold);
+        final long nextThreshold = getNextThreshold(context, time);
+        if (nextThreshold == Long.MAX_VALUE) {
+          return Observable.empty();
+        } else {
+          return Observable.timer(nextThreshold - time, TimeUnit.MILLISECONDS).map(z -> nextThreshold);
+        }
       }
     }
   }
 
-  @Synchronized
   public float getValue(final Context context, final long time) {
-    return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
+    try (val lock = new DebugLock(lock)) {
+      return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
+    }
   }
 
   private static class EvaluationDecayProfile {
@@ -253,14 +258,15 @@ public class Synapse implements Serializable {
     return rxOutput;
   }
 
-  @Synchronized
   private void writeObject(final ObjectOutputStream o) throws IOException {
-    o.defaultWriteObject();
-    o.writeInt(inputs.size());
-    for (final Entry<Node, Profile> entry : inputs.entrySet()) {
-      o.writeObject(entry.getKey());
-      o.writeObject(entry.getValue().coefficient);
-      o.writeLong(entry.getValue().decayPeriod);
+    try (val lock = new DebugLock(lock)) {
+      o.defaultWriteObject();
+      o.writeInt(inputs.size());
+      for (final Entry<Node, Profile> entry : inputs.entrySet()) {
+        o.writeObject(entry.getKey());
+        o.writeObject(entry.getValue().coefficient);
+        o.writeLong(entry.getValue().decayPeriod);
+      }
     }
   }
 
@@ -277,9 +283,10 @@ public class Synapse implements Serializable {
     }
   }
 
-  @Synchronized
   public Profile profile(final Node node) {
-    return inputs.computeIfAbsent(node, Profile::new);
+    try (val lock = new DebugLock(lock)) {
+      return inputs.computeIfAbsent(node, Profile::new);
+    }
   }
 
   public Synapse setCoefficient(final Node node, final float coefficient) {
@@ -288,10 +295,11 @@ public class Synapse implements Serializable {
     return this;
   }
 
-  @Synchronized
   public float getCoefficient(final Node node) {
-    final Profile profile = inputs.get(node);
-    return profile == null ? 0 : profile.coefficient.getMode();
+    try (val lock = new DebugLock(lock)) {
+      final Profile profile = inputs.get(node);
+      return profile == null ? 0 : profile.coefficient.getMode();
+    }
   }
 
   /**
@@ -304,35 +312,39 @@ public class Synapse implements Serializable {
     return this;
   }
 
-  @Synchronized
   public long getDecayPeriod(final Node node) {
-    final Profile profile = inputs.get(node);
-    return profile == null ? 0 : profile.decayPeriod;
-  }
-
-  @Synchronized
-  public void dissociate(final Node node) {
-    final Profile profile = inputs.remove(node);
-    if (profile != null) {
-      profile.subscription.dispose();
+    try (val lock = new DebugLock(lock)) {
+      final Profile profile = inputs.get(node);
+      return profile == null ? 0 : profile.decayPeriod;
     }
   }
 
-  @Synchronized
-  public Evaluation getLastEvaluation(final Context context, final Node incoming) {
-    final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
-    if (evaluations == null)
-      return null;
-
-    return evaluations.peekLast();
+  public void dissociate(final Node node) {
+    try (val lock = new DebugLock(lock)) {
+      final Profile profile = inputs.remove(node);
+      if (profile != null) {
+        profile.subscription.dispose();
+      }
+    }
   }
 
-  @Synchronized
-  public Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {
-    final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
-    if (evaluations == null)
-      return null;
+  public Evaluation getLastEvaluation(final Context context, final Node incoming) {
+    try (val lock = new DebugLock(lock)) {
+      final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
+      if (evaluations == null)
+        return null;
 
-    return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
+      return evaluations.peekLast();
+    }
+  }
+
+  public Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {
+    try (val lock = new DebugLock(lock)) {
+      final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
+      if (evaluations == null)
+        return null;
+
+      return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
+    }
   }
 }

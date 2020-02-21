@@ -21,6 +21,7 @@ import com.google.common.collect.Iterators;
 import io.reactivex.Observable;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.Subject;
+import lombok.val;
 
 /**
  * A node value that signifies that a node is behaving as an
@@ -86,7 +87,7 @@ public class Context implements Serializable {
 
     activations.rxActivate().subscribe(node -> {
       final List<Node> recent;
-      synchronized (activations.mutex()) {
+      try (val lock = new DebugLock(activations.mutex())) {
         recent = Iterators.find(new HebbianReinforcementWindow(Optional.empty()), deck -> deck.get(0) == node);
       }
       hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT);
@@ -140,7 +141,7 @@ public class Context implements Serializable {
   }
 
   public void reinforce(final Optional<Long> time, final Optional<Long> decayPeriod, final float weight) {
-    synchronized (activations.mutex()) {
+    try (val lock = new DebugLock(activations.mutex())) {
       for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(time); window.hasNext();) {
         hebbianReinforcement(window.next(), time, weight * HEBBIAN_EXPLICIT_WEIGHT_FACTOR);
       }

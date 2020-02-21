@@ -7,6 +7,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
 import io.reactivex.Observable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
@@ -34,6 +37,7 @@ public class Node implements Serializable {
   }
 
   public class ContextualState {
+    private final Lock lock = new ReentrantLock();
     private long lastActivation;
     private Subject<Long> rxInput = PublishSubject.create();
 
@@ -43,7 +47,7 @@ public class Node implements Serializable {
           if (t - lastActivation >= refractory) {
             if (onActivate != null)
               onActivate.run(context);
-            synchronized (this) {
+            try (val lock = new DebugLock(lock)) {
               long newTimestamp = System.currentTimeMillis();
               lastActivation = newTimestamp;
               // continuation: Synapse.Profile::onActivate

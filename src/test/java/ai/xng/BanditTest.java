@@ -8,6 +8,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 import org.junit.Test;
@@ -40,6 +42,8 @@ public class BanditTest {
             Disposable subscription;
         }
 
+        final Lock lock = new ReentrantLock();
+
         final KnowledgeBase kb;
         final Node choose;
         final List<BanditRecord> bandits;
@@ -56,7 +60,7 @@ public class BanditTest {
                 val record = new BanditRecord(new BinaryBandit(random.nextDouble()), kb.node());
                 bandits.add(record);
                 record.subscription = record.node.rxActivate().subscribe((activation) -> {
-                    synchronized (this) {
+                    try (val lock = new DebugLock(lock)) {
                         onActivate(record, activation);
                     }
                 }, e -> fail(e.toString()));

@@ -13,6 +13,7 @@ import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Iterators;
 
@@ -336,6 +337,14 @@ public class Synapse implements Serializable {
         return null;
 
       return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
+    }
+  }
+
+  @Override
+  public String toString() {
+    try (val lock = new DebugLock(lock)) {
+      return inputs.entrySet().stream().map(entry -> entry.getKey() + ": " + entry.getValue().getCoefficient())
+          .collect(Collectors.joining("\n"));
     }
   }
 }

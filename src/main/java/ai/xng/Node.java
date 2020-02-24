@@ -129,11 +129,15 @@ public class Node implements Serializable {
     return rxOutput;
   }
 
+  public String comment;
   public final Map<Node, Node> properties = Collections.synchronizedMap(new HashMap<>());
 
   @Override
   public String toString() {
     val sb = new StringBuilder(Integer.toHexString(hashCode()));
+    if (comment != null) {
+      sb.append(": ").append(comment);
+    }
     if (value != null) {
       sb.append(" = ").append(value);
     }

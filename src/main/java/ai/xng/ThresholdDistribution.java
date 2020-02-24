@@ -192,9 +192,15 @@ public class ThresholdDistribution implements Distribution, Serializable {
                 threshold = (inertia * threshold + weight * value) / (inertia + weight);
             }
 
-            weightCommon = Math.max(0, weightCommon + weight * (2 * relativeDensity - 1));
-            weightBelow = Math.max(0, weightBelow + weight * (value < threshold ? 1 - 2 * relativeDensity : -1));
-            weightAbove = Math.max(0, weightAbove + weight * (value > threshold ? 1 - 2 * relativeDensity : -1));
+            weightCommon = weightCommon + weight * (2 * relativeDensity - 1);
+            if (weightCommon < 0) {
+                weightBelow = Math.max(0, weightBelow + weightCommon / 2);
+                weightAbove = Math.max(0, weightAbove + weightCommon / 2);
+                weightCommon = 0;
+            } else {
+                weightBelow = Math.max(0, weightBelow + weight * (value < threshold ? 1 - 2 * relativeDensity : -1));
+                weightAbove = Math.max(0, weightAbove + weight * (value > threshold ? 1 - 2 * relativeDensity : -1));
+            }
         } finally {
             lock.writeLock().unlock();
         }

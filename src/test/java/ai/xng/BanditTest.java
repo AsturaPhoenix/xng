@@ -54,11 +54,13 @@ public class BanditTest {
         public BinaryHarness(int banditCount) {
             kb = new KnowledgeBase();
             choose = kb.node();
+            choose.comment = "choose";
             bandits = new ArrayList<BanditRecord>(banditCount);
 
             while (bandits.size() < banditCount) {
                 val record = new BanditRecord(new BinaryBandit(random.nextDouble()), kb.node());
                 bandits.add(record);
+                record.node.comment = String.format("%.4g", record.bandit.p);
                 record.subscription = record.node.rxActivate().subscribe((activation) -> {
                     try (val lock = new DebugLock(lock)) {
                         onActivate(record, activation);
@@ -168,32 +170,41 @@ public class BanditTest {
         int consecutiveBest = 0;
         double efficacy = 0;
 
-        while (consecutiveBest < 100) {
-            val pulls = harness.runTrial();
-            if (pulls.size() == 1 && pulls.iterator().next() == best) {
-                ++consecutiveBest;
-            } else {
-                consecutiveBest = 0;
+        try {
+            while (consecutiveBest < 100) {
+                val pulls = harness.runTrial();
+                if (pulls.size() == 1 && pulls.iterator().next() == best) {
+                    ++consecutiveBest;
+                } else {
+                    consecutiveBest = 0;
+                }
+
+                System.out.println(harness.pulls);
+
+                efficacy = harness.reward / harness.pulls / best.bandit.p;
+
+                if (harness.pulls > 10000) {
+                    if (efficacy > .9) {
+                        System.out.printf("Did not converge after %d pulls, but efficacy was %.2f (%.2f).\n",
+                                harness.pulls, efficacy, harness.reward / harness.pulls);
+                        return;
+                    } else {
+                        fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).\n",
+                                harness.pulls, efficacy, harness.reward / harness.pulls));
+                    }
+                }
             }
 
-            System.out.println(harness.pulls);
-
-            efficacy = harness.reward / harness.pulls / best.bandit.p;
-
-            if (harness.pulls > 10000) {
-                if (efficacy > .9) {
-                    System.out.printf("Did not converge after %d pulls, but efficacy was %.2f (%.2f).\n", harness.pulls,
-                            efficacy, harness.reward / harness.pulls);
-                    return;
-                } else {
-                    fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).\n", harness.pulls,
-                            efficacy, harness.reward / harness.pulls));
+            System.out.printf("Converged after around %d pulls with %.2f efficacy (%.2f).\n", harness.pulls, efficacy,
+                    harness.reward / harness.pulls);
+        } finally {
+            for (val bandit : harness.bandits) {
+                System.out.println(bandit.node);
+                for (val line : bandit.node.synapse.toString().split("\n")) {
+                    System.out.println("\t" + line);
                 }
             }
         }
-
-        System.out.printf("Converged after around %d pulls with %.2f efficacy (%.2f).\n", harness.pulls, efficacy,
-                harness.reward / harness.pulls);
     }
 
     /**

@@ -47,10 +47,12 @@ public class Synapse implements Serializable {
   private static final float THRESHOLD = 1;
 
   public class ContextualState {
+    private final Context context;
     private final Subject<Long> rxEvaluate;
     private final Map<Node, ArrayDeque<Evaluation>> evaluations = new WeakHashMap<>();
 
     public ContextualState(final Context context) {
+      this.context = context;
       rxEvaluate = PublishSubject.create();
       // addRef: Profile::onActivate
       rxEvaluate.switchMap(t -> evaluate(context, t).doFinally(context::releaseRef))
@@ -58,7 +60,7 @@ public class Synapse implements Serializable {
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
-      try (val lock = new DebugLock(Synapse.this.lock)) {
+      try (val lock = new DebugLock.Multiple(context.mutex(), Synapse.this.lock)) {
         for (final Entry<Node, ArrayDeque<Evaluation>> entry : evaluations.entrySet()) {
           final Profile profile = inputs.get(entry.getKey());
           for (final Evaluation evaluation : entry.getValue()) {
@@ -124,7 +126,7 @@ public class Synapse implements Serializable {
       // rid of refractory periods and decays, but it would have implications for
       // temporal processing (in particular we'd force discrete time steps).
 
-      try (val lock = new DebugLock(Synapse.this.lock)) {
+      try (val lock = new DebugLock.Multiple(context.mutex(), Synapse.this.lock)) {
         final long lastActivation = incoming.getLastActivation(context);
         if (lastActivation == 0)
           return 0;
@@ -152,6 +154,15 @@ public class Synapse implements Serializable {
     }
   }
 
+  /**
+   * This lock should be used carefully. Although contextual synapse methods
+   * wouldn't seem to need to lock the context, they can due to lazy creation of
+   * node states. In those cases, if we aren't already holding the lock, we can
+   * deadlock against reinforcement, which locks in reverse order. Thus contextual
+   * methods should first lock the context.
+   * 
+   * This is fragile and should probably be reworked at some point.
+   */
   private final Lock lock = new ReentrantLock();
 
   private transient Map<Node, Profile> inputs;
@@ -179,7 +190,7 @@ public class Synapse implements Serializable {
    * depending on current state.
    */
   private Observable<Long> evaluate(final Context context, final long time) {
-    try (val lock = new DebugLock(lock)) {
+    try (val lock = new DebugLock.Multiple(context.mutex(), lock)) {
       val value = getValue(context, time);
       if (value >= THRESHOLD) {
         return Observable.just(time);
@@ -195,7 +206,7 @@ public class Synapse implements Serializable {
   }
 
   public float getValue(final Context context, final long time) {
-    try (val lock = new DebugLock(lock)) {
+    try (val lock = new DebugLock.Multiple(context.mutex(), lock)) {
       return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
     }
   }
@@ -329,13 +340,7 @@ public class Synapse implements Serializable {
   }
 
   public Evaluation getLastEvaluation(final Context context, final Node incoming) {
-    try (val lock = new DebugLock(lock)) {
-      final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
-      if (evaluations == null)
-        return null;
-
-      return evaluations.peekLast();
-    }
+    return getPrecedingEvaluation(context, incoming, Long.MAX_VALUE);
   }
 
   public Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {

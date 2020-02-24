@@ -12,6 +12,7 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -138,6 +139,10 @@ public class Context implements Serializable {
       throw new ContextException(this, property);
     }
     return value;
+  }
+
+  public Lock mutex() {
+    return activations.mutex();
   }
 
   public void reinforce(final Optional<Long> time, final Optional<Long> decayPeriod, final float weight) {

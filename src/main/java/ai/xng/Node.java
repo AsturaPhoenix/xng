@@ -120,7 +120,9 @@ public class Node implements Serializable {
   public void activate(final Context context) {
     // releaseRef: ContextualState::ContextualState
     context.addRef();
-    context.nodeState(this).rxInput.onNext(System.currentTimeMillis());
+    try (val lock = new DebugLock(context.mutex())) {
+      context.nodeState(this).rxInput.onNext(System.currentTimeMillis());
+    }
   }
 
   public Observable<Activation> rxActivate() {

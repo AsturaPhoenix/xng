@@ -48,15 +48,13 @@ public class Synapse implements Serializable {
 
   public class ContextualState {
     private final Context context;
-    private final Subject<Long> rxEvaluate;
+    private final Subject<Observable<Long>> rxEvaluations;
     private final Map<Node, ArrayDeque<Evaluation>> evaluations = new WeakHashMap<>();
 
     public ContextualState(final Context context) {
       this.context = context;
-      rxEvaluate = PublishSubject.create();
-      // addRef: Profile::onActivate
-      rxEvaluate.switchMap(t -> evaluate(context, t).doFinally(context::releaseRef))
-          .subscribe(t -> rxOutput.onNext(new Node.Activation(context, t)));
+      rxEvaluations = PublishSubject.create();
+      Observable.switchOnNext(rxEvaluations).subscribe(t -> rxOutput.onNext(new Node.Activation(context, t)));
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
@@ -113,11 +111,18 @@ public class Synapse implements Serializable {
     }
 
     private void onActivate(final Node.Activation activation) {
-      // Schedules an evaluation in the appropriate context, which will
-      // sum the incoming signals.
-      // releaseRef: ContextualState::ContextualState
+      // releaseRef: doFinally
       activation.context.addRef();
-      activation.context.synapseState(Synapse.this).rxEvaluate.onNext(activation.timestamp);
+
+      final ContextualState state = activation.context.synapseState(Synapse.this);
+      final ArrayDeque<Evaluation> evaluations = state.evaluations.computeIfAbsent(incoming,
+          node -> new ArrayDeque<>());
+      try (val lock = new DebugLock.Multiple(activation.context.mutex(), Synapse.this.lock)) {
+        final float value = coefficient.generate();
+        evaluations.add(new Evaluation(activation.timestamp, value));
+        state.rxEvaluations.onNext(
+            evaluate(activation.context, activation.timestamp, value).doFinally(activation.context::releaseRef));
+      }
     }
 
     public float getValue(final Context context, final long time) {
@@ -126,26 +131,8 @@ public class Synapse implements Serializable {
       // rid of refractory periods and decays, but it would have implications for
       // temporal processing (in particular we'd force discrete time steps).
 
-      try (val lock = new DebugLock.Multiple(context.mutex(), Synapse.this.lock)) {
-        final long lastActivation = incoming.getLastActivation(context);
-        if (lastActivation == 0)
-          return 0;
-
-        // The following is basically Synapse::getPrecedingEvaluation but with a
-        // computeIfAbsent for the deque and the evaluation, and an extrapolation
-        // afterwards.
-        final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations
-            .computeIfAbsent(incoming, node -> new ArrayDeque<>());
-
-        // We lazily re-evaluate inhibitory coefficients, so check whether we need to
-        // re-evaluate now.
-        if (evaluations.isEmpty() || evaluations.peekLast().time < lastActivation) {
-          evaluations.add(new Evaluation(lastActivation, coefficient.generate()));
-        }
-
-        return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time)
-            .transform(e -> extrapolateEvaluation(e, time)).or(0.f);
-      }
+      final Evaluation lastEvaluation = getPrecedingEvaluation(context, incoming, time);
+      return lastEvaluation == null ? 0 : extrapolateEvaluation(lastEvaluation, time);
     }
 
     public float extrapolateEvaluation(final Evaluation evaluation, final long time) {
@@ -189,24 +176,23 @@ public class Synapse implements Serializable {
    * Emits an activation signal or schedules a re-evaluation at a future time,
    * depending on current state.
    */
-  private Observable<Long> evaluate(final Context context, final long time) {
-    try (val lock = new DebugLock.Multiple(context.mutex(), lock)) {
-      val value = getValue(context, time);
-      if (value >= THRESHOLD) {
-        return Observable.just(time);
+  private Observable<Long> evaluate(final Context context, final long time, final float margin) {
+    final float value = getValue(context, time);
+    if (value >= THRESHOLD) {
+      // Only signal on transitions.
+      return value - margin < THRESHOLD ? Observable.just(time) : Observable.empty();
+    } else {
+      final long nextThreshold = getNextThreshold(context, time);
+      if (nextThreshold == Long.MAX_VALUE) {
+        return Observable.empty();
       } else {
-        final long nextThreshold = getNextThreshold(context, time);
-        if (nextThreshold == Long.MAX_VALUE) {
-          return Observable.empty();
-        } else {
-          return Observable.timer(nextThreshold - time, TimeUnit.MILLISECONDS).map(z -> nextThreshold);
-        }
+        return Observable.timer(nextThreshold - time, TimeUnit.MILLISECONDS).map(z -> nextThreshold);
       }
     }
   }
 
   public float getValue(final Context context, final long time) {
-    try (val lock = new DebugLock.Multiple(context.mutex(), lock)) {
+    try (val lock = new DebugLock(lock)) {
       return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
     }
   }

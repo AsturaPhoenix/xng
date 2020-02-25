@@ -116,6 +116,10 @@ public class Context implements Serializable {
     }
   }
 
+  public void blockUntilIdle() {
+    rxActive.filter(active -> !active).blockingFirst();
+  }
+
   /**
    * Gets the contextual state for the given node, creating if absent.
    */
@@ -228,8 +232,8 @@ public class Context implements Serializable {
 
       final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
       final float target = 1 - posterior.synapse.getValue(this, priorEvaluation.time) + priorEvaluation.value;
-
-      posterior.synapse.profile(prior).getCoefficient().add(target, weight);
+      if (target > 0)
+        posterior.synapse.profile(prior).getCoefficient().add(target, weight);
     }
   }
 }

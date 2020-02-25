@@ -1,5 +1,7 @@
 package ai.xng;
 
+import static org.junit.Assert.assertTrue;
+
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -52,5 +54,26 @@ public class ContextTest {
 
       context.rxActive().filter(active -> !active).timeout(5, TimeUnit.SECONDS).blockingFirst();
     }
+  }
+
+  /**
+   * Normally, Hebbian learning contributes evidence towards meeting the
+   * activation threshold for the posterior. However, in the case where the
+   * posterior is already hyperactivated, naive arithmetic would then actually
+   * yield an inhibitory weight, which does not make sense.
+   */
+  @Test
+  public void testHebbianLearningOnHyperactivation() throws InterruptedException {
+    val context = new Context(Node::new);
+    val a = new Node(), b = new Node(), c = new Node();
+    c.synapse.setCoefficient(a, 2);
+    c.synapse.setDecayPeriod(a, 1000);
+    a.activate(context);
+    Thread.sleep(250);
+    b.activate(context);
+    context.blockUntilIdle();
+    c.activate(context);
+    context.blockUntilIdle();
+    assertTrue(c.synapse.getCoefficient(b) + " >= 0", c.synapse.getCoefficient(b) >= 0);
   }
 }

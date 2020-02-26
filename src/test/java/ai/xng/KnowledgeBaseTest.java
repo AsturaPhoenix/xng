@@ -95,8 +95,7 @@ public class KnowledgeBaseTest {
   public void testPrintReliability() throws InterruptedException {
     try (val kb = new KnowledgeBase()) {
       setUpPropGet(kb);
-      for (int i = 0; i < 100; i++) {
-        Thread.sleep(2 * Synapse.DEBOUNCE_PERIOD);
+      for (int i = 0; i < 1000; i++) {
         assertPropGet(kb);
       }
     }

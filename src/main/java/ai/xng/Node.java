@@ -68,8 +68,7 @@ public class Node implements Serializable {
     }
   }
 
-  @Getter
-  private final Serializable value;
+  public final Serializable value;
 
   public long getLastActivation(final Context context) {
     final ContextualState state = context.nodeState(this);

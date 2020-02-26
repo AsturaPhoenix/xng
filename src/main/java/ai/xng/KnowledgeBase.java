@@ -97,10 +97,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         final Class<?> clazz;
 
         if (objectNode != null) {
-          object = objectNode.getValue();
+          object = objectNode.value;
 
           if (classNode != null) {
-            clazz = (Class<?>) classNode.getValue();
+            clazz = (Class<?>) classNode.value;
             if (!clazz.isAssignableFrom(object.getClass())) {
               throw new IllegalArgumentException("Provided class does not match object class");
             }
@@ -109,10 +109,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
           }
         } else {
           object = null;
-          clazz = (Class<?>) classNode.getValue();
+          clazz = (Class<?>) classNode.value;
         }
 
-        Field field = clazz.getField((String) fieldNode.getValue());
+        Field field = clazz.getField((String) fieldNode.value);
 
         Object ret = field.get(object);
         return kb.node((Serializable) ret);
@@ -167,10 +167,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         final Class<?> clazz;
 
         if (objectNode != null) {
-          object = objectNode.getValue();
+          object = objectNode.value;
 
           if (classNode != null) {
-            clazz = (Class<?>) classNode.getValue();
+            clazz = (Class<?>) classNode.value;
             if (!clazz.isAssignableFrom(object.getClass())) {
               throw new IllegalArgumentException("Provided class does not match object class");
             }
@@ -179,20 +179,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
           }
         } else {
           object = null;
-          clazz = (Class<?>) classNode.getValue();
+          clazz = (Class<?>) classNode.value;
         }
 
         ArrayList<Class<?>> params = new ArrayList<>();
         Node param;
         for (int i = 1; (param = context.node.properties.get(kb.param(i))) != null; i++) {
-          params.add((Class<?>) param.getValue());
+          params.add((Class<?>) param.value);
         }
 
-        Method method = clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
+        Method method = clazz.getMethod((String) methodNode.value, params.toArray(new Class<?>[0]));
         ArrayList<Object> args = new ArrayList<>();
         for (int i = 1; i <= params.size(); i++) {
           Node arg = context.node.properties.get(kb.arg(i));
-          args.add(arg == null ? null : arg.getValue());
+          args.add(arg == null ? null : arg.value);
         }
 
         Object ret = method.invoke(object, args.toArray());
@@ -202,7 +202,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     findClass {
       @Override
       public Node impl(final KnowledgeBase kb, Context context) throws ClassNotFoundException {
-        return kb.node(Class.forName((String) context.require(kb.node(Common.name)).getValue()));
+        return kb.node(Class.forName((String) context.require(kb.node(Common.name)).value));
       }
     },
     createNode {
@@ -214,7 +214,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     print {
       @Override
       public Node impl(final KnowledgeBase kb, Context context) {
-        kb.rxOutput.onNext(Objects.toString(context.require(kb.node(Common.value)).getValue()));
+        kb.rxOutput.onNext(Objects.toString(context.require(kb.node(Common.value)).value));
         return null;
       }
     },
@@ -244,7 +244,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
         context.require(kb.node(Common.value))
-            .setRefractory(((Number) context.require(kb.node(Common.refractory)).getValue()).longValue());
+            .setRefractory(((Number) context.require(kb.node(Common.refractory)).value).longValue());
         return null;
       }
     };
@@ -294,7 +294,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    */
   private Context getParent(final Context context) {
     final Node parentNode = context.node.properties.get(node(Common.parentContext));
-    return parentNode == null ? context : (Context) parentNode.getValue();
+    return parentNode == null ? context : (Context) parentNode.value;
   }
 
   /**
@@ -480,7 +480,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       node(new NodeTuple(Common.contextPair, property, value)).activate(context);
       node(new NodeTuple(Common.contextProperty, property)).activate(context);
 
-      if (property.getValue() == Common.returnValue) {
+      if (property.value == Common.returnValue) {
         if (context.invocation != null) {
           setProperty(getParent(context), null, context.invocation, value);
         }
@@ -515,8 +515,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     Serializable resolvingValue = value;
     if (!(value instanceof Class<?> || value instanceof Enum)) {
       final Node values = node(value.getClass()).properties.get(node(Common.value));
-      if (values != null && values.getValue() instanceof ConcurrentHashMap) {
-        resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.getValue()).computeIfAbsent(value,
+      if (values != null && values.value instanceof ConcurrentHashMap) {
+        resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.value).computeIfAbsent(value,
             x -> value);
       }
     }

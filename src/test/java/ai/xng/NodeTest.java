@@ -23,7 +23,7 @@ public class NodeTest {
 
   @Test
   public void testValueSerialization() throws Exception {
-    assertEquals("foo", TestUtil.serialize(new Node("foo")).getValue());
+    assertEquals("foo", TestUtil.serialize(new Node("foo")).value);
   }
 
   @Test
@@ -33,8 +33,8 @@ public class NodeTest {
 
     final Node sObj = TestUtil.serialize(oObj);
     final Entry<Node, Node> prop = Iterables.getOnlyElement(sObj.properties.entrySet());
-    assertEquals("foo", prop.getKey().getValue());
-    assertEquals("bar", prop.getValue().getValue());
+    assertEquals("foo", prop.getKey().value);
+    assertEquals("bar", prop.getValue().value);
   }
 
   private static void testActivation(final Node node) {

@@ -9,8 +9,8 @@ import lombok.Getter;
 import java.util.Random;
 
 /**
- * A 1-dimensional mini RL unit meant for learning the threshold that should
- * serve as a coefficient for synapse connections.
+ * A 1-dimensional mini reinforcement unit meant for learning the threshold that
+ * should serve as a coefficient for synapse connections.
  * 
  * This is roughly a 3-bin histogram fitted to an asymmetric normal
  * distribution. The tail bins start roughly 1 "standard deviation" away (each
@@ -42,48 +42,16 @@ public class ThresholdDistribution implements Distribution, Serializable {
 
     private final Random random;
     @Getter
-    private float threshold, weightCommon, weightAbove, weightBelow;
+    private float threshold, weightCommon, weightAbove, weightBelow, counterweight;
     private final ReadWriteLock lock = new ReentrantReadWriteLock(false);
 
     @Override
     public String toString() {
         lock.readLock().lock();
         try {
-            return String.format("%.4g x [%.4g-%.4g] (%.2f: %.2f-%.2f-%.2f)", threshold, threshold - getLeftSpread(),
-                    threshold + getRightSpread(), getBias(), weightBelow, weightCommon, weightAbove);
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * A rough (anti-)skew metric ranging from [-1, 1], based on tail weights. (e.g.
-     * negative bias corresponds to positive skew.)
-     * 
-     * A pure bias metric for a two-bin distribution with one bin on each side of
-     * the threshold can be formulated as {@code 2 * weightAbove / (weightBelow +
-     * weightAbove) - 1}. To accommodate the middle bin here, we effectively add
-     * half of it to each tail bin.
-     */
-    public float getBias() {
-        lock.readLock().lock();
-        try {
-            return weightCommon > 0 || weightAbove > 0 || weightBelow > 0
-                    ? (weightCommon + 2 * weightAbove) / (weightCommon + weightBelow + weightAbove) - 1
-                    : 0;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    /**
-     * A rough metric for the total weight of the distribution, calculated as the
-     * sum of the middle bin weight with the average of the tail bin weights.
-     */
-    public float getWeight() {
-        lock.readLock().lock();
-        try {
-            return weightCommon + (weightBelow + weightAbove) / 2;
+            return String.format("%.4g x [%.4g-%.4g] (%.2f: %.2f-%.2f-%.2f -%.2f)", threshold,
+                    threshold - getLeftSpread(), threshold + getRightSpread(), getBias(), weightBelow, weightCommon,
+                    weightAbove, counterweight);
         } finally {
             lock.readLock().unlock();
         }
@@ -113,10 +81,41 @@ public class ThresholdDistribution implements Distribution, Serializable {
         try {
             threshold = value;
             weightCommon = DEFAULT_WEIGHT;
-            weightAbove = 0;
-            weightBelow = 0;
+            weightAbove = weightBelow = counterweight = 0;
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * A rough (anti-)skew metric ranging from [-1, 1], based on tail weights. (e.g.
+     * negative bias corresponds to positive skew.)
+     * 
+     * A pure bias metric for a two-bin distribution with one bin on each side of
+     * the threshold can be formulated as {@code 2 * weightAbove / (weightBelow +
+     * weightAbove) - 1}. To accommodate the middle bin here, we effectively add
+     * half of it to each tail bin.
+     */
+    public float getBias() {
+        lock.readLock().lock();
+        try {
+            final float tailWeights = weightCommon + weightAbove + weightBelow;
+            return tailWeights > 0 ? (weightCommon + 2 * weightAbove) / tailWeights - 1 : 0;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * A rough metric for the total weight of the distribution, calculated as the
+     * sum of the middle bin weight with the average of the tail bin weights.
+     */
+    public float getWeight() {
+        lock.readLock().lock();
+        try {
+            return weightCommon + (weightBelow + weightAbove) / 2;
+        } finally {
+            lock.readLock().unlock();
         }
     }
 
@@ -134,7 +133,7 @@ public class ThresholdDistribution implements Distribution, Serializable {
             //
             // It may be possible to simplify the left and right spreads by expanding bias;
             // this may be a worthwhile investigation in the future.
-            return SPREAD_FACTOR * (weightBelow + weightAbove) / (float) Math.sqrt(1 + weightCommon);
+            return SPREAD_FACTOR * counterweight / (float) Math.sqrt(1 + weightCommon);
         } finally {
             lock.readLock().unlock();
         }
@@ -192,8 +191,12 @@ public class ThresholdDistribution implements Distribution, Serializable {
                 threshold = (inertia * threshold + weight * value) / (inertia + weight);
             }
 
+            // Negative weights increase spread.
+            counterweight = Math.max(0, counterweight - weight * relativeDensity);
+
             weightCommon = weightCommon + weight * (2 * relativeDensity - 1);
             if (weightCommon < 0) {
+                // If we've exhausted common weight, start decreasing tail weight too.
                 weightBelow = Math.max(0, weightBelow + weightCommon / 2);
                 weightAbove = Math.max(0, weightAbove + weightCommon / 2);
                 weightCommon = 0;

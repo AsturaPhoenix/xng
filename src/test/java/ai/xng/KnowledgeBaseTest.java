@@ -7,11 +7,13 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
+import io.reactivex.subjects.PublishSubject;
 import lombok.val;
 
 public class KnowledgeBaseTest {
@@ -139,6 +141,36 @@ public class KnowledgeBaseTest {
     try (val kb = new KnowledgeBase()) {
       val context = new Context(kb::node);
       kb.new Invocation(kb.node(), kb.node()).node.activate(context);
+      context.blockUntilIdle(Duration.ofMillis(500));
+    }
+  }
+
+  @Test
+  public void testParentContextInheritsChildActivity() {
+    try (val kb = new KnowledgeBase()) {
+      val block = kb.node();
+      final Object complete = new Object();
+      block.setOnActivate(c -> {
+        synchronized (complete) {
+          complete.wait();
+        }
+      });
+      val returnToParent = kb.new Invocation(kb.node(), kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
+          kb.node(Common.returnValue)).node;
+      returnToParent.then(block);
+
+      val invoke = kb.new Invocation(kb.node(), returnToParent).node;
+      val end = kb.node();
+      val monitor = new EmissionMonitor<>(end.rxActivate());
+      invoke.then(end);
+
+      val context = new Context(kb::node);
+      invoke.activate(context);
+      assertTrue(monitor.didEmit());
+      assertEquals(Arrays.asList(true), context.rxActive().take(500, TimeUnit.MILLISECONDS).toList().blockingGet());
+      synchronized (complete) {
+        complete.notify();
+      }
       context.blockUntilIdle(Duration.ofMillis(500));
     }
   }

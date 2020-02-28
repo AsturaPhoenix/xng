@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import io.reactivex.Observable;
+import io.reactivex.functions.Consumer;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.RequiredArgsConstructor;
@@ -317,6 +318,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
     final Context childContext = new Context(this::node, node);
     setProperty(childContext, null, node(Common.parentContext), context.node);
+    // Tie the parent activity to the child activity.
+    childContext.rxActive().subscribe(new Consumer<Boolean>() {
+      Context.Ref ref;
+
+      @Override
+      public void accept(Boolean active) {
+        if (active && ref == null)
+          ref = context.new Ref();
+        else if (!active && ref != null)
+          ref.close();
+      }
+    });
 
     final Node literal = node.properties.get(node(Common.literal));
     if (literal != null) {

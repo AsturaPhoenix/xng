@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Iterables;
 import org.junit.Test;
@@ -158,7 +159,7 @@ public class NodeTest {
     val context = new Context(Node::new);
     down.rxActivate().subscribe(a -> up.activate(context));
     down.activate(context);
-    context.rxActive().filter(active -> !active).blockingFirst();
+    context.blockUntilIdle();
 
     assertEquals(activations.toString(), 1, activations.size());
     assertTrue(activations.get(0) + " !> 400", activations.get(0) > 400);
@@ -188,7 +189,7 @@ public class NodeTest {
     val context = new Context(Node::new);
     node.activate(context);
     assertFalse(monitor.didEmit());
-    assertTrue(context.rxActive().blockingFirst());
+    assertEquals(Arrays.asList(true), context.rxActive().take(500, TimeUnit.MILLISECONDS).toList().blockingGet());
     subject.onComplete();
     assertTrue(monitor.didEmit());
   }

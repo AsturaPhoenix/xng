@@ -371,6 +371,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // from the main index so that we can rebind the impl to the correct
     // node after deserialization.
     final Node node = node(builtIn);
+    // TODO(rosswang): This overrides maybeInvoke on the node. Is that alright?
     node.setOnActivate(context -> setProperty(context, null, node(Common.returnValue), builtIn.impl(this, context)));
     return node;
   }

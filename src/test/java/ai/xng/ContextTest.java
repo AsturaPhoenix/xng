@@ -41,15 +41,12 @@ public class ContextTest {
       val a = new Node();
       val b = new Node();
 
-      context.addRef();
-      try {
+      try (val ref = context.new Ref()) {
         new Thread(() -> {
           a.activate(context);
           context.reinforce(Optional.empty(), Optional.empty(), 0);
         }).start();
         new Thread(() -> b.activate(context)).start();
-      } finally {
-        context.releaseRef();
       }
 
       context.rxActive().filter(active -> !active).timeout(5, TimeUnit.SECONDS).blockingFirst();

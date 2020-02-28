@@ -44,8 +44,8 @@ public class Synapse implements Serializable {
   private static final long serialVersionUID = 1779165354354490167L;
 
   public static final long DEBOUNCE_PERIOD = 2;
+  public static final float THRESHOLD = 1;
   private static final float DECAY_MARGIN = .2f;
-  private static final float THRESHOLD = 1;
 
   public class ContextualState {
     private final Context context;
@@ -112,8 +112,7 @@ public class Synapse implements Serializable {
     }
 
     private void onActivate(final Node.Activation activation) {
-      // releaseRef: doFinally
-      activation.context.addRef();
+      val ref = activation.context.new Ref();
 
       final ContextualState state = activation.context.synapseState(Synapse.this);
       final ArrayDeque<Evaluation> evaluations = state.evaluations.computeIfAbsent(incoming,
@@ -121,8 +120,7 @@ public class Synapse implements Serializable {
       try (val lock = new DebugLock.Multiple(activation.context.mutex(), Synapse.this.lock)) {
         final float value = coefficient.generate();
         evaluations.add(new Evaluation(activation.timestamp, value));
-        state.rxEvaluations.onNext(
-            evaluate(activation.context, activation.timestamp, value).doFinally(activation.context::releaseRef));
+        state.rxEvaluations.onNext(evaluate(activation.context, activation.timestamp, value).doFinally(ref::close));
       }
     }
 
@@ -179,6 +177,7 @@ public class Synapse implements Serializable {
    */
   private Observable<Long> evaluate(final Context context, final long time, final float margin) {
     final float value = getValue(context, time);
+
     if (value >= THRESHOLD) {
       // Only signal on transitions.
       return value - margin < THRESHOLD ? Observable.just(time) : Observable.empty();

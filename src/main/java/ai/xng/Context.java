@@ -3,6 +3,7 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Iterator;
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
@@ -104,20 +106,31 @@ public class Context implements Serializable {
     return rxActive;
   }
 
-  public void addRef() {
-    if (refCount.getAndIncrement() == 0) {
-      rxActive.onNext(true);
+  public class Ref implements AutoCloseable {
+    public Ref() {
+      if (refCount.getAndIncrement() == 0) {
+        rxActive.onNext(true);
+      }
     }
-  }
 
-  public void releaseRef() {
-    if (refCount.decrementAndGet() == 0) {
-      rxActive.onNext(false);
+    @Override
+    public void close() {
+      val refs = refCount.decrementAndGet();
+
+      assert refs >= 0;
+      if (refs == 0) {
+        rxActive.onNext(false);
+        continuation.complete(null);
+      }
     }
   }
 
   public void blockUntilIdle() {
     rxActive.filter(active -> !active).blockingFirst();
+  }
+
+  public void blockUntilIdle(final Duration timeout) {
+    rxActive.filter(active -> !active).timeout(timeout.toMillis(), TimeUnit.MILLISECONDS).blockingFirst();
   }
 
   /**
@@ -163,7 +176,7 @@ public class Context implements Serializable {
   }
 
   public static long HEBBIAN_MAX_GLOBAL = 15000, HEBBIAN_MAX_LOCAL = 500;
-  public static float HEBBIAN_IMPLICIT_WEIGHT = .10f, HEBBIAN_EXPLICIT_WEIGHT_FACTOR = .01f;
+  public static float HEBBIAN_IMPLICIT_WEIGHT = .1f, HEBBIAN_EXPLICIT_WEIGHT_FACTOR = .1f;
 
   private class HebbianReinforcementWindow implements Iterator<List<Node>> {
     final Optional<Long> time;
@@ -231,9 +244,11 @@ public class Context implements Serializable {
       }
 
       final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
-      final float target = 1 - posterior.synapse.getValue(this, priorEvaluation.time) + priorEvaluation.value;
+      final Distribution distribution = posterior.synapse.profile(prior).getCoefficient();
+      final float synapseValue = posterior.synapse.getValue(this, priorEvaluation.time);
+      final float target = Synapse.THRESHOLD - synapseValue + priorEvaluation.value;
       if (target > 0)
-        posterior.synapse.profile(prior).getCoefficient().add(target, weight);
+        distribution.add(target, weight);
     }
   }
 }

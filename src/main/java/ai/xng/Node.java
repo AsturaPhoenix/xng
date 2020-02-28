@@ -36,17 +36,24 @@ public class Node implements Serializable {
     public final long timestamp;
   }
 
+  @RequiredArgsConstructor
+  private static class ActivationRef {
+    public final Context.Ref ref;
+    public final long timestamp;
+  }
+
   public class ContextualState {
     private final Lock lock = new ReentrantLock();
     private long lastActivation;
-    private Subject<Long> rxInput = PublishSubject.create();
+    private Subject<ActivationRef> rxInput = PublishSubject.create();
 
     public ContextualState(final Context context) {
-      rxInput.observeOn(Schedulers.io()).subscribe(t -> {
-        try {
-          if (t - lastActivation >= refractory) {
+      rxInput.observeOn(Schedulers.io()).subscribe(activation -> {
+        try (val ref = activation.ref) {
+          if (activation.timestamp - lastActivation >= refractory) {
             if (onActivate != null)
               onActivate.run(context);
+
             try (val lock = new DebugLock(lock)) {
               long newTimestamp = System.currentTimeMillis();
               lastActivation = newTimestamp;
@@ -60,9 +67,6 @@ public class Node implements Serializable {
           // overridden exception handlers will be lost.
           // TODO(rosswang): preserve nodespace stack trace
           context.exceptionHandler.accept(e);
-        } finally {
-          // addRef: Node::activate
-          context.releaseRef();
         }
       });
     }
@@ -117,10 +121,8 @@ public class Node implements Serializable {
   }
 
   public void activate(final Context context) {
-    // releaseRef: ContextualState::ContextualState
-    context.addRef();
     try (val lock = new DebugLock(context.mutex())) {
-      context.nodeState(this).rxInput.onNext(System.currentTimeMillis());
+      context.nodeState(this).rxInput.onNext(new ActivationRef(context.new Ref(), System.currentTimeMillis()));
     }
   }
 

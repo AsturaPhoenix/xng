@@ -5,7 +5,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+
 import org.junit.Test;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
@@ -77,6 +80,7 @@ public class KnowledgeBaseTest {
 
     final Context context = new Context(kb::node);
     kb.node("roses are").activate(context);
+    context.blockUntilIdle();
     assertTrue(sanity1.didEmit());
     assertTrue(sanity2.didEmit());
     assertTrue(sanity3.didEmit());
@@ -111,7 +115,7 @@ public class KnowledgeBaseTest {
 
   @Test
   public void testException() {
-    try (final KnowledgeBase kb = new KnowledgeBase()) {
+    try (val kb = new KnowledgeBase()) {
       final Node exceptionHandler = kb.node();
       val monitor = new EmissionMonitor<>(exceptionHandler.rxActivate());
 
@@ -124,6 +128,18 @@ public class KnowledgeBaseTest {
       // TODO(rosswang): Once we support node-space stack traces, the deepest frame in
       // this case may be BuiltIn.print, followed by invocation.
       assertSame(invocation, exception.properties.get(kb.node(Common.source)));
+    }
+  }
+
+  /**
+   * Ensures that the invocation of a trivial custom subroutine completes.
+   */
+  @Test
+  public void testCustomInvocationCompletes() {
+    try (val kb = new KnowledgeBase()) {
+      val context = new Context(kb::node);
+      kb.new Invocation(kb.node(), kb.node()).node.activate(context);
+      context.blockUntilIdle(Duration.ofMillis(500));
     }
   }
 }

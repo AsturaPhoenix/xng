@@ -19,7 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import io.reactivex.Observable;
-import io.reactivex.functions.Consumer;
+import io.reactivex.Observer;
+import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.RequiredArgsConstructor;
@@ -319,14 +320,30 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     final Context childContext = new Context(this::node, node);
     setProperty(childContext, null, node(Common.parentContext), context.node);
     // Tie the parent activity to the child activity.
-    childContext.rxActive().subscribe(new Consumer<Boolean>() {
+    childContext.rxActive().subscribe(new Observer<Boolean>() {
       Context.Ref ref;
 
       @Override
-      public void accept(Boolean active) {
+      public void onNext(Boolean active) {
         if (active && ref == null)
           ref = context.new Ref();
         else if (!active && ref != null)
+          ref.close();
+      }
+
+      @Override
+      public void onSubscribe(Disposable d) {
+      }
+
+      @Override
+      public void onError(Throwable e) {
+        if (ref != null)
+          ref.close();
+      }
+
+      @Override
+      public void onComplete() {
+        if (ref != null)
           ref.close();
       }
     });

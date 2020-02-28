@@ -545,7 +545,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   private Node eavNode(final Node... tuple) {
     return eavNodes.computeIfAbsent(new EavTuple(tuple), t -> {
       t.makeCanonical();
-      return node();
+      return systemNode();
     });
   }
 
@@ -732,17 +732,21 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     final Serializable resolvedValue = resolvingValue;
 
     final Map<Serializable, Node> index = resolvedValue instanceof Context ? weakIndex : strongIndex;
-    return index.computeIfAbsent(resolvedValue, this::createNodeWithHooks);
+    return index.computeIfAbsent(resolvedValue, v -> createNodeWithHooks(v, true));
   }
 
   // All kb nodes must be created through a node(...) method to ensure the
   // proper callbacks are set.
   public Node node() {
-    return createNodeWithHooks(null);
+    return createNodeWithHooks(null, true);
   }
 
-  private Node createNodeWithHooks(final Serializable value) {
-    final Node node = new Node(value);
+  public Node systemNode() {
+    return createNodeWithHooks(null, false);
+  }
+
+  private Node createNodeWithHooks(final Serializable value, final boolean hasSynapse) {
+    final Node node = new Node(value, hasSynapse);
     initNode(node);
     synchronized (nodes) {
       nodes.add(node);

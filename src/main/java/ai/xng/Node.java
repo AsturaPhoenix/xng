@@ -76,7 +76,8 @@ public class Node implements Serializable {
     return state == null ? 0 : state.lastActivation;
   }
 
-  public final Synapse synapse = new Synapse();
+  @Getter
+  private final Synapse synapse;
 
   @Getter
   @Setter
@@ -92,8 +93,15 @@ public class Node implements Serializable {
   }
 
   public Node(final Serializable value) {
+    this(value, true);
+  }
+
+  public Node(final Serializable value, final boolean hasSynapse) {
     this.value = value;
     preInit();
+
+    synapse = hasSynapse ? new Synapse() : null;
+
     postInit();
   }
 
@@ -102,7 +110,8 @@ public class Node implements Serializable {
   }
 
   private void postInit() {
-    synapse.rxActivate().subscribe(a -> activate(a.context));
+    if (synapse != null)
+      synapse.rxActivate().subscribe(a -> activate(a.context));
   }
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {

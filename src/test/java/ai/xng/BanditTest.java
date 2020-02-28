@@ -157,7 +157,7 @@ public class BanditTest {
     private void report(final BinaryHarness harness) {
         for (val bandit : harness.bandits) {
             System.out.println(bandit.node);
-            for (val line : bandit.node.synapse.toString().split("\n")) {
+            for (val line : bandit.node.getSynapse().toString().split("\n")) {
                 System.out.println("\t" + line);
             }
         }

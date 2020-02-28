@@ -237,6 +237,10 @@ public class Context implements Serializable {
 
   private void hebbianReinforcement(final List<Node> snapshot, final Optional<Long> time, final float baseWeight) {
     final Node posterior = snapshot.get(0);
+    final Synapse synapse = posterior.getSynapse();
+    if (synapse == null)
+      return;
+
     final long posteriorTime = posterior.getLastActivation(this);
     final float posteriorWeight = time.isPresent()
         ? baseWeight * (1 - (float) (time.get() - posteriorTime) / HEBBIAN_MAX_GLOBAL)
@@ -245,7 +249,7 @@ public class Context implements Serializable {
     final int nPriors = snapshot.size() - 1;
 
     for (final Node prior : snapshot.subList(1, snapshot.size())) {
-      Synapse.Evaluation priorEvaluation = posterior.synapse.getPrecedingEvaluation(this, prior, posteriorTime);
+      Synapse.Evaluation priorEvaluation = synapse.getPrecedingEvaluation(this, prior, posteriorTime);
       assert priorEvaluation == null || priorEvaluation.time > 0;
 
       if (priorEvaluation == null) {
@@ -256,8 +260,8 @@ public class Context implements Serializable {
       }
 
       final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
-      final Distribution distribution = posterior.synapse.profile(prior).getCoefficient();
-      float margin = Synapse.THRESHOLD - posterior.synapse.getValue(this, priorEvaluation.time);
+      final Distribution distribution = synapse.profile(prior).getCoefficient();
+      float margin = Synapse.THRESHOLD - synapse.getValue(this, priorEvaluation.time);
       if (margin <= 0) {
         margin = 0;
       } else {

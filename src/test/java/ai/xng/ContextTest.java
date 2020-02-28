@@ -63,14 +63,14 @@ public class ContextTest {
   public void testHebbianLearningOnHyperactivation() throws InterruptedException {
     val context = new Context(Node::new);
     val a = new Node(), b = new Node(), c = new Node();
-    c.synapse.setCoefficient(a, 2);
-    c.synapse.setDecayPeriod(a, 1000);
+    c.getSynapse().setCoefficient(a, 2);
+    c.getSynapse().setDecayPeriod(a, 1000);
     a.activate(context);
     Thread.sleep(250);
     b.activate(context);
     context.blockUntilIdle();
     c.activate(context);
     context.blockUntilIdle();
-    assertTrue(c.synapse.getCoefficient(b) + " >= 0", c.synapse.getCoefficient(b) >= 0);
+    assertTrue(c.getSynapse().getCoefficient(b) + " >= 0", c.getSynapse().getCoefficient(b) >= 0);
   }
 }

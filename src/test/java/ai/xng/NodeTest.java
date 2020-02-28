@@ -61,8 +61,8 @@ public class NodeTest {
   public void testAnd() throws Exception {
     val a = new Node(), b = new Node(), and = new Node();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.synapse.setCoefficient(a, .8f);
-    and.synapse.setCoefficient(b, .8f);
+    and.getSynapse().setCoefficient(a, .8f);
+    and.getSynapse().setCoefficient(b, .8f);
 
     val context1 = new Context(Node::new);
     val activeMonitor1 = new EmissionMonitor<>(context1.rxActive());
@@ -81,8 +81,8 @@ public class NodeTest {
   @Test
   public void testAndStability() {
     val a = new Node(), b = new Node(), and = new Node();
-    and.synapse.setCoefficient(a, .8f);
-    and.synapse.setCoefficient(b, .8f);
+    and.getSynapse().setCoefficient(a, .8f);
+    and.getSynapse().setCoefficient(b, .8f);
 
     for (int i = 0; i < 1000; ++i) {
       val context = new Context(Node::new);
@@ -91,7 +91,7 @@ public class NodeTest {
       context.blockUntilIdle();
     }
 
-    System.out.println(and.synapse);
+    System.out.println(and.getSynapse());
 
     val monitor = new EmissionMonitor<>(and.rxActivate());
     val context1 = new Context(Node::new);
@@ -110,8 +110,8 @@ public class NodeTest {
   public void testDisjointContexts() {
     val a = new Node(), b = new Node(), and = new Node();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.synapse.setCoefficient(a, .8f);
-    and.synapse.setCoefficient(b, .8f);
+    and.getSynapse().setCoefficient(a, .8f);
+    and.getSynapse().setCoefficient(b, .8f);
     a.activate(new Context(Node::new));
     b.activate(new Context(Node::new));
     assertFalse(monitor.didEmit());
@@ -120,8 +120,8 @@ public class NodeTest {
   @Test
   public void testAndSerialization() throws Exception {
     Node[] nodes = { new Node(), new Node(), new Node() };
-    nodes[2].synapse.setCoefficient(nodes[0], .8f);
-    nodes[2].synapse.setCoefficient(nodes[1], .8f);
+    nodes[2].getSynapse().setCoefficient(nodes[0], .8f);
+    nodes[2].getSynapse().setCoefficient(nodes[1], .8f);
 
     nodes = TestUtil.serialize(nodes);
 
@@ -149,8 +149,8 @@ public class NodeTest {
   public void testAndRefractory() throws InterruptedException {
     val a = new Node(), b = new Node(), and = new Node();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.synapse.setCoefficient(a, .6f);
-    and.synapse.setCoefficient(b, .5f);
+    and.getSynapse().setCoefficient(a, .6f);
+    and.getSynapse().setCoefficient(b, .5f);
     and.setRefractory(10000);
     val context = new Context(Node::new);
     a.activate(context);
@@ -164,8 +164,8 @@ public class NodeTest {
   public void testNearCoincidentInhibition() {
     val up = new Node(), down = new Node(), out = new Node();
     val monitor = new EmissionMonitor<>(out.rxActivate());
-    out.synapse.setCoefficient(up, 1);
-    out.synapse.setCoefficient(down, -1);
+    out.getSynapse().setCoefficient(up, 1);
+    out.getSynapse().setCoefficient(down, -1);
     val context = new Context(Node::new);
     down.activate(context);
     up.activate(context);
@@ -180,10 +180,10 @@ public class NodeTest {
     long beginning = System.currentTimeMillis();
     out.rxActivate().subscribe(a -> activations.add(a.timestamp - beginning));
 
-    out.synapse.setCoefficient(up, 2.1f);
-    out.synapse.setDecayPeriod(up, 1000);
-    out.synapse.setCoefficient(down, -3);
-    out.synapse.setDecayPeriod(down, 500);
+    out.getSynapse().setCoefficient(up, 2.1f);
+    out.getSynapse().setDecayPeriod(up, 1000);
+    out.getSynapse().setCoefficient(down, -3);
+    out.getSynapse().setDecayPeriod(down, 500);
     val context = new Context(Node::new);
     down.rxActivate().subscribe(a -> up.activate(context));
     down.activate(context);
@@ -198,8 +198,8 @@ public class NodeTest {
     for (int i = 0; i < 100; i++) {
       val a = new Node(), b = new Node(), and = new Node();
       val monitor = new EmissionMonitor<>(and.rxActivate());
-      and.synapse.setCoefficient(a, .6f);
-      and.synapse.setCoefficient(b, .6f);
+      and.getSynapse().setCoefficient(a, .6f);
+      and.getSynapse().setCoefficient(b, .6f);
       val context = new Context(Node::new);
       a.activate(context);
       Thread.sleep(Synapse.DEBOUNCE_PERIOD);

@@ -11,16 +11,24 @@ import lombok.experimental.UtilityClass;
 
 @UtilityClass
 public class TestUtil {
+	public static int getSerializedSize(final Serializable object) throws IOException {
+		final ByteArrayOutputStream bout = new ByteArrayOutputStream();
+		try (final ObjectOutputStream oout = new ObjectOutputStream(bout)) {
+			oout.writeObject(object);
+		}
+		return bout.size();
+	}
+
 	@SuppressWarnings("unchecked")
 	public static <T extends Serializable> T serialize(final T object) throws IOException, ClassNotFoundException {
 		final ByteArrayOutputStream bout = new ByteArrayOutputStream();
 		try (final ObjectOutputStream oout = new ObjectOutputStream(bout)) {
 			oout.writeObject(object);
 		}
-		
+
 		final ByteArrayInputStream bin = new ByteArrayInputStream(bout.toByteArray());
 		try (final ObjectInputStream oin = new ObjectInputStream(bin)) {
-			return (T)oin.readObject();
+			return (T) oin.readObject();
 		}
 	}
 }

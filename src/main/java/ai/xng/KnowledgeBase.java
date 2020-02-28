@@ -2,7 +2,6 @@ package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -12,18 +11,19 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+
+import com.google.common.collect.MapMaker;
 
 import io.reactivex.Observable;
 import io.reactivex.Observer;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import lombok.RequiredArgsConstructor;
 import lombok.Value;
 
 /**
@@ -38,26 +38,8 @@ import lombok.Value;
 public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
   private static final long serialVersionUID = -6461427806563494150L;
 
-  @RequiredArgsConstructor
-  private static class IdentityKey implements Serializable {
-    private static final long serialVersionUID = -2428169144581856842L;
-
-    final Serializable value;
-
-    @Override
-    public int hashCode() {
-      return System.identityHashCode(value);
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      return obj instanceof IdentityKey && value == ((IdentityKey) obj).value;
-    }
-  }
-
-  private ConcurrentMap<IdentityKey, Node> valueIndex = new ConcurrentHashMap<>();
-
-  private transient Collection<Node> nodes = new ArrayList<>();
+  private Map<Serializable, Node> valueIndex = new MapMaker().weakKeys().makeMap();
+  private Collection<Node> nodes = Collections.newSetFromMap(new MapMaker().weakKeys().makeMap());
 
   private transient Subject<String> rxOutput;
   private transient Subject<Node> rxNodeAdded;
@@ -406,18 +388,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return node;
   }
 
-  private void writeObject(final ObjectOutputStream o) throws IOException {
-    o.defaultWriteObject();
-    synchronized (nodes) {
-      o.writeObject(nodes);
-    }
-  }
-
-  @SuppressWarnings("unchecked")
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
     stream.defaultReadObject();
-    nodes = (Collection<Node>) stream.readObject();
-
     init();
   }
 
@@ -481,6 +453,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    * Class representing a variant of node tuple. Although not technically
    * immutable, since the node semantics are by identity, this class is marked
    * immutable by the {@code KnowledgeBase}.
+   * 
+   * TODO: Right now this effectively holds onto contexts forever. We need a
+   * stronger value reclaimation story.
    */
   @Value
   private class NodeTuple implements Serializable {
@@ -554,7 +529,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
     final Serializable resolvedValue = resolvingValue;
 
-    return valueIndex.computeIfAbsent(new IdentityKey(resolvedValue), x -> {
+    return valueIndex.computeIfAbsent(resolvedValue, x -> {
       final Node node = new Node(resolvedValue);
       initNode(node);
       synchronized (nodes) {

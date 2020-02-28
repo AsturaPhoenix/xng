@@ -6,10 +6,12 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.Ignore;
 import org.junit.Test;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
@@ -103,6 +105,25 @@ public class KnowledgeBaseTest {
       for (int i = 0; i < 1000; i++) {
         assertPropGet(kb);
       }
+    }
+  }
+
+  @Test
+  @Ignore
+  public void testWeakRefs() throws IOException {
+    try (val kb = new KnowledgeBase()) {
+      setUpPropGet(kb);
+      final int initialSize = TestUtil.getSerializedSize(kb);
+
+      for (int i = 0; i < 100; ++i) {
+        val context = new Context(kb::node);
+        kb.node("roses are").activate(context);
+        context.blockUntilIdle();
+      }
+
+      System.gc();
+      final int finalSize = TestUtil.getSerializedSize(kb);
+      assertTrue(String.format("%d > 2 * %d", finalSize, initialSize), finalSize <= 2 * initialSize);
     }
   }
 

@@ -307,10 +307,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
       @Override
       public void onNext(Boolean active) {
-        if (active && ref == null)
+        if (active) {
+          assert ref == null;
           ref = context.new Ref();
-        else if (!active && ref != null)
+        } else if (!active && ref != null) {
           ref.close();
+          ref = null;
+        }
       }
 
       @Override

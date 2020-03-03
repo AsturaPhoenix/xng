@@ -13,6 +13,7 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
@@ -107,6 +108,8 @@ public class Context implements Serializable {
   }
 
   public class Ref implements AutoCloseable {
+    private AtomicBoolean active = new AtomicBoolean(true);
+
     public Ref() {
       if (refCount.getAndIncrement() == 0) {
         rxActive.onNext(true);
@@ -115,6 +118,12 @@ public class Context implements Serializable {
 
     @Override
     public void close() {
+      if (!active.getAndSet(false)) {
+        System.err.println("Warning: context ref already closed.");
+        Thread.dumpStack();
+        return;
+      }
+
       val refs = refCount.decrementAndGet();
 
       assert refs >= 0;

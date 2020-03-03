@@ -143,7 +143,9 @@ public class KnowledgeBaseTest {
 
       final Node invocation = kb.node();
       kb.new Invocation(invocation, kb.node(BuiltIn.print)).exceptionHandler(exceptionHandler);
-      invocation.activate(new Context(kb::node));
+      val context = new Context(kb::node);
+      invocation.activate(context);
+      context.blockUntilIdle();
 
       val activation = monitor.emissions().blockingFirst();
       final Node exception = activation.context.node.properties.get(kb.node(Common.exception));

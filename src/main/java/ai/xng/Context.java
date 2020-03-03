@@ -232,6 +232,8 @@ public class Context implements Serializable {
         ? baseWeight * (1 - (float) (time.get() - posteriorTime) / HEBBIAN_MAX_GLOBAL)
         : baseWeight;
 
+    final int nPriors = snapshot.size() - 1;
+
     for (final Node prior : snapshot.subList(1, snapshot.size())) {
       Synapse.Evaluation priorEvaluation = posterior.synapse.getPrecedingEvaluation(this, prior, posteriorTime);
       assert priorEvaluation == null || priorEvaluation.time > 0;
@@ -245,10 +247,9 @@ public class Context implements Serializable {
 
       final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
       final Distribution distribution = posterior.synapse.profile(prior).getCoefficient();
-      final float synapseValue = posterior.synapse.getValue(this, priorEvaluation.time);
-      final float target = Synapse.THRESHOLD - synapseValue + priorEvaluation.value;
-      if (target > 0)
-        distribution.add(target, weight);
+      final float margin = (Synapse.THRESHOLD - posterior.synapse.getValue(this, priorEvaluation.time)) / nPriors;
+      final float target = Math.min(Math.max(margin + priorEvaluation.value, distribution.getMode()), 1);
+      distribution.add(target, weight);
     }
   }
 }

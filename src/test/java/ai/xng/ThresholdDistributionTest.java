@@ -48,6 +48,8 @@ public class ThresholdDistributionTest {
     public void biasTest() {
         val distribution = new ThresholdDistribution(1);
         distribution.add(-.5f, 1.f / 3);
+        // Add a negative sample to make spread nonzero.
+        distribution.add(distribution.getMode(), -.1f);
 
         float total = 0;
         int below = 0, above = 0;

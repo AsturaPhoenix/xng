@@ -115,11 +115,10 @@ public class Synapse implements Serializable {
       val ref = activation.context.new Ref();
 
       final ContextualState state = activation.context.synapseState(Synapse.this);
-      final ArrayDeque<Evaluation> evaluations = state.evaluations.computeIfAbsent(incoming,
-          node -> new ArrayDeque<>());
       try (val lock = new DebugLock.Multiple(activation.context.mutex(), Synapse.this.lock)) {
         final float value = coefficient.generate();
-        evaluations.add(new Evaluation(activation.timestamp, value));
+        state.evaluations.computeIfAbsent(incoming, node -> new ArrayDeque<>())
+            .add(new Evaluation(activation.timestamp, value));
         state.rxEvaluations.onNext(evaluate(activation.context, activation.timestamp, value).doFinally(ref::close));
       }
     }

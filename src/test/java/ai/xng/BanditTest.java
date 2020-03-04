@@ -1,8 +1,8 @@
 package ai.xng;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
+import java.util.function.Supplier;
 
 import org.junit.Test;
 
@@ -76,10 +76,8 @@ public class BanditTest {
             if (record.bandit.pull()) {
                 ++reward;
                 reinforcement = 1;
-                System.out.printf("%.4g: =) (%.2f; %.2f)\n", record.bandit.p, reward / pulls, reinforcement);
             } else {
                 reinforcement = reward / (reward - pulls);
-                System.out.printf("%.4g: =( (%.2f; %.2f)\n", record.bandit.p, reward / pulls, reinforcement);
             }
 
             activation.context.reinforce(Optional.empty(), Optional.empty(), reinforcement);
@@ -117,12 +115,6 @@ public class BanditTest {
             choose.activate(context);
             context.rxActive().filter(active -> !active).blockingFirst();
 
-            System.out.printf("Samples:\n%s\n",
-                    bandits.stream().sorted((a, b) -> -Double.compare(a.bandit.p, b.bandit.p))
-                            .map(record -> String.format("%.4g: %.4g", record.bandit.p,
-                                    record.node.synapse.getLastEvaluation(context, choose).value))
-                            .collect(Collectors.joining("\n")));
-
             if (newPulls.isEmpty()) {
                 context.reinforce(Optional.empty(), Optional.empty(), -.1f);
             }
@@ -147,20 +139,21 @@ public class BanditTest {
             choose.activate(context);
             context.rxActive().filter(active -> !active).blockingFirst();
 
-            System.out.printf("Samples:\n%s\n",
-                    bandits.stream().sorted((a, b) -> -Double.compare(a.bandit.p, b.bandit.p))
-                            .map(record -> new AbstractMap.SimpleEntry<>(record.bandit,
-                                    record.node.synapse.getLastEvaluation(context, choose)))
-                            .filter(entry -> entry.getValue() != null)
-                            .map(entry -> String.format("%.4g: %.4g", entry.getKey().p, entry.getValue().value))
-                            .collect(Collectors.joining("\n")));
-
             if (newPulls.isEmpty()) {
                 bandits.get(random.nextInt(bandits.size())).node.activate(context);
                 context.rxActive().filter(active -> !active).blockingFirst();
             }
 
             return newPulls;
+        }
+    }
+
+    private void report(final BinaryHarness harness) {
+        for (val bandit : harness.bandits) {
+            System.out.println(bandit.node);
+            for (val line : bandit.node.synapse.toString().split("\n")) {
+                System.out.println("\t" + line);
+            }
         }
     }
 
@@ -179,8 +172,6 @@ public class BanditTest {
                     consecutiveBest = 0;
                 }
 
-                System.out.println(harness.pulls);
-
                 efficacy = harness.reward / harness.pulls / best.bandit.p;
 
                 if (harness.pulls > 10000) {
@@ -189,8 +180,8 @@ public class BanditTest {
                                 harness.pulls, efficacy, harness.reward / harness.pulls);
                         return;
                     } else {
-                        fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).\n",
-                                harness.pulls, efficacy, harness.reward / harness.pulls));
+                        fail(String.format("Did not converge after %d pulls with %.2f efficacy (%.2f).", harness.pulls,
+                                efficacy, harness.reward / harness.pulls));
                     }
                 }
             }
@@ -198,13 +189,25 @@ public class BanditTest {
             System.out.printf("Converged after around %d pulls with %.2f efficacy (%.2f).\n", harness.pulls, efficacy,
                     harness.reward / harness.pulls);
         } finally {
-            for (val bandit : harness.bandits) {
-                System.out.println(bandit.node);
-                for (val line : bandit.node.synapse.toString().split("\n")) {
-                    System.out.println("\t" + line);
+        }
+    }
+
+    private void runBattery(Supplier<BinaryHarness> harnessFactory, int trials) {
+        int failures = 0;
+        for (int i = 0; i < trials; ++i) {
+            try (val harness = harnessFactory.get()) {
+                try {
+                    runSuite(harness);
+                } catch (Throwable e) {
+                    System.err.println(e);
+                    ++failures;
+                } finally {
+                    report(harness);
                 }
             }
+            System.gc();
         }
+        assertEquals(String.format("Failure rate: %.2f", (float) failures / trials), 0, failures);
     }
 
     /**
@@ -213,9 +216,7 @@ public class BanditTest {
      */
     @Test
     public void testMinimalExplicitBinaryBandit() {
-        try (val harness = new ExplicitHarness(4)) {
-            runSuite(harness);
-        }
+        runBattery(() -> new ExplicitHarness(4), 30);
     }
 
     /**
@@ -224,8 +225,6 @@ public class BanditTest {
      */
     @Test
     public void testHebbianBinaryBandit() {
-        try (val harness = new HebbianHarness(4)) {
-            runSuite(harness);
-        }
+        runBattery(() -> new HebbianHarness(4), 30);
     }
 }

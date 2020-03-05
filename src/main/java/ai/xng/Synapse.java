@@ -45,6 +45,7 @@ public class Synapse implements Serializable {
 
   public static final long DEBOUNCE_PERIOD = 2;
   public static final float THRESHOLD = 1;
+  public static final float AUTOREINFORCEMENT = .05f;
   private static final float DECAY_MARGIN = .2f;
 
   public class ContextualState {
@@ -117,6 +118,7 @@ public class Synapse implements Serializable {
       final ContextualState state = activation.context.synapseState(Synapse.this);
       try (val lock = new DebugLock.Multiple(activation.context.mutex(), Synapse.this.lock)) {
         final float value = coefficient.generate();
+        coefficient.add(value, AUTOREINFORCEMENT);
         state.evaluations.computeIfAbsent(incoming, node -> new ArrayDeque<>())
             .add(new Evaluation(activation.timestamp, value));
         state.rxEvaluations.onNext(evaluate(activation.context, activation.timestamp, value).doFinally(ref::close));

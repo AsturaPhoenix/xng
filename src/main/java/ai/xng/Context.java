@@ -256,8 +256,13 @@ public class Context implements Serializable {
 
       final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
       final Distribution distribution = posterior.synapse.profile(prior).getCoefficient();
-      final float margin = (Synapse.THRESHOLD - posterior.synapse.getValue(this, priorEvaluation.time)) / nPriors;
-      final float target = Math.min(Math.max(margin + priorEvaluation.value, distribution.getMode()), 1);
+      float margin = Synapse.THRESHOLD - posterior.synapse.getValue(this, priorEvaluation.time);
+      if (margin <= 0) {
+        margin = 0;
+      } else {
+        margin /= nPriors;
+      }
+      final float target = Math.min(margin + distribution.getMode(), 1);
       distribution.add(target, weight);
     }
   }

@@ -19,6 +19,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.val;
 
 public class BanditTest {
+    /**
+     * TODO: This is a hack while Hebbian learning skews exploration in favor of
+     * activation.
+     */
+    private static final float NEGATIVE_BIAS = .3f;
+
     private final Random random = new Random();
 
     /**
@@ -77,7 +83,7 @@ public class BanditTest {
                 ++reward;
                 reinforcement = 1;
             } else {
-                reinforcement = reward / (reward - pulls);
+                reinforcement = reward / (reward - pulls) - NEGATIVE_BIAS;
             }
 
             activation.context.reinforce(Optional.empty(), Optional.empty(), reinforcement);
@@ -216,7 +222,7 @@ public class BanditTest {
      */
     @Test
     public void testMinimalExplicitBinaryBandit() {
-        runBattery(() -> new ExplicitHarness(4), 30);
+        runBattery(() -> new ExplicitHarness(4), 20);
     }
 
     /**
@@ -225,6 +231,6 @@ public class BanditTest {
      */
     @Test
     public void testHebbianBinaryBandit() {
-        runBattery(() -> new HebbianHarness(4), 30);
+        runBattery(() -> new HebbianHarness(4), 20);
     }
 }

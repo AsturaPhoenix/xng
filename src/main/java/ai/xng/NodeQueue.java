@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.lang.ref.WeakReference;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
 import java.util.Iterator;
@@ -14,6 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.google.common.collect.Iterables;
 
 import io.reactivex.Observable;
+import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.RequiredArgsConstructor;
@@ -70,7 +72,8 @@ public class NodeQueue implements Iterable<Node>, Serializable {
 
   private final Lock lock = new ReentrantLock();
 
-  private final Context context;
+  private transient CompositeDisposable contextDisposable;
+  private transient WeakReference<Context> context;
   private transient Link head, tail;
   private transient Object version;
 
@@ -81,16 +84,25 @@ public class NodeQueue implements Iterable<Node>, Serializable {
   }
 
   public NodeQueue(final Context context) {
-    this.context = context;
-    init();
+    init(context);
   }
 
-  private void init() {
+  private void init(final Context context) {
+    if (context != null) {
+      contextDisposable = new CompositeDisposable();
+      this.context = new DisposingWeakReference<>(context, contextDisposable);
+    }
     rxActivate = PublishSubject.create();
   }
 
   private void writeObject(final ObjectOutputStream o) throws IOException {
     o.defaultWriteObject();
+    if (context == null) {
+      o.writeBoolean(false);
+    } else {
+      o.writeBoolean(true);
+      o.writeObject(context.get());
+    }
     try (val lock = new DebugLock(lock)) {
       for (final Node node : this) {
         o.writeObject(node);
@@ -101,7 +113,7 @@ public class NodeQueue implements Iterable<Node>, Serializable {
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
     stream.defaultReadObject();
-    init();
+    init(stream.readBoolean() ? (Context) stream.readObject() : null);
     Node node;
     while ((node = (Node) stream.readObject()) != null) {
       add(node);
@@ -116,12 +128,19 @@ public class NodeQueue implements Iterable<Node>, Serializable {
     final Link link = new Link(node);
     initAtTail(link);
 
-    node.rxActivate().subscribe(a -> {
-      if (context == null || a.context == context) {
+    if (context == null) {
+      node.rxActivate().subscribe(a -> {
         promote(link);
         rxActivate.onNext(node);
-      }
-    });
+      });
+    } else {
+      contextDisposable.add(node.rxActivate().subscribe(a -> {
+        if (a.context == context.get()) {
+          promote(link);
+          rxActivate.onNext(node);
+        }
+      }));
+    }
   }
 
   public void addAll(final Collection<Node> nodes) {

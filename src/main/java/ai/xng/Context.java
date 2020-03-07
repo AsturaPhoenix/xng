@@ -89,12 +89,17 @@ public class Context implements Serializable {
     continuation = new CompletableFuture<>();
     exceptionHandler = continuation::completeExceptionally;
 
-    activations.rxActivate().subscribe(node -> {
+    // While contextual activations can still happen, the context is kept alive by
+    // thread reference paths. However, this subscription itself should not be
+    // allowed to keep the context alive.
+    val ref = new DisposingWeakReference<>(this);
+    ref.disposable = activations.rxActivate().subscribe(node -> {
+      final Context context = ref.get();
       final List<Node> recent;
-      try (val lock = new DebugLock(activations.mutex())) {
-        recent = Iterators.find(new HebbianReinforcementWindow(Optional.empty()), deck -> deck.get(0) == node);
+      try (val lock = new DebugLock(context.activations.mutex())) {
+        recent = Iterators.find(context.new HebbianReinforcementWindow(Optional.empty()), deck -> deck.get(0) == node);
       }
-      hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT);
+      context.hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT);
     });
   }
 

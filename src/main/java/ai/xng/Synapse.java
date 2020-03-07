@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.lang.ref.WeakReference;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Map;
@@ -89,17 +90,21 @@ public class Synapse implements Serializable {
     private Distribution coefficient;
     @Getter
     private long decayPeriod; // linear for now
-    private final Node incoming;
+    private final WeakReference<Node> incoming;
     private final Disposable subscription;
 
     private Profile(final Node incoming) {
       this.coefficient = new ThresholdDistribution(0);
-      this.incoming = incoming;
+      this.incoming = new WeakReference<>(incoming);
       resetDecay();
       subscription = incoming.rxActivate().subscribe(this::onActivate);
     }
 
     public void resetDecay() {
+      val incoming = incoming.get();
+      if (incoming == null)
+        return;
+
       // The default decay should be roughly proportional to the
       // refractory period of the source node as nodes with shorter
       // refractory periods are likely to be evoked more often, possibly
@@ -119,13 +124,19 @@ public class Synapse implements Serializable {
       try (val lock = new DebugLock.Multiple(activation.context.mutex(), Synapse.this.lock)) {
         final float value = coefficient.generate();
         coefficient.add(value, AUTOREINFORCEMENT);
-        state.evaluations.computeIfAbsent(incoming, node -> new ArrayDeque<>())
+        state.evaluations.computeIfAbsent(incoming.get(), node -> new ArrayDeque<>())
             .add(new Evaluation(activation.timestamp, value));
         state.rxEvaluations.onNext(evaluate(activation.context, activation.timestamp, value).doFinally(ref::close));
       }
     }
 
     public float getValue(final Context context, final long time) {
+      val incoming = incoming.get();
+      if (incoming == null)
+        // This can only happen in the pathological usage where a caller holds onto a
+        // Profile instance beyond the lifetime of the incoming Node.
+        throw new IllegalStateException("Profile instance has expired.");
+
       // TODO(rosswang): it may be an interesting simplification to restrict that
       // nodes may only be activated once per context. Then we might be able to get
       // rid of refractory periods and decays, but it would have implications for
@@ -215,9 +226,10 @@ public class Synapse implements Serializable {
     // severe, we can revisit.
     float totalValue = 0, totalDecayRate = 0;
 
-    for (final Profile profile : inputs.values()) {
+    for (val entry : inputs.entrySet()) {
+      val profile = entry.getValue();
       val decayProfile = new EvaluationDecayProfile();
-      decayProfile.evaluation = getPrecedingEvaluation(context, profile.incoming, time);
+      decayProfile.evaluation = getPrecedingEvaluation(context, entry.getKey(), time);
       if (decayProfile.evaluation == null)
         continue;
 

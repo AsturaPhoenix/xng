@@ -5,8 +5,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
-
-import java.io.IOException;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
@@ -109,21 +107,104 @@ public class KnowledgeBaseTest {
   }
 
   @Test
+  public void testNodeGc() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      val gc = new GcFixture(kb);
+
+      for (int i = 0; i < 1000; ++i) {
+        kb.node();
+      }
+
+      gc.assertNoGrowth();
+    }
+  }
+
+  @Test
+  public void testSynapseGc() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      val posterior = kb.node();
+
+      val gc = new GcFixture(kb);
+
+      for (int i = 0; i < 1000; ++i) {
+        kb.node().then(posterior);
+      }
+
+      gc.assertNoGrowth();
+    }
+  }
+
+  @Test
+  public void testCycleGc() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      val gc = new GcFixture(kb);
+
+      for (int i = 0; i < 1000; ++i) {
+        val a = kb.node(), b = kb.node();
+        a.then(b).then(a);
+      }
+
+      gc.assertNoGrowth();
+    }
+  }
+
+  @Test
+  public void testActivationGc() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      val node = kb.node();
+      {
+        val context = new Context(kb::node);
+        node.activate(context);
+        context.blockUntilIdle();
+      }
+
+      val gc = new GcFixture(kb);
+
+      for (int i = 0; i < 1000; ++i) {
+        val context = new Context(kb::node);
+        node.activate(context);
+        context.blockUntilIdle();
+      }
+
+      gc.assertNoGrowth();
+    }
+  }
+
+  @Test
+  public void testSynapseActivationGc() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      val posterior = kb.node();
+
+      val gc = new GcFixture(kb);
+
+      for (int i = 0; i < 1000; ++i) {
+        val prior = kb.node();
+        prior.then(posterior);
+
+        val context = new Context(kb::node);
+        prior.activate(context);
+        context.blockUntilIdle();
+      }
+
+      gc.assertSize("%d + 1000", gc.initialSize + 1000);
+    }
+  }
+
+  @Test
   @Ignore
-  public void testWeakRefs() throws IOException {
+  public void testInvocationGc() throws Exception {
     try (val kb = new KnowledgeBase()) {
       setUpPropGet(kb);
-      final int initialSize = TestUtil.getSerializedSize(kb);
 
-      for (int i = 0; i < 100; ++i) {
+      val gc = new GcFixture(kb);
+
+      for (int i = 0; i < 200; ++i) {
         val context = new Context(kb::node);
         kb.node("roses are").activate(context);
         context.blockUntilIdle();
       }
 
-      System.gc();
-      final int finalSize = TestUtil.getSerializedSize(kb);
-      assertTrue(String.format("%d > 2 * %d", finalSize, initialSize), finalSize <= 2 * initialSize);
+      gc.assertSize("2 * %d", 2 * gc.initialSize);
     }
   }
 

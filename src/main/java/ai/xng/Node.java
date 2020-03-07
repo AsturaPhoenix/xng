@@ -90,10 +90,6 @@ public class Node implements Serializable {
   private transient OnActivate onActivate;
   private transient Subject<Activation> rxOutput;
 
-  @Getter
-  @Setter
-  private boolean pinned;
-
   public Node() {
     this(null);
   }
@@ -103,8 +99,6 @@ public class Node implements Serializable {
     preInit();
     postInit();
   }
-
-  public static final int ACTIVATION_HISTORY = 5;
 
   private void preInit() {
     rxOutput = PublishSubject.create();

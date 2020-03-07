@@ -2,7 +2,10 @@ package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -10,7 +13,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -25,6 +27,7 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Value;
+import lombok.val;
 
 /**
  * Since this is meant to be a proof of concept, encapsulation is not perfect.
@@ -38,7 +41,17 @@ import lombok.Value;
 public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
   private static final long serialVersionUID = -6461427806563494150L;
 
-  private Map<Serializable, Node> valueIndex = new MapMaker().weakKeys().makeMap();
+  /**
+   * Map that keeps its nodes alive. Note that the {@code weakKeys} configuration
+   * here is just to use identity keys with concurrency; since nodes have strong
+   * references to their values, they will never actually be evicted.
+   */
+  private Map<Serializable, Node> strongIndex = new MapMaker().weakKeys().makeMap();
+  /**
+   * Map that does not keep its nodes alive. This is suitable only for values that
+   * refer to their nodes, like {@link Context}s.
+   */
+  private Map<Serializable, Node> weakIndex = new MapMaker().weakKeys().weakValues().makeMap();
   private Collection<Node> nodes = Collections.newSetFromMap(new MapMaker().weakKeys().makeMap());
 
   private transient Subject<String> rxOutput;
@@ -119,12 +132,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
         if (object == null) {
           value = parent.node.properties.get(property);
-          kb.node(kb.new NodeTuple(Common.contextPair, property, value)).activate(parent);
-          kb.node(kb.new NodeTuple(Common.contextProperty, property)).activate(parent);
+          kb.eavNode(Common.contextPair, property, value).activate(parent);
+          kb.eavNode(Common.contextProperty, property).activate(parent);
         } else {
           value = object.properties.get(property);
-          kb.node(kb.new NodeTuple(Common.eavTriple, object, property, value)).activate(parent);
-          kb.node(kb.new NodeTuple(Common.objectProperty, object, property)).activate(parent);
+          kb.eavNode(Common.eavTriple, object, property, value).activate(parent);
+          kb.eavNode(Common.objectProperty, object, property).activate(parent);
         }
 
         return value;
@@ -237,11 +250,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   public KnowledgeBase() {
+    preInitEav();
     init();
     bootstrap();
   }
 
   private void init() {
+    postInitEav();
+
     rxOutput = PublishSubject.create();
 
     for (final Node node : nodes) {
@@ -392,12 +408,26 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
+    preInitEav();
     stream.defaultReadObject();
+    val it = eavNodes.entrySet().iterator();
+    while (it.hasNext()) {
+      val entry = it.next();
+
+      // Tuples that were serialized with an unreachable element are marked by a null
+      // array.
+      if (entry.getKey().tuple == null) {
+        it.remove();
+      } else {
+        entry.getKey().makeCanonical();
+      }
+    }
     init();
   }
 
   @Override
   public void close() {
+    eavCleanupThread.interrupt();
     rxOutput.onComplete();
     rxNodeAdded.onComplete();
   }
@@ -452,23 +482,134 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return node(new Param(ordinal));
   }
 
-  /**
-   * Class representing a variant of node tuple. Although not technically
-   * immutable, since the node semantics are by identity, this class is marked
-   * immutable by the {@code KnowledgeBase}.
-   * 
-   * TODO: Right now this effectively holds onto contexts forever. We need a
-   * stronger value reclaimation story.
-   */
-  @Value
-  private class NodeTuple implements Serializable {
-    private static final long serialVersionUID = 5070278620146038496L;
-    Node type;
-    List<Node> tuple;
+  private Map<NodeTuple, Node> eavNodes = new ConcurrentHashMap<>();
+  private transient ReferenceQueue<Node> eavCleanup;
+  private transient Thread eavCleanupThread;
 
-    public NodeTuple(final Common type, final Node... tuple) {
-      this.type = node(type);
-      this.tuple = Collections.unmodifiableList(Arrays.asList(tuple));
+  private void preInitEav() {
+    eavCleanup = new ReferenceQueue<>();
+  }
+
+  private void postInitEav() {
+    eavCleanupThread = new Thread(() -> {
+      try {
+        while (!Thread.interrupted()) {
+          ((NodeTuple.CanonicalWeakReference) eavCleanup.remove()).destroyTuple();
+        }
+      } catch (InterruptedException e) {
+      }
+    });
+    eavCleanupThread.start();
+  }
+
+  private Node eavNode(final Common type, final Node... tuple) {
+    return eavNodes.computeIfAbsent(new NodeTuple(type, tuple), t -> {
+      t.makeCanonical();
+      return node();
+    });
+  }
+
+  private final class NodeTuple implements Serializable {
+    private static final long serialVersionUID = 5070278620146038496L;
+
+    class CanonicalWeakReference extends WeakReference<Node> {
+      CanonicalWeakReference(final Node node) {
+        super(node, eavCleanup);
+      }
+
+      void destroyTuple() {
+        destroy();
+      }
+    }
+
+    final Common type;
+    transient WeakReference<Node>[] tuple;
+    transient int hashCode;
+
+    NodeTuple(final Common type, final Node[] tuple) {
+      this.type = type;
+      init(tuple);
+    }
+
+    @SuppressWarnings("unchecked")
+    void init(final Node[] tuple) {
+      this.tuple = new WeakReference[tuple.length];
+      for (int i = 0; i < tuple.length; ++i) {
+        this.tuple[i] = tuple[i] == null ? null : new WeakReference<>(tuple[i]);
+      }
+      hashCode = type.hashCode() ^ Arrays.asList(tuple).hashCode();
+    }
+
+    void makeCanonical() {
+      for (int i = 0; i < tuple.length; ++i) {
+        if (tuple[i] != null) {
+          tuple[i] = new CanonicalWeakReference(tuple[i].get());
+        }
+      }
+    }
+
+    private void writeObject(final ObjectOutputStream stream) throws IOException {
+      stream.defaultWriteObject();
+      final Node[] tuple = new Node[this.tuple.length];
+      for (int i = 0; i < tuple.length; ++i) {
+        val ref = this.tuple[i];
+        if (ref == null) {
+          tuple[i] = null;
+        } else {
+          val node = ref.get();
+          if (node == null) {
+            // This will be evicted after deserialization.
+            stream.writeObject(null);
+            return;
+          } else {
+            tuple[i] = node;
+          }
+        }
+      }
+      stream.writeObject(tuple);
+    }
+
+    private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
+      stream.defaultReadObject();
+      val tuple = (Node[]) stream.readObject();
+      if (tuple != null)
+        init(tuple);
+    }
+
+    void destroy() {
+      // Note that since this happens in response to a tuple element having become
+      // unreachable, we don't really have to worry much about race conditions since
+      // no write conflicts can arise at this point.
+      eavNodes.remove(this);
+      for (val ref : tuple) {
+        ref.clear();
+      }
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (obj == this)
+        return true;
+      if (!(obj instanceof NodeTuple))
+        return false;
+
+      final NodeTuple other = (NodeTuple) obj;
+      if (type != other.type || tuple.length != other.tuple.length)
+        return false;
+
+      for (int i = 0; i < tuple.length; ++i) {
+        if (tuple[i] == other.tuple[i])
+          continue;
+        if (tuple[i] == null || other.tuple[i] == null || tuple[i].get() != other.tuple[i].get())
+          return false;
+      }
+
+      return true;
+    }
+
+    @Override
+    public int hashCode() {
+      return hashCode;
     }
   }
 
@@ -486,8 +627,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       } else {
         old = context.node.properties.put(property, value);
       }
-      node(new NodeTuple(Common.contextPair, property, value)).activate(context);
-      node(new NodeTuple(Common.contextProperty, property)).activate(context);
+      eavNode(Common.contextPair, property, value).activate(context);
+      eavNode(Common.contextProperty, property).activate(context);
 
       if (property.value == Common.returnValue) {
         if (context.invocation != null) {
@@ -501,8 +642,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       } else {
         old = object.properties.put(property, value);
       }
-      node(new NodeTuple(Common.eavTriple, object, property, value)).activate(context);
-      node(new NodeTuple(Common.objectProperty, object, property)).activate(context);
+      eavNode(Common.eavTriple, object, property, value).activate(context);
+      eavNode(Common.objectProperty, object, property).activate(context);
     }
 
     return old;
@@ -532,20 +673,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
     final Serializable resolvedValue = resolvingValue;
 
-    return valueIndex.computeIfAbsent(resolvedValue, x -> {
-      final Node node = new Node(resolvedValue);
-      initNode(node);
-      synchronized (nodes) {
-        nodes.add(node);
-      }
-      return node;
-    });
+    final Map<Serializable, Node> index = resolvedValue instanceof Context ? weakIndex : strongIndex;
+    return index.computeIfAbsent(resolvedValue, this::createNodeWithHooks);
   }
 
   // All kb nodes must be created through a node(...) method to ensure the
   // proper callbacks are set.
   public Node node() {
-    final Node node = new Node();
+    return createNodeWithHooks(null);
+  }
+
+  private Node createNodeWithHooks(final Serializable value) {
+    final Node node = new Node(value);
     initNode(node);
     synchronized (nodes) {
       nodes.add(node);
@@ -608,11 +747,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // implemented in terms of reflection, we need to bootstrap strings as
     // immutable.
     markImmutable(String.class);
-    // We also need to mark args, params, and node tuples as immutable as they're
-    // all potentially touched in the markImmutable invocation.
+    // We also need to mark args and params as immutable as they're potentially
+    // touched in the markImmutable invocation.
     markImmutable(Arg.class);
     markImmutable(Param.class);
-    markImmutable(NodeTuple.class);
 
     final Node markImmutable = node(Bootstrap.markImmutable), newInstance = node(Bootstrap.newInstance),
         eval = node(Bootstrap.eval);

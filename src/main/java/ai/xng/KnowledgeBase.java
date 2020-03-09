@@ -128,18 +128,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         final Node object = context.node.properties.get(kb.node(Common.object)),
             property = context.require(kb.node(Common.name));
         final Context parent = kb.getParent(context);
-        final Node value;
-
-        if (object == null) {
-          value = parent.node.properties.get(property);
-          kb.eavNode(Common.contextPair, property, value).activate(parent);
-          kb.eavNode(Common.contextProperty, property).activate(parent);
-        } else {
-          value = object.properties.get(property);
-          kb.eavNode(Common.eavTriple, object, property, value).activate(parent);
-          kb.eavNode(Common.objectProperty, object, property).activate(parent);
-        }
-
+        final Node value = (object == null ? parent.node : object).properties.get(property);
+        kb.activateEavNodes(context, object, property, value);
         return value;
       }
     },
@@ -509,6 +499,28 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     });
   }
 
+  private void activateEavNodes(final Context context, Node object, final Node property, final Node value) {
+    // EAV nodes are meant to capture specializations and generalizations, so EAV
+    // nodes for ephemeral context values defeat the purpose and accumulate garbage
+    // that would require nontrivial analysis to clean up (since they could
+    // potentialy affect other state once they are connected through Hebbian
+    // learning, it is not obvious in what cases it would be safe to cull them).
+    // Thus, go ahead and omit those EAV nodes.
+    if (object != null && object.value instanceof Context || value != null && value.value instanceof Context)
+      return;
+    // (The case of property.value instanceof context is not covered because what
+    // does that even mean, and there would probably be an interesting reason for
+    // doing something like that.)
+
+    if (object == null) {
+      eavNode(Common.contextPair, property, value).activate(context);
+      eavNode(Common.contextProperty, property).activate(context);
+    } else {
+      eavNode(Common.eavTriple, object, property, value).activate(context);
+      eavNode(Common.objectProperty, object, property).activate(context);
+    }
+  }
+
   private final class NodeTuple implements Serializable {
     private static final long serialVersionUID = 5070278620146038496L;
 
@@ -627,8 +639,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       } else {
         old = context.node.properties.put(property, value);
       }
-      eavNode(Common.contextPair, property, value).activate(context);
-      eavNode(Common.contextProperty, property).activate(context);
 
       if (property.value == Common.returnValue) {
         if (context.invocation != null) {
@@ -642,9 +652,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       } else {
         old = object.properties.put(property, value);
       }
-      eavNode(Common.eavTriple, object, property, value).activate(context);
-      eavNode(Common.objectProperty, object, property).activate(context);
     }
+
+    activateEavNodes(context, object, property, value);
 
     return old;
   }

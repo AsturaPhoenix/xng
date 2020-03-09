@@ -9,7 +9,6 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Ignore;
 import org.junit.Test;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
@@ -175,6 +174,9 @@ public class KnowledgeBaseTest {
     try (val kb = new KnowledgeBase()) {
       val posterior = kb.node();
 
+      // Exercising this test case beforehand does not appreciably change the observed
+      // growth, which is O(1).
+
       val gc = new GcFixture(kb);
 
       for (int i = 0; i < 1000; ++i) {
@@ -191,14 +193,19 @@ public class KnowledgeBaseTest {
   }
 
   @Test
-  @Ignore
   public void testInvocationGc() throws Exception {
     try (val kb = new KnowledgeBase()) {
       setUpPropGet(kb);
 
+      {
+        val context = new Context(kb::node);
+        kb.node("roses are").activate(context);
+        context.blockUntilIdle();
+      }
+
       val gc = new GcFixture(kb);
 
-      for (int i = 0; i < 200; ++i) {
+      for (int i = 0; i < 1000; ++i) {
         val context = new Context(kb::node);
         kb.node("roses are").activate(context);
         context.blockUntilIdle();

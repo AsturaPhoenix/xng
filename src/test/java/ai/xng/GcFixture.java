@@ -6,7 +6,8 @@ import java.io.IOException;
 import java.io.Serializable;
 
 public class GcFixture {
-  private static final long GC_TIMEOUT_MS = 1000;
+  private static final long GC_PAUSE_MS = 1000;
+  private static final int GC_ITERATIONS = 10;
 
   private final Serializable object;
   public final int initialSize;
@@ -26,18 +27,17 @@ public class GcFixture {
 
   public void assertSize(final String format, final int limit, final Runnable gc)
       throws IOException, InterruptedException {
-    final long deadline = System.currentTimeMillis() + GC_TIMEOUT_MS;
-    int finalSize;
-    do {
+    int finalSize = 0;
+    for (int i = 0; i < GC_ITERATIONS; ++i) {
       if (Thread.interrupted())
         throw new InterruptedException();
 
       gc.run();
+      Thread.sleep(GC_PAUSE_MS);
       finalSize = TestUtil.getSerializedSize(object);
       if (finalSize <= limit)
         return;
-
-    } while (System.currentTimeMillis() < deadline);
+    }
 
     fail(String.format("%d > " + format, finalSize, initialSize));
   }

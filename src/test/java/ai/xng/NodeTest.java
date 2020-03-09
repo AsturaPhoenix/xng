@@ -79,6 +79,34 @@ public class NodeTest {
   }
 
   @Test
+  public void testAndStability() {
+    val a = new Node(), b = new Node(), and = new Node();
+    and.synapse.setCoefficient(a, .8f);
+    and.synapse.setCoefficient(b, .8f);
+
+    for (int i = 0; i < 1000; ++i) {
+      val context = new Context(Node::new);
+      a.activate(context);
+      b.activate(context);
+      context.blockUntilIdle();
+    }
+
+    System.out.println(and.synapse);
+
+    val monitor = new EmissionMonitor<>(and.rxActivate());
+    val context1 = new Context(Node::new);
+    a.activate(context1);
+    context1.blockUntilIdle();
+    assertFalse(monitor.didEmit());
+
+    val context2 = new Context(Node::new);
+    a.activate(context2);
+    b.activate(context2);
+    context2.blockUntilIdle();
+    assertTrue(monitor.didEmit());
+  }
+
+  @Test
   public void testDisjointContexts() {
     val a = new Node(), b = new Node(), and = new Node();
     val monitor = new EmissionMonitor<>(and.rxActivate());

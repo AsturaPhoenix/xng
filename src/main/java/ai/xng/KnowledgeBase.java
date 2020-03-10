@@ -715,16 +715,51 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     /**
      * <li>{@link Common#javaClass}: class to mark immutable
      */
-    markImmutable,
+    markImmutable {
+      @Override
+      protected void setUp(final KnowledgeBase kb, final Node markImmutable) {
+        kb.new Invocation(markImmutable, kb.node(newInstance)).literal(kb.node(Common.javaClass),
+            kb.node(ConcurrentHashMap.class));
+
+        kb.new Invocation(markImmutable.then(kb.node()), kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.value))
+            .transform(kb.node(Common.object), kb.node(Common.javaClass))
+            .transform(kb.node(Common.value), markImmutable);
+      }
+    },
     /**
      * <li>{@link Common#javaClass}: class for which to invoke default constructor.
      * <li>Returns the instance that was created.
      */
-    newInstance,
+    newInstance {
+      @Override
+      protected void setUp(final KnowledgeBase kb, final Node newInstance) {
+        kb.new Invocation(newInstance, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("newInstance"))
+            .transform(kb.node(Common.object), kb.node(Common.javaClass));
+
+        kb.new Invocation(newInstance.then(kb.node()), kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), newInstance);
+      }
+    },
     /**
      * <li>{@link Common#value}: string to evaluate
      */
-    eval
+    eval {
+      @Override
+      protected void setUp(final KnowledgeBase kb, final Node eval) {
+        final Node stream = kb.node();
+        eval.then(stream);
+        kb.new Invocation(stream, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("codePoints"))
+            .transform(kb.node(Common.object), kb.node(Common.value));
+
+        final Node iterator = kb.node();
+        stream.then(iterator);
+        kb.new Invocation(iterator, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("iterator"))
+            .transform(kb.node(Common.object), stream);
+      }
+    };
+
+    protected abstract void setUp(KnowledgeBase kb, Node node);
   }
 
   public class Invocation {
@@ -762,35 +797,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     markImmutable(Arg.class);
     markImmutable(Param.class);
 
-    final Node markImmutable = node(Bootstrap.markImmutable), newInstance = node(Bootstrap.newInstance),
-        eval = node(Bootstrap.eval);
-
-    {
-      new Invocation(markImmutable, newInstance).literal(node(Common.javaClass), node(ConcurrentHashMap.class));
-
-      new Invocation(markImmutable.then(node()), node(BuiltIn.setProperty))
-          .literal(node(Common.name), node(Common.value)).transform(node(Common.object), node(Common.javaClass))
-          .transform(node(Common.value), markImmutable);
-    }
-
-    {
-      new Invocation(newInstance, node(BuiltIn.method)).literal(node(Common.name), node("newInstance"))
-          .transform(node(Common.object), node(Common.javaClass));
-
-      new Invocation(newInstance.then(node()), node(BuiltIn.setProperty))
-          .literal(node(Common.name), node(Common.returnValue)).transform(node(Common.value), newInstance);
-    }
-
-    {
-      final Node stream = node();
-      eval.then(stream);
-      new Invocation(stream, node(BuiltIn.method)).literal(node(Common.name), node("codePoints"))
-          .transform(node(Common.object), node(Common.value));
-
-      final Node iterator = node();
-      stream.then(iterator);
-      new Invocation(iterator, node(BuiltIn.method)).literal(node(Common.name), node("iterator"))
-          .transform(node(Common.object), stream);
+    for (val bootstrap : Bootstrap.values()) {
+      bootstrap.setUp(this, node(bootstrap));
     }
   }
 }

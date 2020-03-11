@@ -68,10 +68,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // stack frames
     invoker, invocation, context,
 
-    // node tuple types
-    contextPair, contextProperty, eavTriple, objectProperty,
+    javaClass, object, name, exception, source, value, refractory, nodeCreated,
 
-    javaClass, object, name, exception, source, value, refractory, nodeCreated, nullNode
+    // Used as a value node to indicate the EAV node triggered when a property is
+    // unset.
+    eavUnset
   }
 
   public enum BuiltIn {
@@ -79,6 +80,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
      * Activates the node at {@link Common#value} in the context given by
      * {@link Common#context}, or the calling context if absent. This activation
      * does not block.
+     * 
+     * As an alternative, consider chaining off of EAV nodes instead of activating
+     * contextual nodes.
      */
     activate {
       @Override
@@ -91,11 +95,23 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         return null;
       }
     },
-    clearProperties {
+    /**
+     * Get the node representing an entity-attribute-value tuple. This node is
+     * automatically activated when a matching property is queried or written.
+     * 
+     * If {@link Common#value} is omitted, the wildcard EAV node is returned. To
+     * retrieve the EAV node for the clearing of a property, pass
+     * {@link Common#eavUnset}.
+     */
+    eavTuple {
       @Override
-      public Node impl(final KnowledgeBase kb, final Context context) {
-        context.require(kb.node(Common.object)).properties.clear();
-        return null;
+      public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
+        final Node object = context.node.properties.get(kb.node(Common.object));
+        final Node property = context.require(kb.node(Common.name));
+        final Node value = context.node.properties.get(kb.node(Common.value));
+
+        return value == null ? kb.eavNode(object, property)
+            : kb.eavNode(object, property, value.value == Common.eavUnset ? null : value);
       }
     },
     /**
@@ -506,7 +522,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return node(new Param(ordinal));
   }
 
-  private Map<NodeTuple, Node> eavNodes = new ConcurrentHashMap<>();
+  private Map<EavTuple, Node> eavNodes = new ConcurrentHashMap<>();
   private transient ReferenceQueue<Node> eavCleanup;
   private transient Thread eavCleanupThread;
 
@@ -518,7 +534,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     eavCleanupThread = new Thread(() -> {
       try {
         while (!Thread.interrupted()) {
-          ((NodeTuple.CanonicalWeakReference) eavCleanup.remove()).destroyTuple();
+          ((EavTuple.CanonicalWeakReference) eavCleanup.remove()).destroyTuple();
         }
       } catch (InterruptedException e) {
       }
@@ -526,8 +542,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     eavCleanupThread.start();
   }
 
-  private Node eavNode(final Common type, final Node... tuple) {
-    return eavNodes.computeIfAbsent(new NodeTuple(type, tuple), t -> {
+  private Node eavNode(final Node... tuple) {
+    return eavNodes.computeIfAbsent(new EavTuple(tuple), t -> {
       t.makeCanonical();
       return node();
     });
@@ -546,17 +562,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // does that even mean, and there would probably be an interesting reason for
     // doing something like that.)
 
-    if (object == null) {
-      eavNode(Common.contextPair, property, value).activate(context);
-      eavNode(Common.contextProperty, property).activate(context);
-    } else {
-      eavNode(Common.eavTriple, object, property, value).activate(context);
-      eavNode(Common.objectProperty, object, property).activate(context);
-    }
+    eavNode(object, property, value).activate(context);
+    eavNode(object, property).activate(context);
   }
 
-  private final class NodeTuple implements Serializable {
-    private static final long serialVersionUID = 5070278620146038496L;
+  private final class EavTuple implements Serializable {
+    private static final long serialVersionUID = 5006832330252764773L;
 
     class CanonicalWeakReference extends WeakReference<Node> {
       CanonicalWeakReference(final Node node) {
@@ -568,12 +579,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       }
     }
 
-    final Common type;
     transient WeakReference<Node>[] tuple;
     transient int hashCode;
 
-    NodeTuple(final Common type, final Node[] tuple) {
-      this.type = type;
+    EavTuple(final Node... tuple) {
       init(tuple);
     }
 
@@ -583,7 +592,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       for (int i = 0; i < tuple.length; ++i) {
         this.tuple[i] = tuple[i] == null ? null : new WeakReference<>(tuple[i]);
       }
-      hashCode = type.hashCode() ^ Arrays.asList(tuple).hashCode();
+      hashCode = Arrays.asList(tuple).hashCode();
     }
 
     void makeCanonical() {
@@ -595,7 +604,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     private void writeObject(final ObjectOutputStream stream) throws IOException {
+      // Although all our fields look transient, we need to write KnowledgeBase.this.
       stream.defaultWriteObject();
+
       final Node[] tuple = new Node[this.tuple.length];
       for (int i = 0; i < tuple.length; ++i) {
         val ref = this.tuple[i];
@@ -617,6 +628,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
     private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
       stream.defaultReadObject();
+
       val tuple = (Node[]) stream.readObject();
       if (tuple != null)
         init(tuple);
@@ -628,7 +640,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       // no write conflicts can arise at this point.
       eavNodes.remove(this);
       for (val ref : tuple) {
-        ref.clear();
+        if (ref != null)
+          ref.clear();
       }
     }
 
@@ -636,11 +649,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     public boolean equals(Object obj) {
       if (obj == this)
         return true;
-      if (!(obj instanceof NodeTuple))
+      if (!(obj instanceof EavTuple))
         return false;
 
-      final NodeTuple other = (NodeTuple) obj;
-      if (type != other.type || tuple.length != other.tuple.length)
+      final EavTuple other = (EavTuple) obj;
+      if (tuple.length != other.tuple.length)
         return false;
 
       for (int i = 0; i < tuple.length; ++i) {
@@ -784,22 +797,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       }
     },
     /**
-     * Activates the property on {@link Common#object} named by {@link Common#name}
-     * in the calling context. This can be used to implement conditional and switch
-     * logic.
-     */
-    select {
-      @Override
-      protected void setUp(final KnowledgeBase kb, final Node select) {
-        final Node selection = select.then(kb.node());
-        kb.new Invocation(selection, kb.node(BuiltIn.getProperty)).inherit(kb.node(Common.object))
-            .inherit(kb.node(Common.name));
-        // Activate in the calling context via tail recursion.
-        kb.new Invocation(selection.then(kb.node()), kb.node(BuiltIn.activate))
-            .transform(kb.node(Common.value), selection).inherit(kb.node(Common.invoker));
-      }
-    },
-    /**
      * <li>{@link Common#value}: string to evaluate
      */
     eval {
@@ -820,23 +817,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         kb.new Invocation(hasNext, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("hasNext"))
             .transform(kb.node(Common.object), iterator);
 
-        final Node ifHasNext = kb.node();
-        hasNext.then(ifHasNext);
         final Node next = kb.node();
-        {
-          final Node ifHasNextDispatch = kb.node();
-          ifHasNextDispatch.properties.put(kb.node(true), next);
-          kb.new Invocation(ifHasNext, kb.node(select)).literal(kb.node(Common.object), ifHasNextDispatch)
-              .transform(kb.node(Common.name), hasNext);
-        }
+        kb.eavNode(null, hasNext, kb.node(true)).then(next);
 
         kb.new Invocation(next, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("next"))
             .transform(kb.node(Common.object), iterator);
-
-        final Node activateChar = kb.node();
-        next.then(activateChar);
-        kb.new Invocation(activateChar, kb.node(BuiltIn.activate)).transform(kb.node(Common.value), next)
-            .inherit(kb.node(Common.invoker));
       }
     };
 

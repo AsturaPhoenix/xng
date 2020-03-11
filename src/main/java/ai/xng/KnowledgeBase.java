@@ -65,7 +65,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // context keyed by the invocation node.
     returnValue,
 
-    parentContext,
+    // stack frames
+    invoker, invocation, context,
 
     // node tuple types
     contextPair, contextProperty, eavTriple, objectProperty,
@@ -74,6 +75,22 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   public enum BuiltIn {
+    /**
+     * Activates the node at {@link Common#value} in the context given by
+     * {@link Common#context}, or the calling context if absent. This activation
+     * does not block.
+     */
+    activate {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
+        Node activationContext = context.node.properties.get(kb.node(Common.context));
+        if (activationContext == null)
+          activationContext = propertyDescent(context.node, kb.node(Common.invoker), kb.node(Common.context));
+
+        context.require(kb.node(Common.value)).activate((Context) activationContext.value);
+        return null;
+      }
+    },
     clearProperties {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
@@ -274,6 +291,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
   }
 
+  private static Node propertyDescent(Node node, final Node... properties) {
+    for (final Node property : properties) {
+      if (node == null)
+        return null;
+      node = node.properties.get(property);
+    }
+    return node;
+  }
+
   /**
    * Attempts to get the parent context of a given context. If the context does
    * not have a parent, the original context is used instead. If the parent node
@@ -283,7 +309,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    * case null is returned.
    */
   private Context getParent(final Context context) {
-    final Node parentNode = context.node.properties.get(node(Common.parentContext));
+    final Node parentNode = propertyDescent(context.node, node(Common.invoker), node(Common.context));
     return parentNode == null ? context : (Context) parentNode.value;
   }
 
@@ -297,6 +323,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    * value, if any, is assigned to the context property named by the node with the
    * invocation, whose activation triggered the invocation.
    * 
+   * Tail recursion can be achieved by setting the invoker to the parent invoker
+   * (via {@code transform} or {@link Invocation#inherit(Node)}).
+   * 
    * @param node
    * @param context
    */
@@ -305,8 +334,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     if (invoke == null)
       return;
 
-    final Context childContext = new Context(this::node, node);
-    setProperty(childContext, null, node(Common.parentContext), context.node);
+    final Context childContext = new Context(this::node);
+
+    final Node invoker = node();
+    setProperty(childContext, invoker, node(Common.invocation), node);
+    setProperty(childContext, invoker, node(Common.context), context.node);
+
+    setProperty(childContext, null, node(Common.invoker), invoker);
     // Tie the parent activity to the child activity.
     childContext.rxActive().subscribe(new Observer<Boolean>() {
       Context.Ref ref;
@@ -641,8 +675,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       }
 
       if (property.value == Common.returnValue) {
-        if (context.invocation != null) {
-          setProperty(getParent(context), null, context.invocation, value);
+        final Node invocation = propertyDescent(context.node, node(Common.invoker), node(Common.invocation));
+        if (invocation != null) {
+          setProperty(getParent(context), null, invocation, value);
         }
         context.continuation().complete(null);
       }
@@ -713,6 +748,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
   public enum Bootstrap {
     /**
+     * <li>{@link Common#javaClass}: class for which to invoke default constructor.
+     * <li>Returns the instance that was created.
+     */
+    newInstance {
+      @Override
+      protected void setUp(final KnowledgeBase kb, final Node newInstance) {
+        kb.new Invocation(newInstance, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("newInstance"))
+            .transform(kb.node(Common.object), kb.node(Common.javaClass));
+
+        kb.new Invocation(newInstance.then(kb.node()), kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), newInstance);
+      }
+    },
+    /**
      * <li>{@link Common#javaClass}: class to mark immutable
      */
     markImmutable {
@@ -725,20 +774,29 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
             .literal(kb.node(Common.name), kb.node(Common.value))
             .transform(kb.node(Common.object), kb.node(Common.javaClass))
             .transform(kb.node(Common.value), markImmutable);
+
+        // Mark some more common types immutable.
+        for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class, Character.class, Integer.class,
+            Long.class, Float.class, Double.class }) {
+          kb.new Invocation(kb.node(), markImmutable).literal(kb.node(Common.javaClass), kb.node(type)).node
+              .activate(new Context(kb::node));
+        }
       }
     },
     /**
-     * <li>{@link Common#javaClass}: class for which to invoke default constructor.
-     * <li>Returns the instance that was created.
+     * Activates the property on {@link Common#object} named by {@link Common#name}
+     * in the calling context. This can be used to implement conditional and switch
+     * logic.
      */
-    newInstance {
+    select {
       @Override
-      protected void setUp(final KnowledgeBase kb, final Node newInstance) {
-        kb.new Invocation(newInstance, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("newInstance"))
-            .transform(kb.node(Common.object), kb.node(Common.javaClass));
-
-        kb.new Invocation(newInstance.then(kb.node()), kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), newInstance);
+      protected void setUp(final KnowledgeBase kb, final Node select) {
+        final Node selection = select.then(kb.node());
+        kb.new Invocation(selection, kb.node(BuiltIn.getProperty)).inherit(kb.node(Common.object))
+            .inherit(kb.node(Common.name));
+        // Activate in the calling context via tail recursion.
+        kb.new Invocation(selection.then(kb.node()), kb.node(BuiltIn.activate))
+            .transform(kb.node(Common.value), selection).inherit(kb.node(Common.invoker));
       }
     },
     /**
@@ -756,6 +814,29 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         stream.then(iterator);
         kb.new Invocation(iterator, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("iterator"))
             .transform(kb.node(Common.object), stream);
+
+        final Node hasNext = kb.node();
+        iterator.then(hasNext);
+        kb.new Invocation(hasNext, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("hasNext"))
+            .transform(kb.node(Common.object), iterator);
+
+        final Node ifHasNext = kb.node();
+        hasNext.then(ifHasNext);
+        final Node next = kb.node();
+        {
+          final Node ifHasNextDispatch = kb.node();
+          ifHasNextDispatch.properties.put(kb.node(true), next);
+          kb.new Invocation(ifHasNext, kb.node(select)).literal(kb.node(Common.object), ifHasNextDispatch)
+              .transform(kb.node(Common.name), hasNext);
+        }
+
+        kb.new Invocation(next, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("next"))
+            .transform(kb.node(Common.object), iterator);
+
+        final Node activateChar = kb.node();
+        next.then(activateChar);
+        kb.new Invocation(activateChar, kb.node(BuiltIn.activate)).transform(kb.node(Common.value), next)
+            .inherit(kb.node(Common.invoker));
       }
     };
 
@@ -778,6 +859,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     public Invocation transform(final Node key, final Node value) {
       node.properties.computeIfAbsent(node(Common.transform), k -> node()).properties.put(key, value);
       return this;
+    }
+
+    public Invocation inherit(final Node key) {
+      return transform(key, key);
     }
 
     public Invocation exceptionHandler(final Node invoke) {

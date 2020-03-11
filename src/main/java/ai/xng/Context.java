@@ -50,10 +50,6 @@ public class Context implements Serializable {
   // The node representing this context.
   public final Node node;
 
-  // The node that constructed this context. This is used as the key where the
-  // return value(s) will be stored in the parent context.
-  public final Node invocation;
-
   /**
    * The exception handler for this context. This defaults to completing
    * {@link #continuation} exceptionally, unless overridden.
@@ -69,14 +65,9 @@ public class Context implements Serializable {
     return continuation;
   }
 
-  public Context(final Function<Serializable, Node> nodeFactory, final Node invocation) {
-    init();
-    this.invocation = invocation;
-    node = nodeFactory.apply(this);
-  }
-
   public Context(final Function<Serializable, Node> nodeFactory) {
-    this(nodeFactory, null);
+    init();
+    node = nodeFactory.apply(this);
   }
 
   private void init() {

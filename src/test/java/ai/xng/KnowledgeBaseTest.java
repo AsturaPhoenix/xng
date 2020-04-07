@@ -174,8 +174,14 @@ public class KnowledgeBaseTest {
     try (val kb = new KnowledgeBase()) {
       val posterior = kb.node();
 
-      // Exercising this test case beforehand does not appreciably change the observed
-      // growth, which is O(1).
+      {
+        val prior = kb.node();
+        prior.then(posterior);
+
+        val context = new Context(kb::node);
+        prior.activate(context);
+        context.blockUntilIdle();
+      }
 
       val gc = new GcFixture(kb);
 
@@ -188,7 +194,7 @@ public class KnowledgeBaseTest {
         context.blockUntilIdle();
       }
 
-      gc.assertSize("%d + 1000", gc.initialSize + 1000);
+      gc.assertNoGrowth();
     }
   }
 

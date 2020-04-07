@@ -14,7 +14,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -45,7 +44,8 @@ public class Context implements Serializable {
   private final NodeQueue activations = new NodeQueue(this);
 
   private transient Subject<Boolean> rxActive;
-  private transient AtomicInteger refCount;
+  private transient int refCount;
+  private transient Object refMutex;
 
   // The node representing this context.
   public final Node node;
@@ -74,8 +74,8 @@ public class Context implements Serializable {
     nodeStates = new ConcurrentHashMap<>();
     synapseStates = new ConcurrentHashMap<>();
 
+    refMutex = new Object();
     rxActive = BehaviorSubject.createDefault(false);
-    refCount = new AtomicInteger();
 
     continuation = new CompletableFuture<>();
     exceptionHandler = continuation::completeExceptionally;
@@ -107,8 +107,12 @@ public class Context implements Serializable {
     private AtomicBoolean active = new AtomicBoolean(true);
 
     public Ref() {
-      if (refCount.getAndIncrement() == 0) {
-        rxActive.onNext(true);
+      synchronized (refMutex) {
+        // In the past, we used an AtomicInteger instead of a mutex, but that resulted
+        // in nonsense ordering in rxActive (eg. true true false false).
+        if (refCount++ == 0) {
+          rxActive.onNext(true);
+        }
       }
     }
 
@@ -120,12 +124,13 @@ public class Context implements Serializable {
         return;
       }
 
-      val refs = refCount.decrementAndGet();
-
-      assert refs >= 0;
-      if (refs == 0) {
-        rxActive.onNext(false);
-        continuation.complete(null);
+      synchronized (refMutex) {
+        final int refs = --refCount;
+        assert refs >= 0;
+        if (refs == 0) {
+          rxActive.onNext(false);
+          continuation.complete(null);
+        }
       }
     }
   }

@@ -19,6 +19,7 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.MapMaker;
 
 import io.reactivex.Completable;
@@ -72,8 +73,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     javaClass, object, name, exception, source, value,
 
-    // Used as a value node to indicate the EAV node triggered when a property is
-    // unset.
+    // association
+    prior, posterior, coefficient,
+
+    /**
+     * Used as a value node for the {@link BuiltIn#eavTuple} built-in to indicate
+     * the EAV node triggered when a property is unset. This should not be used for
+     * {@link KnowledgeBase#eavNode(Node...)}, where {@code null} should be used
+     * directly instead.
+     */
     eavUnset
   }
 
@@ -271,7 +279,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     protected abstract Node impl(KnowledgeBase kb, Context context) throws Exception;
 
     private Node node(final KnowledgeBase kb) {
-      return new Node(this) {
+      return new SynapticNode(this) {
         private static final long serialVersionUID = -307360749192088062L;
 
         @Override
@@ -361,7 +369,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
       // and making it look like we're transitioning to idle early.
       try (val ref = childContext.new Ref()) {
-        final Node caller = new Node();
+        final Node caller = new SynapticNode();
         setProperty(childContext, caller, node(Common.invocation), this);
         setProperty(childContext, caller, node(Common.context), parentContext.node);
 
@@ -446,12 +454,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
 
     public InvocationNode literal(final Node key, final Node value) {
-      properties.computeIfAbsent(node(Common.literal), k -> new Node()).properties.put(key, value);
+      properties.computeIfAbsent(node(Common.literal), k -> new SynapticNode()).properties.put(key, value);
       return this;
     }
 
     public InvocationNode transform(final Node key, final Node value) {
-      properties.computeIfAbsent(node(Common.transform), k -> new Node()).properties.put(key, value);
+      properties.computeIfAbsent(node(Common.transform), k -> new SynapticNode()).properties.put(key, value);
       return this;
     }
 
@@ -788,6 +796,36 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           kb.new InvocationNode(markImmutable).literal(kb.node(Common.javaClass), kb.node(type))
               .activate(kb.newContext());
         }
+      }
+    },
+    /**
+     * Resolves a string into a common/built-in/bootstrap node or the string node
+     * itself.
+     * <li>{@link Common#name}: node to resolve
+     */
+    resolve {
+      @Override
+      protected void setUp(final KnowledgeBase kb, final Node resolve) {
+        val index = new SynapticNode();
+        for (val member : Iterables.concat(Arrays.asList(Common.values()), Arrays.asList(BuiltIn.values()),
+            Arrays.asList(Bootstrap.values()))) {
+          index.properties.put(kb.node(member.name()), kb.node(member));
+        }
+        val lookup = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), index)
+            .transform(kb.node(Common.name), kb.node(Common.name));
+        resolve.then(lookup);
+
+        val indexedResult = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), lookup);
+        lookup.then(indexedResult);
+
+        final Node absent = kb.eavNode(null, lookup, null);
+        indexedResult.synapse.setCoefficient(absent, -1);
+
+        val literalResult = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue))
+            .transform(kb.node(Common.value), kb.node(Common.name));
+        absent.then(literalResult);
       }
     },
     /**

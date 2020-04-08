@@ -279,4 +279,28 @@ public class KnowledgeBaseTest {
       context.blockUntilIdle(TIMEOUT);
     }
   }
+
+  @Test
+  public void testResolveCustom() {
+    try (val kb = new KnowledgeBase()) {
+      val context = kb.newContext();
+      val resolveCustom = kb.new InvocationNode(kb.node(KnowledgeBase.Bootstrap.resolve))
+          .literal(kb.node(KnowledgeBase.Common.name), kb.node("foo"));
+      resolveCustom.activate(context);
+      context.blockUntilIdle();
+      assertEquals(kb.node("foo"), context.node.properties.get(resolveCustom));
+    }
+  }
+
+  @Test
+  public void testResolveBootstrap() {
+    try (val kb = new KnowledgeBase()) {
+      val context = kb.newContext();
+      val resolveCustom = kb.new InvocationNode(kb.node(KnowledgeBase.Bootstrap.resolve))
+          .literal(kb.node(KnowledgeBase.Common.name), kb.node("eval"));
+      resolveCustom.activate(context);
+      context.blockUntilIdle();
+      assertEquals(kb.node(KnowledgeBase.Bootstrap.eval), context.node.properties.get(resolveCustom));
+    }
+  }
 }

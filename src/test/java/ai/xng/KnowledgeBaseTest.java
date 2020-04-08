@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
@@ -68,8 +69,8 @@ public class KnowledgeBaseTest {
     kb.new Invocation(rosesAre, kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), roses)
         .literal(kb.node(Common.name), color);
 
-    rosesAre.then(kb.new Invocation(kb.node(), kb.node(BuiltIn.print)).transform(kb.node(Common.value), rosesAre).node);
-
+    rosesAre.then(kb.new Invocation(kb.node("print invocation"), kb.node(BuiltIn.print))
+        .transform(kb.node(Common.value), rosesAre).node);
   }
 
   private static void assertPropGet(final KnowledgeBase kb) {
@@ -79,11 +80,20 @@ public class KnowledgeBaseTest {
     val valueMonitor = new EmissionMonitor<>(kb.rxOutput());
 
     final Context context = new Context(kb::node);
+    context.fatalOnExceptions();
+
     kb.node("roses are").activate(context);
     context.blockUntilIdle();
     assertTrue(sanity1.didEmit());
     assertTrue(sanity2.didEmit());
-    assertTrue(sanity3.didEmit());
+    try {
+      assertTrue(sanity3.didEmit());
+    } catch (final Throwable t) {
+      final Synapse synapse = kb.node("print invocation").getSynapse();
+      System.err.printf("Invocation synapse:\n%s\n\nRecent evaluations:\n%s\n\n", synapse,
+          synapse.getRecentEvaluations(context, System.currentTimeMillis() - 500));
+      throw t;
+    }
     assertEquals("red", valueMonitor.emissions().blockingFirst());
   }
 
@@ -99,8 +109,13 @@ public class KnowledgeBaseTest {
   public void testPrintReliability() throws InterruptedException {
     try (val kb = new KnowledgeBase()) {
       setUpPropGet(kb);
-      for (int i = 0; i < 100; i++) {
-        assertPropGet(kb);
+      for (int i = 0; i < 1000; i++) {
+        try {
+          assertPropGet(kb);
+        } catch (final Throwable t) {
+          System.err.printf("Failed in iteration %s.\n", i);
+          throw t;
+        }
       }
     }
   }

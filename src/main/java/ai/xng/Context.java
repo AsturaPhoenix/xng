@@ -54,7 +54,15 @@ public class Context implements Serializable {
    * The exception handler for this context. This defaults to completing
    * {@link #continuation} exceptionally, unless overridden.
    */
-  public transient Consumer<Exception> exceptionHandler;
+  public transient Consumer<RuntimeException> exceptionHandler;
+
+  /**
+   * Sets {@link #exceptionHandler} to publish exceptions to {@link #rxActive()}.
+   * This is useful in tests.
+   */
+  public void fatalOnExceptions() {
+    exceptionHandler = rxActive::onError;
+  }
 
   // A synchronous bridge for this context, completed when the return value is
   // first set or the context first becomes idle, or completed exceptionally on

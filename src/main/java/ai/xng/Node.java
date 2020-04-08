@@ -47,23 +47,28 @@ public class Node implements Serializable {
     public ContextualState(final Context context) {
       rxInput.observeOn(Schedulers.io()).subscribe(activation -> {
         try (val ref = activation.ref) {
-          if (activation.timestamp - lastActivation >= refractory) {
-            if (onActivate != null)
-              onActivate.run(context);
+          // Try-with-resources is outside try-catch because we don't want the ref to
+          // release before any exception is handled, which may close the context
+          // prematurely when it's about to complete exceptionally.
+          try {
+            if (activation.timestamp - lastActivation >= refractory) {
+              if (onActivate != null)
+                onActivate.run(context);
 
-            try (val lock = new DebugLock(context.mutex())) {
-              long newTimestamp = System.currentTimeMillis();
-              lastActivation = newTimestamp;
-              // continuation: Synapse.Profile::onActivate
-              rxOutput.onNext(new Activation(context, newTimestamp));
+              try (val lock = new DebugLock(context.mutex())) {
+                long newTimestamp = System.currentTimeMillis();
+                lastActivation = newTimestamp;
+                // continuation: Synapse.Profile::onActivate
+                rxOutput.onNext(new Activation(context, newTimestamp));
+              }
             }
+          } catch (final RuntimeException e) {
+            // Caution, this may behave strangely if invocations happen against contexts
+            // that have been deserialized since contexts are intended to be ephemeral and
+            // overridden exception handlers will be lost.
+            // TODO(rosswang): preserve nodespace stack trace
+            context.exceptionHandler.accept(e);
           }
-        } catch (final Exception e) {
-          // Caution, this may behave strangely if invocations happen against contexts
-          // that have been deserialized since contexts are intended to be ephemeral and
-          // overridden exception handlers will be lost.
-          // TODO(rosswang): preserve nodespace stack trace
-          context.exceptionHandler.accept(e);
         }
       });
     }

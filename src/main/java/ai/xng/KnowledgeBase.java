@@ -378,6 +378,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
       @Override
       public void onError(Throwable e) {
+        e.printStackTrace();
         if (ref != null)
           ref.close();
       }

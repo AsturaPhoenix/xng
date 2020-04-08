@@ -7,6 +7,8 @@ import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Map.Entry;
@@ -53,11 +55,15 @@ public class Synapse implements Serializable {
     private final Context context;
     private final Subject<Observable<Long>> rxEvaluations;
     private final Map<Node, ArrayDeque<Evaluation>> evaluations = new WeakHashMap<>();
+    public final List<Long> triggers = new ArrayList<>();
 
     public ContextualState(final Context context) {
       this.context = context;
       rxEvaluations = PublishSubject.create();
-      Observable.switchOnNext(rxEvaluations).subscribe(t -> rxOutput.onNext(new Node.Activation(context, t)));
+      Observable.switchOnNext(rxEvaluations).subscribe(t -> {
+        triggers.add(t);
+        rxOutput.onNext(new Node.Activation(context, t));
+      });
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
@@ -344,11 +350,33 @@ public class Synapse implements Serializable {
 
   public Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {
     try (val lock = new DebugLock(lock)) {
-      final ArrayDeque<Evaluation> evaluations = context.synapseState(Synapse.this).evaluations.get(incoming);
+      final ArrayDeque<Evaluation> evaluations = context.synapseState(this).evaluations.get(incoming);
       if (evaluations == null)
         return null;
 
       return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
+    }
+  }
+
+  public Map<Node, List<Evaluation>> getRecentEvaluations(final Context context, final long since) {
+    try (val lock = new DebugLock(lock)) {
+      val evaluations = context.synapseState(this).evaluations;
+      final Map<Node, List<Evaluation>> recent = new HashMap<>();
+      for (val entry : evaluations.entrySet()) {
+        final List<Evaluation> recentForPrior = new ArrayList<>();
+        recent.put(entry.getKey(), recentForPrior);
+
+        val it = entry.getValue().descendingIterator();
+        while (it.hasNext()) {
+          val evaluation = it.next();
+
+          if (evaluation.time < since)
+            break;
+
+          recentForPrior.add(evaluation);
+        }
+      }
+      return recent;
     }
   }
 

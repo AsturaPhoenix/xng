@@ -351,81 +351,84 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       return;
 
     final Context childContext = new Context(this::node);
+    // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
+    // and making it look like we're transitioning to idle early.
+    try (val ref = childContext.new Ref()) {
+      final Node invoker = node();
+      setProperty(childContext, invoker, node(Common.invocation), node);
+      setProperty(childContext, invoker, node(Common.context), context.node);
 
-    final Node invoker = node();
-    setProperty(childContext, invoker, node(Common.invocation), node);
-    setProperty(childContext, invoker, node(Common.context), context.node);
+      setProperty(childContext, null, node(Common.invoker), invoker);
+      // Tie the parent activity to the child activity.
+      childContext.rxActive().subscribe(new Observer<Boolean>() {
+        Context.Ref ref;
 
-    setProperty(childContext, null, node(Common.invoker), invoker);
-    // Tie the parent activity to the child activity.
-    childContext.rxActive().subscribe(new Observer<Boolean>() {
-      Context.Ref ref;
-
-      @Override
-      public void onNext(Boolean active) {
-        if (active) {
-          assert ref == null;
-          ref = context.new Ref();
-        } else if (!active && ref != null) {
-          ref.close();
-          ref = null;
+        @Override
+        public void onNext(Boolean active) {
+          if (active) {
+            assert ref == null;
+            ref = context.new Ref();
+          } else if (!active && ref != null) {
+            ref.close();
+            ref = null;
+          }
         }
-      }
 
-      @Override
-      public void onSubscribe(Disposable d) {
-      }
-
-      @Override
-      public void onError(Throwable e) {
-        e.printStackTrace();
-        if (ref != null)
-          ref.close();
-      }
-
-      @Override
-      public void onComplete() {
-        if (ref != null)
-          ref.close();
-      }
-    });
-
-    final Node literal = node.properties.get(node(Common.literal));
-    if (literal != null) {
-      synchronized (literal.properties) {
-        for (final Entry<Node, Node> mapping : literal.properties.entrySet()) {
-          setProperty(childContext, null, mapping.getKey(), mapping.getValue());
+        @Override
+        public void onSubscribe(Disposable d) {
         }
-      }
-    }
 
-    final Node transform = node.properties.get(node(Common.transform));
-    if (transform != null) {
-      synchronized (transform.properties) {
-        for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
-          final Node value = context.node.properties.get(mapping.getValue());
-          if (value != null) {
-            setProperty(childContext, null, mapping.getKey(), value);
+        @Override
+        public void onError(Throwable e) {
+          e.printStackTrace();
+          if (ref != null)
+            ref.close();
+        }
+
+        @Override
+        public void onComplete() {
+          if (ref != null)
+            ref.close();
+        }
+      });
+
+      final Node literal = node.properties.get(node(Common.literal));
+      if (literal != null) {
+        synchronized (literal.properties) {
+          for (final Entry<Node, Node> mapping : literal.properties.entrySet()) {
+            setProperty(childContext, null, mapping.getKey(), mapping.getValue());
           }
         }
       }
-    }
 
-    final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
-    if (exceptionHandler != null) {
-      childContext.exceptionHandler = e -> {
-        final Node exceptionNode = node(new ImmutableException(e));
-        exceptionNode.properties.put(node(Common.source), node);
-        // Right now we use the same context for the exception handler, so if another
-        // exception is thrown the exception handler is invoked again (and is likely to
-        // hit a refractory dedup). We should consider changing this once contexts can
-        // inherit activations.
-        setProperty(childContext, null, node(Common.exception), exceptionNode);
-        exceptionHandler.activate(childContext);
-      };
-    }
+      final Node transform = node.properties.get(node(Common.transform));
+      if (transform != null) {
+        synchronized (transform.properties) {
+          for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
+            final Node value = context.node.properties.get(mapping.getValue());
+            if (value != null) {
+              setProperty(childContext, null, mapping.getKey(), value);
+            }
+          }
+        }
+      }
 
-    invoke.activate(childContext);
+      final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
+      if (exceptionHandler != null) {
+        childContext.exceptionHandler = e -> {
+          final Node exceptionNode = node(new ImmutableException(e));
+          exceptionNode.properties.put(node(Common.source), node);
+          // Right now we use the same context for the exception handler, so if another
+          // exception is thrown the exception handler is invoked again (and is likely to
+          // hit a refractory dedup). We should consider changing this once contexts can
+          // inherit activations.
+          setProperty(childContext, null, node(Common.exception), exceptionNode);
+          exceptionHandler.activate(childContext);
+        };
+      }
+
+      invoke.activate(childContext);
+    }
 
     try {
       childContext.continuation().join();

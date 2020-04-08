@@ -109,7 +109,7 @@ public class KnowledgeBaseTest {
   public void testPrintReliability() throws InterruptedException {
     try (val kb = new KnowledgeBase()) {
       setUpPropGet(kb);
-      for (int i = 0; i < 1000; i++) {
+      for (int i = 0; i < 500; i++) {
         try {
           assertPropGet(kb);
         } catch (final Throwable t) {

@@ -68,7 +68,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // stack frames
     invoker, invocation, context,
 
-    javaClass, object, name, exception, source, value, refractory, nodeCreated,
+    javaClass, object, name, exception, source, value,
 
     // Used as a value node to indicate the EAV node triggered when a property is
     // unset.
@@ -258,14 +258,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       public Node impl(final KnowledgeBase kb, final Context context) {
         return kb.setProperty(kb.getParent(context), context.node.properties.get(kb.node(Common.object)),
             context.require(kb.node(Common.name)), context.node.properties.get(kb.node(Common.value)));
-      }
-    },
-    setRefractory {
-      @Override
-      public Node impl(final KnowledgeBase kb, final Context context) {
-        context.require(kb.node(Common.value))
-            .setRefractory(((Number) context.require(kb.node(Common.refractory)).value).longValue());
-        return null;
       }
     };
 

@@ -18,13 +18,14 @@ public class SynapseTest {
   }
 
   @Test
-  public void testNoZeroDups() {
+  public void testNoDups() {
     val s = new Synapse();
     val a = new Node(), b = new Node();
     val monitor = new EmissionMonitor<>(s.rxActivate());
     s.setCoefficient(a, 2);
     s.setDecayPeriod(a, 1000);
-    s.setCoefficient(b, 0);
+    s.setCoefficient(b, 2);
+    s.setDecayPeriod(b, 1000);
     val context = new Context(Node::new);
     a.activate(context);
     assertTrue(monitor.didEmit());

@@ -49,7 +49,7 @@ public class Synapse implements Serializable {
   public static final long DEBOUNCE_PERIOD = 2;
   public static final float THRESHOLD = 1;
   public static final float AUTOREINFORCEMENT = .05f;
-  private static final float DECAY_MARGIN = .2f;
+  public static final long DEFAULT_DECAY = 100;
 
   public class ContextualState {
     private final Context context;
@@ -96,27 +96,10 @@ public class Synapse implements Serializable {
     private final Disposable subscription;
 
     private Profile(final Node incoming) {
-      this.coefficient = new ThresholdDistribution(0);
+      coefficient = new ThresholdDistribution(0);
       this.incoming = new WeakReference<>(incoming);
-      resetDecay();
+      decayPeriod = DEFAULT_DECAY;
       subscription = incoming.rxActivate().subscribe(this::onActivate);
-    }
-
-    public void resetDecay() {
-      val incoming = incoming.get();
-      if (incoming == null)
-        return;
-
-      // The default decay should be roughly proportional to the
-      // refractory period of the source node as nodes with shorter
-      // refractory periods are likely to be evoked more often, possibly
-      // spuriously, and should thus get out of the way faster. By the
-      // time the refractory period has elapsed and the node may thus be
-      // activated again, we want this activation to be decayed by at the
-      // decay margin.
-      try (val lock = new DebugLock(Synapse.this.lock)) {
-        decayPeriod = Math.max((long) (incoming.getRefractory() / DECAY_MARGIN), 1);
-      }
     }
 
     private void onActivate(final Node.Activation activation) {
@@ -124,11 +107,13 @@ public class Synapse implements Serializable {
 
       final ContextualState state = activation.context.synapseState(Synapse.this);
       try (val lock = new DebugLock.Multiple(activation.context.mutex(), Synapse.this.lock)) {
+        final float before = getValue(activation.context, activation.timestamp);
         final float value = coefficient.generate();
         coefficient.add(value, AUTOREINFORCEMENT);
         state.evaluations.computeIfAbsent(incoming.get(), node -> new ArrayDeque<>())
             .add(new Evaluation(activation.timestamp, value));
-        state.rxEvaluations.onNext(evaluate(activation.context, activation.timestamp, value).doFinally(ref::close));
+        state.rxEvaluations
+            .onNext(evaluate(activation.context, activation.timestamp, value - before).doFinally(ref::close));
       }
     }
 
@@ -141,8 +126,8 @@ public class Synapse implements Serializable {
 
       // TODO(rosswang): it may be an interesting simplification to restrict that
       // nodes may only be activated once per context. Then we might be able to get
-      // rid of refractory periods and decays, but it would have implications for
-      // temporal processing (in particular we'd force discrete time steps).
+      // rid of decay, but it would have implications for temporal processing (in
+      // particular we'd force discrete time steps).
 
       final Evaluation lastEvaluation = getPrecedingEvaluation(context, incoming, time);
       return lastEvaluation == null ? 0 : extrapolateEvaluation(lastEvaluation, time);

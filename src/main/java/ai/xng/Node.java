@@ -21,8 +21,6 @@ import lombok.val;
 public class Node implements Serializable {
   private static final long serialVersionUID = -4340465118968553513L;
 
-  private static final long DEFAULT_REFRACTORY = 10;
-
   public static interface OnActivate {
     void run(Context context) throws Exception;
   }
@@ -34,41 +32,37 @@ public class Node implements Serializable {
     public final long timestamp;
   }
 
-  @RequiredArgsConstructor
-  private static class ActivationRef {
-    public final Context.Ref ref;
-    public final long timestamp;
-  }
-
   public class ContextualState {
     private long lastActivation;
-    private Subject<ActivationRef> rxInput = PublishSubject.create();
+    private Subject<Context.Ref> rxInput = PublishSubject.create();
 
     public ContextualState(final Context context) {
-      rxInput.observeOn(Schedulers.io()).subscribe(activation -> {
-        try (val ref = activation.ref) {
-          // Try-with-resources is outside try-catch because we don't want the ref to
-          // release before any exception is handled, which may close the context
-          // prematurely when it's about to complete exceptionally.
-          try {
-            if (activation.timestamp - lastActivation >= refractory) {
-              if (onActivate != null)
-                onActivate.run(context);
+      rxInput.observeOn(Schedulers.io()).subscribe(ref -> {
+        try {
+          if (onActivate != null)
+            onActivate.run(context);
 
-              try (val lock = new DebugLock(context.mutex())) {
-                long newTimestamp = System.currentTimeMillis();
-                lastActivation = newTimestamp;
-                // continuation: Synapse.Profile::onActivate
-                rxOutput.onNext(new Activation(context, newTimestamp));
-              }
-            }
-          } catch (final RuntimeException e) {
-            // Caution, this may behave strangely if invocations happen against contexts
-            // that have been deserialized since contexts are intended to be ephemeral and
-            // overridden exception handlers will be lost.
-            // TODO(rosswang): preserve nodespace stack trace
-            context.exceptionHandler.accept(e);
+          try (val lock = new DebugLock(context.mutex())) {
+            long newTimestamp = System.currentTimeMillis();
+            lastActivation = newTimestamp;
+            // continuation: Synapse.Profile::onActivate
+            rxOutput.onNext(new Activation(context, newTimestamp));
           }
+        } catch (final RuntimeException e) {
+          // Caution, this may behave strangely if invocations happen against contexts
+          // that have been deserialized since contexts are intended to be ephemeral and
+          // overridden exception handlers will be lost.
+          // TODO(rosswang): preserve nodespace stack trace
+          context.exceptionHandler.accept(e);
+        } finally {
+          // This differs from try-with-resources not only in that the resource is passed
+          // in rather than allocated, but also in that it is held until after the catch
+          // block. This is equivalent to surrounding the try-catch with a
+          // try-with-resources that copies the ref, but is a bit cleaner.
+          //
+          // Were we to release the ref before catch, we could close the context
+          // prematurely when it's about to complete exceptionally.
+          ref.close();
         }
       });
     }
@@ -83,10 +77,6 @@ public class Node implements Serializable {
 
   @Getter
   private final Synapse synapse;
-
-  @Getter
-  @Setter
-  private long refractory = DEFAULT_REFRACTORY;
 
   // TODO(rosswang): Can we get rid of onActivate and only use rxActivate instead?
   @Setter
@@ -127,7 +117,7 @@ public class Node implements Serializable {
 
   public void activate(final Context context) {
     try (val lock = new DebugLock(context.mutex())) {
-      context.nodeState(this).rxInput.onNext(new ActivationRef(context.new Ref(), System.currentTimeMillis()));
+      context.nodeState(this).rxInput.onNext(context.new Ref());
     }
   }
 

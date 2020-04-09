@@ -134,30 +134,25 @@ public class NodeTest {
     assertTrue(monitor.didEmit());
   }
 
-  @Test
-  public void testRefractory() {
-    val node = new Node();
-    node.setRefractory(1000);
-    val monitor = new EmissionMonitor<>(node.rxActivate());
-    val context = new Context(Node::new);
-    node.activate(context);
-    node.activate(context);
-    assertEquals(1, (long) monitor.emissions().count().blockingGet());
-  }
-
+  /**
+   * The refractory period of a neuron is the period after an activation where it
+   * will not respond to another incoming pulse. This is implemented in the
+   * synapse, which only triggers on edges.
+   * 
+   * Note that refractory periods do not apply to explicit
+   * {@link Node#activate(Context)} calls.
+   */
   @Test
   public void testAndRefractory() throws InterruptedException {
     val a = new Node(), b = new Node(), and = new Node();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.getSynapse().setCoefficient(a, .6f);
-    and.getSynapse().setCoefficient(b, .5f);
-    and.setRefractory(10000);
+    and.getSynapse().setCoefficient(a, .8f);
+    and.getSynapse().setCoefficient(b, .8f);
     val context = new Context(Node::new);
     a.activate(context);
     b.activate(context);
-    assertTrue(monitor.didEmit());
     b.activate(context);
-    assertFalse(monitor.didEmit());
+    assertEquals(1, (long) monitor.emissions().count().blockingGet());
   }
 
   @Test

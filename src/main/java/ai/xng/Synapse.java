@@ -55,15 +55,11 @@ public class Synapse implements Serializable {
     private final Context context;
     private final Subject<Observable<Long>> rxEvaluations;
     private final Map<Node, ArrayDeque<Evaluation>> evaluations = new WeakHashMap<>();
-    public final List<Long> triggers = new ArrayList<>();
 
     public ContextualState(final Context context) {
       this.context = context;
       rxEvaluations = PublishSubject.create();
-      Observable.switchOnNext(rxEvaluations).subscribe(t -> {
-        triggers.add(t);
-        rxOutput.onNext(new Node.Activation(context, t));
-      });
+      Observable.switchOnNext(rxEvaluations).subscribe(t -> rxOutput.onNext(new Node.Activation(context, t)));
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {

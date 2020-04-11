@@ -7,6 +7,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 
+import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 
 @UtilityClass
@@ -30,5 +31,22 @@ public class TestUtil {
 		try (final ObjectInputStream oin = new ObjectInputStream(bin)) {
 			return (T) oin.readObject();
 		}
+	}
+
+	@FunctionalInterface
+	public static interface CheckedRunnable {
+		void run() throws Exception;
+
+		@SneakyThrows
+		default void runUnchecked() {
+			run();
+		}
+	}
+
+	/**
+	 * Wraps a checked lambda in {@link SneakyThrows}.
+	 */
+	public static Runnable unchecked(final CheckedRunnable checked) {
+		return () -> checked.runUnchecked();
 	}
 }

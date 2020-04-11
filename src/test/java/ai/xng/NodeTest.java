@@ -1,10 +1,11 @@
 package ai.xng;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -12,7 +13,10 @@ import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Iterables;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+
 import io.reactivex.subjects.PublishSubject;
 import lombok.val;
 
@@ -184,8 +188,8 @@ public class NodeTest {
     down.activate(context);
     context.blockUntilIdle();
 
-    assertEquals(activations.toString(), 1, activations.size());
-    assertTrue(activations.get(0) + " !> 400", activations.get(0) > 400);
+    assertEquals(1, activations.size(), activations.toString());
+    assertThat(activations.get(0)).isGreaterThan(400);
   }
 
   @Test
@@ -233,7 +237,8 @@ public class NodeTest {
     assertEquals(Arrays.asList(false, true, false), activeMonitor.emissions().toList().blockingGet());
   }
 
-  @Test(timeout = 1000)
+  @Test
+  @Timeout(1)
   public void testThenOnActivate() {
     val a = new Node(), b = new Node();
     a.then(b);

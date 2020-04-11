@@ -1,11 +1,11 @@
 package ai.xng;
 
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import lombok.val;
 
@@ -71,6 +71,6 @@ public class ContextTest {
     context.blockUntilIdle();
     c.activate(context);
     context.blockUntilIdle();
-    assertTrue(c.getSynapse().getCoefficient(b) + " >= 0", c.getSynapse().getCoefficient(b) >= 0);
+    assertThat(c.getSynapse().getCoefficient(b)).isGreaterThanOrEqualTo(0);
   }
 }

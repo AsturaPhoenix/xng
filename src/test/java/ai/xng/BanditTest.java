@@ -1,7 +1,7 @@
 package ai.xng;
 
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -12,7 +12,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import io.reactivex.disposables.Disposable;
 import lombok.RequiredArgsConstructor;
@@ -71,7 +72,7 @@ public class BanditTest {
                     try (val lock = new DebugLock(lock)) {
                         onActivate(record, activation);
                     }
-                }, e -> fail(e.toString()));
+                }, Assertions::fail);
             }
         }
 
@@ -213,7 +214,7 @@ public class BanditTest {
             }
             System.gc();
         }
-        assertTrue(String.format("Failure rate: %.2f", (float) failures / trials), failures <= allowedFailures);
+        assertThat(failures).isLessThanOrEqualTo(allowedFailures);
     }
 
     /**

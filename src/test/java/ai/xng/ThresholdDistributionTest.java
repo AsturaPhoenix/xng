@@ -1,9 +1,10 @@
 package ai.xng;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
 import lombok.val;
 
 public class ThresholdDistributionTest {
@@ -33,10 +34,10 @@ public class ThresholdDistributionTest {
         distribution.add(1, 1);
         distribution.add(1, -1);
 
-        assertEquals(1, distribution.getMode(), 0);
-        assertTrue(distribution.getWeight() >= 1);
-        assertTrue(distribution.getMin() < 1);
-        assertTrue(distribution.getMax() > 1);
+        assertEquals(1, distribution.getMode());
+        assertThat(distribution.getWeight()).isGreaterThanOrEqualTo(1);
+        assertThat(distribution.getMin()).isLessThan(1);
+        assertThat(distribution.getMax()).isGreaterThan(1);
     }
 
     /**

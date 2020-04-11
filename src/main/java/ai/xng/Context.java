@@ -2,28 +2,33 @@ package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Lock;
-import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
+import com.google.common.util.concurrent.MoreExecutors;
 
 import io.reactivex.Observable;
+import io.reactivex.functions.Consumer;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.Subject;
+import lombok.Getter;
 import lombok.val;
 
 /**
@@ -36,6 +41,9 @@ import lombok.val;
  * not expected to remain valid across serialization.
  */
 public class Context implements Serializable {
+  public interface SerializableSupplier<T> extends Supplier<T>, Serializable {
+  }
+
   private static final long serialVersionUID = 3575759895941990217L;
 
   private transient Map<Node, Node.ContextualState> nodeStates;
@@ -47,6 +55,10 @@ public class Context implements Serializable {
   private transient int refCount;
   private transient Object refMutex;
 
+  private final SerializableSupplier<Executor> executorSupplier;
+  @Getter
+  private transient ContextScheduler scheduler;
+
   // The node representing this context.
   public final Node node;
 
@@ -54,7 +66,7 @@ public class Context implements Serializable {
    * The exception handler for this context. This defaults to completing
    * {@link #continuation} exceptionally, unless overridden.
    */
-  public transient Consumer<RuntimeException> exceptionHandler;
+  public transient Consumer<Throwable> exceptionHandler;
 
   /**
    * Sets {@link #exceptionHandler} to publish exceptions to {@link #rxActive()}.
@@ -73,17 +85,38 @@ public class Context implements Serializable {
     return continuation;
   }
 
-  public Context(final Function<Serializable, Node> nodeFactory) {
+  public Context(final Function<Serializable, Node> nodeFactory,
+      final SerializableSupplier<Executor> executorSupplier) {
+    this.executorSupplier = executorSupplier;
     init();
     node = nodeFactory.apply(this);
   }
 
+  /**
+   * Creates a self-sufficient context with a dedicated thread, suitable for
+   * tests.
+   */
+  public static Context newDedicated() {
+    return new Context(Node::new, Executors::newSingleThreadExecutor);
+  }
+
+  /**
+   * Creates a self-sufficient context using a direct scheduler, suitable for
+   * tests.
+   */
+  public static Context newImmediate() {
+    return new Context(Node::new, MoreExecutors::directExecutor);
+  }
+
   private void init() {
-    nodeStates = new ConcurrentHashMap<>();
-    synapseStates = new ConcurrentHashMap<>();
+    nodeStates = new HashMap<>();
+    synapseStates = new HashMap<>();
 
     refMutex = new Object();
     rxActive = BehaviorSubject.createDefault(false);
+
+    scheduler = new ContextScheduler(executorSupplier.get());
+    scheduler.start();
 
     continuation = new CompletableFuture<>();
     exceptionHandler = continuation::completeExceptionally;
@@ -95,11 +128,18 @@ public class Context implements Serializable {
     ref.disposable = activations.rxActivate().subscribe(node -> {
       final Context context = ref.get();
       final List<Node> recent;
-      try (val lock = new DebugLock(context.activations.mutex())) {
-        recent = Iterators.find(context.new HebbianReinforcementWindow(Optional.empty()), deck -> deck.get(0) == node);
-      }
+      recent = Iterators.find(context.new HebbianReinforcementWindow(Optional.empty()), deck -> deck.get(0) == node);
       context.hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT);
     });
+  }
+
+  private void writeObject(final ObjectOutputStream stream) throws IOException {
+    scheduler.pause();
+    try {
+      stream.defaultWriteObject();
+    } finally {
+      scheduler.resume();
+    }
   }
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
@@ -152,9 +192,12 @@ public class Context implements Serializable {
   }
 
   /**
-   * Gets the contextual state for the given node, creating if absent.
+   * Gets the contextual state for the given node, creating if absent. Must be
+   * called from the scheduler thread.
    */
   public Node.ContextualState nodeState(final Node node) {
+    assert scheduler.isOnThread();
+
     return nodeStates.computeIfAbsent(node, n -> {
       activations.add(node);
       return n.new ContextualState(this);
@@ -162,9 +205,12 @@ public class Context implements Serializable {
   }
 
   /**
-   * Gets the contextual state for the given synapse, creating if absent.
+   * Gets the contextual state for the given synapse, creating if absent. Must be
+   * called from the scheduler thread.
    */
   public Synapse.ContextualState synapseState(final Synapse synapse) {
+    assert scheduler.isOnThread();
+
     return synapseStates.computeIfAbsent(synapse, s -> s.new ContextualState(this));
   }
 
@@ -176,21 +222,21 @@ public class Context implements Serializable {
     return value;
   }
 
-  public Lock mutex() {
-    return activations.mutex();
-  }
-
+  /**
+   * Applies reinforcement to the context. This may be called from any thread but
+   * executes on the scheduler thread.
+   */
   public void reinforce(final Optional<Long> time, final Optional<Long> decayPeriod, final float weight) {
-    try (val lock = new DebugLock(activations.mutex())) {
+    scheduler.ensureOnThread(() -> {
       for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(time); window.hasNext();) {
         hebbianReinforcement(window.next(), time, weight * HEBBIAN_EXPLICIT_WEIGHT_FACTOR);
       }
-    }
 
-    // There are definitely more efficient ways to do this.
-    for (final Synapse.ContextualState synapseState : synapseStates.values()) {
-      synapseState.reinforce(time, decayPeriod, weight);
-    }
+      // There are definitely more efficient ways to do this.
+      for (final Synapse.ContextualState synapseState : synapseStates.values()) {
+        synapseState.reinforce(time, decayPeriod, weight);
+      }
+    });
   }
 
   public static long HEBBIAN_MAX_GLOBAL = 15000, HEBBIAN_MAX_LOCAL = 500;
@@ -211,6 +257,8 @@ public class Context implements Serializable {
     }
 
     private void draw() {
+      assert scheduler.isOnThread();
+
       if (activations.hasNext()) {
         next = activations.next();
         final long lastActivation = next.getLastActivation(Context.this);

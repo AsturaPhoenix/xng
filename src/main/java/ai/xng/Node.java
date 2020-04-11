@@ -7,9 +7,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
+import io.reactivex.Completable;
 import io.reactivex.Observable;
-import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.EqualsAndHashCode;
@@ -21,8 +22,9 @@ import lombok.val;
 public class Node implements Serializable {
   private static final long serialVersionUID = -4340465118968553513L;
 
+  @FunctionalInterface
   public static interface OnActivate {
-    void run(Context context) throws Exception;
+    Completable run(Context context);
   }
 
   @RequiredArgsConstructor
@@ -37,33 +39,28 @@ public class Node implements Serializable {
     private Subject<Context.Ref> rxInput = PublishSubject.create();
 
     public ContextualState(final Context context) {
-      rxInput.observeOn(Schedulers.io()).subscribe(ref -> {
-        try {
-          if (onActivate != null)
-            onActivate.run(context);
+      rxInput.subscribe(ref -> {
+        // This isn't critical here, but this establishes a frame of reference to aid
+        // readability.
+        assert context.getScheduler().isOnThread();
 
-          try (val lock = new DebugLock(context.mutex())) {
-            long newTimestamp = System.currentTimeMillis();
-            lastActivation = newTimestamp;
-            // continuation: Synapse.Profile::onActivate
-            rxOutput.onNext(new Activation(context, newTimestamp));
-          }
-        } catch (final RuntimeException e) {
-          // Caution, this may behave strangely if invocations happen against contexts
-          // that have been deserialized since contexts are intended to be ephemeral and
-          // overridden exception handlers will be lost.
-          // TODO(rosswang): preserve nodespace stack trace
-          context.exceptionHandler.accept(e);
-        } finally {
-          // This differs from try-with-resources not only in that the resource is passed
-          // in rather than allocated, but also in that it is held until after the catch
-          // block. This is equivalent to surrounding the try-catch with a
-          // try-with-resources that copies the ref, but is a bit cleaner.
-          //
-          // Were we to release the ref before catch, we could close the context
-          // prematurely when it's about to complete exceptionally.
-          ref.close();
-        }
+        final Completable completion = onActivate == null ? Completable.complete() : onActivate.run(context);
+
+        completion.observeOn(context.getScheduler())
+            // It's important to note that this holds onto the ref through the error
+            // handler. Were we to release the ref before catch, we could close the context
+            // prematurely when it's about to complete exceptionally.
+            .doFinally(ref::close).subscribe(() -> {
+              lastActivation = context.getScheduler().now(TimeUnit.MILLISECONDS);
+              // continuation: Synapse.Profile::onActivate
+              rxOutput.onNext(new Activation(context, lastActivation));
+            },
+                // Caution, this may behave strangely if invocations happen against contexts
+                // that have been deserialized since contexts are intended to be ephemeral and
+                // overridden exception handlers will be lost.
+                // TODO(rosswang): preserve nodespace stack trace
+                // TODO(rosswang): do not allow activation against deserialized contexts
+                context.exceptionHandler);
       });
     }
   }
@@ -78,7 +75,6 @@ public class Node implements Serializable {
   @Getter
   private final Synapse synapse;
 
-  // TODO(rosswang): Can we get rid of onActivate and only use rxActivate instead?
   @Setter
   private transient OnActivate onActivate;
   private transient Subject<Activation> rxOutput;
@@ -116,9 +112,8 @@ public class Node implements Serializable {
   }
 
   public void activate(final Context context) {
-    try (val lock = new DebugLock(context.mutex())) {
-      context.nodeState(this).rxInput.onNext(context.new Ref());
-    }
+    val ref = context.new Ref();
+    context.getScheduler().ensureOnThread(() -> context.nodeState(this).rxInput.onNext(ref));
   }
 
   public Observable<Activation> rxActivate() {

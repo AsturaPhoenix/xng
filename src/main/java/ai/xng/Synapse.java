@@ -14,8 +14,6 @@ import java.util.Optional;
 import java.util.Map.Entry;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Iterators;
@@ -27,6 +25,7 @@ import io.reactivex.subjects.Subject;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Synchronized;
 import lombok.ToString;
 import lombok.val;
 
@@ -46,7 +45,6 @@ import lombok.val;
 public class Synapse implements Serializable {
   private static final long serialVersionUID = 1779165354354490167L;
 
-  public static final long DEBOUNCE_PERIOD = 2;
   public static final float THRESHOLD = 1;
   public static final float AUTOREINFORCEMENT = .05f;
   public static final long DEFAULT_DECAY = 100;
@@ -63,27 +61,29 @@ public class Synapse implements Serializable {
     }
 
     public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
-      try (val lock = new DebugLock.Multiple(context.mutex(), Synapse.this.lock)) {
-        for (final Entry<Node, ArrayDeque<Evaluation>> entry : evaluations.entrySet()) {
-          final Profile profile = inputs.get(entry.getKey());
-          for (final Evaluation evaluation : entry.getValue()) {
-            final long t = evaluation.time;
-            float wt = weight;
-            if (time.isPresent()) {
-              if (t > time.get())
-                continue;
-              if (decayPeriod.isPresent()) {
-                long t0 = time.get() - decayPeriod.get();
-                if (t <= t0)
+      context.getScheduler().ensureOnThread(() -> {
+        synchronized (Synapse.this.$lock) {
+          for (final Entry<Node, ArrayDeque<Evaluation>> entry : evaluations.entrySet()) {
+            final Profile profile = inputs.get(entry.getKey());
+            for (final Evaluation evaluation : entry.getValue()) {
+              final long t = evaluation.time;
+              float wt = weight;
+              if (time.isPresent()) {
+                if (t > time.get())
                   continue;
-                wt *= (float) (t - t0) / decayPeriod.get();
+                if (decayPeriod.isPresent()) {
+                  long t0 = time.get() - decayPeriod.get();
+                  if (t <= t0)
+                    continue;
+                  wt *= (float) (t - t0) / decayPeriod.get();
+                }
               }
-            }
 
-            profile.coefficient.add(evaluation.value, wt);
+              profile.coefficient.add(evaluation.value, wt);
+            }
           }
         }
-      }
+      });
     }
   }
 
@@ -103,10 +103,12 @@ public class Synapse implements Serializable {
     }
 
     private void onActivate(final Node.Activation activation) {
+      assert activation.context.getScheduler().isOnThread();
+
       val ref = activation.context.new Ref();
 
       final ContextualState state = activation.context.synapseState(Synapse.this);
-      try (val lock = new DebugLock.Multiple(activation.context.mutex(), Synapse.this.lock)) {
+      synchronized (Synapse.this.$lock) {
         final float before = getValue(activation.context, activation.timestamp);
         final float value = coefficient.generate();
         coefficient.add(value, AUTOREINFORCEMENT);
@@ -138,17 +140,6 @@ public class Synapse implements Serializable {
       return dt < decayPeriod ? evaluation.value * (1 - (float) dt / decayPeriod) : 0;
     }
   }
-
-  /**
-   * This lock should be used carefully. Although contextual synapse methods
-   * wouldn't seem to need to lock the context, they can due to lazy creation of
-   * node states. In those cases, if we aren't already holding the lock, we can
-   * deadlock against reinforcement, which locks in reverse order. Thus contextual
-   * methods should first lock the context.
-   * 
-   * This is fragile and should probably be reworked at some point.
-   */
-  private final Lock lock = new ReentrantLock();
 
   private transient Map<Node, Profile> inputs;
   private transient Subject<Node.Activation> rxOutput;
@@ -190,10 +181,10 @@ public class Synapse implements Serializable {
     }
   }
 
+  @Synchronized
   public float getValue(final Context context, final long time) {
-    try (val lock = new DebugLock(lock)) {
-      return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
-    }
+    assert context.getScheduler().isOnThread();
+    return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
   }
 
   private static class EvaluationDecayProfile {
@@ -255,15 +246,14 @@ public class Synapse implements Serializable {
     return rxOutput;
   }
 
+  @Synchronized
   private void writeObject(final ObjectOutputStream o) throws IOException {
-    try (val lock = new DebugLock(lock)) {
-      o.defaultWriteObject();
-      o.writeInt(inputs.size());
-      for (final Entry<Node, Profile> entry : inputs.entrySet()) {
-        o.writeObject(entry.getKey());
-        o.writeObject(entry.getValue().coefficient);
-        o.writeLong(entry.getValue().decayPeriod);
-      }
+    o.defaultWriteObject();
+    o.writeInt(inputs.size());
+    for (final Entry<Node, Profile> entry : inputs.entrySet()) {
+      o.writeObject(entry.getKey());
+      o.writeObject(entry.getValue().coefficient);
+      o.writeLong(entry.getValue().decayPeriod);
     }
   }
 
@@ -280,10 +270,9 @@ public class Synapse implements Serializable {
     }
   }
 
+  @Synchronized
   public Profile profile(final Node node) {
-    try (val lock = new DebugLock(lock)) {
-      return inputs.computeIfAbsent(node, Profile::new);
-    }
+    return inputs.computeIfAbsent(node, Profile::new);
   }
 
   public Synapse setCoefficient(final Node node, final float coefficient) {
@@ -292,11 +281,10 @@ public class Synapse implements Serializable {
     return this;
   }
 
+  @Synchronized
   public float getCoefficient(final Node node) {
-    try (val lock = new DebugLock(lock)) {
-      final Profile profile = inputs.get(node);
-      return profile == null ? 0 : profile.coefficient.getMode();
-    }
+    final Profile profile = inputs.get(node);
+    return profile == null ? 0 : profile.coefficient.getMode();
   }
 
   /**
@@ -309,19 +297,17 @@ public class Synapse implements Serializable {
     return this;
   }
 
+  @Synchronized
   public long getDecayPeriod(final Node node) {
-    try (val lock = new DebugLock(lock)) {
-      final Profile profile = inputs.get(node);
-      return profile == null ? 0 : profile.decayPeriod;
-    }
+    final Profile profile = inputs.get(node);
+    return profile == null ? 0 : profile.decayPeriod;
   }
 
+  @Synchronized
   public void dissociate(final Node node) {
-    try (val lock = new DebugLock(lock)) {
-      final Profile profile = inputs.remove(node);
-      if (profile != null) {
-        profile.subscription.dispose();
-      }
+    final Profile profile = inputs.remove(node);
+    if (profile != null) {
+      profile.subscription.dispose();
     }
   }
 
@@ -329,43 +315,40 @@ public class Synapse implements Serializable {
     return getPrecedingEvaluation(context, incoming, Long.MAX_VALUE);
   }
 
+  @Synchronized
   public Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {
-    try (val lock = new DebugLock(lock)) {
-      final ArrayDeque<Evaluation> evaluations = context.synapseState(this).evaluations.get(incoming);
-      if (evaluations == null)
-        return null;
+    final ArrayDeque<Evaluation> evaluations = context.synapseState(this).evaluations.get(incoming);
+    if (evaluations == null)
+      return null;
 
-      return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
-    }
+    return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
   }
 
+  @Synchronized
   public Map<Node, List<Evaluation>> getRecentEvaluations(final Context context, final long since) {
-    try (val lock = new DebugLock(lock)) {
-      val evaluations = context.synapseState(this).evaluations;
-      final Map<Node, List<Evaluation>> recent = new HashMap<>();
-      for (val entry : evaluations.entrySet()) {
-        final List<Evaluation> recentForPrior = new ArrayList<>();
-        recent.put(entry.getKey(), recentForPrior);
+    val evaluations = context.synapseState(this).evaluations;
+    final Map<Node, List<Evaluation>> recent = new HashMap<>();
+    for (val entry : evaluations.entrySet()) {
+      final List<Evaluation> recentForPrior = new ArrayList<>();
+      recent.put(entry.getKey(), recentForPrior);
 
-        val it = entry.getValue().descendingIterator();
-        while (it.hasNext()) {
-          val evaluation = it.next();
+      val it = entry.getValue().descendingIterator();
+      while (it.hasNext()) {
+        val evaluation = it.next();
 
-          if (evaluation.time < since)
-            break;
+        if (evaluation.time < since)
+          break;
 
-          recentForPrior.add(evaluation);
-        }
+        recentForPrior.add(evaluation);
       }
-      return recent;
     }
+    return recent;
   }
 
+  @Synchronized
   @Override
   public String toString() {
-    try (val lock = new DebugLock(lock)) {
-      return inputs.entrySet().stream().map(entry -> entry.getKey() + ": " + entry.getValue().getCoefficient())
-          .collect(Collectors.joining("\n"));
-    }
+    return inputs.entrySet().stream().map(entry -> entry.getKey() + ": " + entry.getValue().getCoefficient())
+        .collect(Collectors.joining("\n"));
   }
 }

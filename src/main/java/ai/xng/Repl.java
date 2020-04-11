@@ -13,7 +13,7 @@ public class Repl {
 
   public Repl(final KnowledgeBase kb) {
     this.kb = kb;
-    rootContext = new Context(kb::node);
+    rootContext = kb.newContext();
   }
 
   public Observable<String> rxOutput() {

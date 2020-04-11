@@ -16,14 +16,19 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.MapMaker;
 
+import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.Observer;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.subjects.CompletableSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Value;
@@ -54,6 +59,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   private Map<Serializable, Node> weakIndex = new MapMaker().weakKeys().weakValues().makeMap();
   private Collection<Node> nodes = Collections.newSetFromMap(new MapMaker().weakKeys().makeMap());
 
+  private transient Executor threadPool;
   private transient Subject<String> rxOutput;
   private transient Subject<Node> rxNodeAdded;
 
@@ -265,15 +271,21 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   public KnowledgeBase() {
-    preInitEav();
-    init();
+    preInit();
+    postInit();
     bootstrap();
   }
 
-  private void init() {
-    postInitEav();
+  private void preInit() {
+    preInitEav();
 
     rxOutput = PublishSubject.create();
+    threadPool = new ThreadPoolExecutor(Runtime.getRuntime().availableProcessors(), Integer.MAX_VALUE, 60,
+        TimeUnit.SECONDS, new SynchronousQueue<>());
+  }
+
+  private void postInit() {
+    postInitEav();
 
     for (final Node node : nodes) {
       initNode(node);
@@ -289,6 +301,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     }
 
     rxNodeAdded = PublishSubject.create();
+  }
+
+  /**
+   * Create a context bound to this knowledge base, which registers its node
+   * representation and uses a common thread pool.
+   */
+  public Context newContext() {
+    return new Context(this::node, () -> threadPool);
   }
 
   private void initNode(final Node node) {
@@ -337,12 +357,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    * @param node
    * @param context
    */
-  private void maybeInvoke(final Node node, final Context context) throws Exception {
+  private Completable maybeInvoke(final Node node, final Context context) {
     final Node invoke = node.properties.get(node(Common.invoke));
     if (invoke == null)
-      return;
+      return Completable.complete();
 
-    final Context childContext = new Context(this::node);
+    final Context childContext = newContext();
     // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
     // and making it look like we're transitioning to idle early.
     try (val ref = childContext.new Ref()) {
@@ -422,15 +442,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       invoke.activate(childContext);
     }
 
-    try {
-      childContext.continuation().join();
-    } catch (final CompletionException e) {
-      if (e.getCause() instanceof Exception) {
-        throw (Exception) e.getCause();
-      } else {
-        throw e;
-      }
-    }
+    val completable = CompletableSubject.create();
+    childContext.continuation().thenRun(completable::onComplete).exceptionally(t -> {
+      completable.onError(t);
+      return null;
+    });
+    return completable;
   }
 
   private Node registerBuiltIn(final BuiltIn builtIn) {
@@ -439,12 +456,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     // node after deserialization.
     final Node node = node(builtIn);
     // TODO(rosswang): This overrides maybeInvoke on the node. Is that alright?
-    node.setOnActivate(context -> setProperty(context, null, node(Common.returnValue), builtIn.impl(this, context)));
+    node.setOnActivate(context -> Completable
+        .fromAction(() -> setProperty(context, null, node(Common.returnValue), builtIn.impl(this, context))));
     return node;
   }
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
-    preInitEav();
+    preInit();
     stream.defaultReadObject();
     val it = eavNodes.entrySet().iterator();
     while (it.hasNext()) {
@@ -458,7 +476,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         entry.getKey().makeCanonical();
       }
     }
-    init();
+    postInit();
   }
 
   @Override
@@ -792,7 +810,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class, Character.class, Integer.class,
             Long.class, Float.class, Double.class }) {
           kb.new Invocation(kb.node(), markImmutable).literal(kb.node(Common.javaClass), kb.node(type)).node
-              .activate(new Context(kb::node));
+              .activate(kb.newContext());
         }
       }
     },

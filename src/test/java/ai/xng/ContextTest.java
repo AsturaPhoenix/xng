@@ -2,8 +2,9 @@ package ai.xng;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
 
 import org.junit.jupiter.api.Test;
 
@@ -12,19 +13,19 @@ import lombok.val;
 public class ContextTest {
   @Test
   public void testEmptyReinforcement() {
-    new Context(Node::new).reinforce(Optional.empty(), Optional.empty(), 0);
+    Context.newImmediate().reinforce(Optional.empty(), Optional.empty(), 0);
   }
 
   @Test
   public void testSingleNeverReinforcement() {
-    val context = new Context(Node::new);
-    context.nodeState(new Node());
+    val context = Context.newImmediate();
+    context.getScheduler().scheduleDirect(() -> context.nodeState(new Node()));
     context.reinforce(Optional.empty(), Optional.empty(), 0);
   }
 
   @Test
   public void testSingleOnceReinforcement() {
-    val context = new Context(Node::new);
+    val context = Context.newImmediate();
     new Node().activate(context);
     context.reinforce(Optional.empty(), Optional.empty(), 0);
   }
@@ -32,24 +33,25 @@ public class ContextTest {
   /**
    * This test covers a historic deadlock between activation (which would lock
    * part of the context and then the activation queue) and reinforcement (which
-   * locks the activation queue and then possibly part of the context).
+   * locked the activation queue and then possibly part of the context).
    */
   @Test
   public void testParallelActivationAndReinforcement() {
+    val threads = Executors.newFixedThreadPool(2);
     for (int i = 0; i < 40000; ++i) {
-      val context = new Context(Node::new);
+      val context = Context.newDedicated();
       val a = new Node();
       val b = new Node();
 
       try (val ref = context.new Ref()) {
-        new Thread(() -> {
+        threads.submit(() -> {
           a.activate(context);
           context.reinforce(Optional.empty(), Optional.empty(), 0);
-        }).start();
-        new Thread(() -> b.activate(context)).start();
+        });
+        threads.submit(() -> b.activate(context));
       }
 
-      context.rxActive().filter(active -> !active).timeout(5, TimeUnit.SECONDS).blockingFirst();
+      context.blockUntilIdle(Duration.ofSeconds(5));
     }
   }
 
@@ -61,7 +63,7 @@ public class ContextTest {
    */
   @Test
   public void testHebbianLearningOnHyperactivation() throws InterruptedException {
-    val context = new Context(Node::new);
+    val context = Context.newDedicated();
     val a = new Node(), b = new Node(), c = new Node();
     c.getSynapse().setCoefficient(a, 2);
     c.getSynapse().setDecayPeriod(a, 1000);

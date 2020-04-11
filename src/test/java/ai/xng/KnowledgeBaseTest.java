@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
+import io.reactivex.subjects.CompletableSubject;
 import lombok.val;
 
 public class KnowledgeBaseTest {
@@ -33,7 +34,7 @@ public class KnowledgeBaseTest {
   private static void testPrint(final KnowledgeBase kb) throws Exception {
     val monitor = new EmissionMonitor<>(kb.rxOutput());
 
-    val context = new Context(kb::node);
+    val context = kb.newContext();
     context.node.properties.put(kb.node(Common.value), kb.node("foo"));
     kb.node(BuiltIn.print).activate(context);
     assertEquals("foo", monitor.emissions().blockingFirst());
@@ -80,7 +81,7 @@ public class KnowledgeBaseTest {
         sanity3 = new EmissionMonitor<>(kb.node(BuiltIn.print).rxActivate());
     val valueMonitor = new EmissionMonitor<>(kb.rxOutput());
 
-    final Context context = new Context(kb::node);
+    final Context context = kb.newContext();
     context.fatalOnExceptions();
 
     kb.node("roses are").activate(context);
@@ -168,7 +169,7 @@ public class KnowledgeBaseTest {
     try (val kb = new KnowledgeBase()) {
       val node = kb.node();
       {
-        val context = new Context(kb::node);
+        val context = kb.newContext();
         node.activate(context);
         context.blockUntilIdle();
       }
@@ -176,7 +177,7 @@ public class KnowledgeBaseTest {
       val gc = new GcFixture(kb);
 
       for (int i = 0; i < 1000; ++i) {
-        val context = new Context(kb::node);
+        val context = kb.newContext();
         node.activate(context);
         context.blockUntilIdle();
       }
@@ -194,7 +195,7 @@ public class KnowledgeBaseTest {
         val prior = kb.node();
         prior.then(posterior);
 
-        val context = new Context(kb::node);
+        val context = kb.newContext();
         prior.activate(context);
         context.blockUntilIdle();
       }
@@ -205,7 +206,7 @@ public class KnowledgeBaseTest {
         val prior = kb.node();
         prior.then(posterior);
 
-        val context = new Context(kb::node);
+        val context = kb.newContext();
         prior.activate(context);
         context.blockUntilIdle();
       }
@@ -220,7 +221,7 @@ public class KnowledgeBaseTest {
       setUpPropGet(kb);
 
       {
-        val context = new Context(kb::node);
+        val context = kb.newContext();
         kb.node("roses are").activate(context);
         context.blockUntilIdle();
       }
@@ -228,7 +229,7 @@ public class KnowledgeBaseTest {
       val gc = new GcFixture(kb);
 
       for (int i = 0; i < 1000; ++i) {
-        val context = new Context(kb::node);
+        val context = kb.newContext();
         kb.node("roses are").activate(context);
         context.blockUntilIdle();
       }
@@ -253,7 +254,7 @@ public class KnowledgeBaseTest {
 
       final Node invocation = kb.node();
       kb.new Invocation(invocation, kb.node(BuiltIn.print)).exceptionHandler(exceptionHandler);
-      val context = new Context(kb::node);
+      val context = kb.newContext();
       invocation.activate(context);
       context.blockUntilIdle();
 
@@ -271,7 +272,7 @@ public class KnowledgeBaseTest {
   @Test
   public void testCustomInvocationCompletes() {
     try (val kb = new KnowledgeBase()) {
-      val context = new Context(kb::node);
+      val context = kb.newContext();
       kb.new Invocation(kb.node(), kb.node()).node.activate(context);
       context.blockUntilIdle(Duration.ofMillis(500));
     }
@@ -281,12 +282,8 @@ public class KnowledgeBaseTest {
   public void testParentContextInheritsChildActivity() {
     try (val kb = new KnowledgeBase()) {
       val block = kb.node();
-      final Object complete = new Object();
-      block.setOnActivate(c -> {
-        synchronized (complete) {
-          complete.wait();
-        }
-      });
+      val sync = CompletableSubject.create();
+      block.setOnActivate(c -> sync);
       val returnToParent = kb.new Invocation(kb.node(), kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
           kb.node(Common.returnValue)).node;
       returnToParent.then(block);
@@ -296,13 +293,11 @@ public class KnowledgeBaseTest {
       val monitor = new EmissionMonitor<>(end.rxActivate());
       invoke.then(end);
 
-      val context = new Context(kb::node);
+      val context = kb.newContext();
       invoke.activate(context);
       assertTrue(monitor.didEmit());
       assertEquals(Arrays.asList(true), context.rxActive().take(500, TimeUnit.MILLISECONDS).toList().blockingGet());
-      synchronized (complete) {
-        complete.notify();
-      }
+      sync.onComplete();
       context.blockUntilIdle(Duration.ofMillis(500));
     }
   }

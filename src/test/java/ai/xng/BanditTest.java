@@ -8,8 +8,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Assertions;
@@ -49,7 +47,7 @@ public class BanditTest {
             Disposable subscription;
         }
 
-        final Lock lock = new ReentrantLock();
+        final Object lock = new Object();
 
         final KnowledgeBase kb;
         final Node choose;
@@ -69,7 +67,9 @@ public class BanditTest {
                 bandits.add(record);
                 record.node.comment = String.format("%.4g", record.bandit.p);
                 record.subscription = record.node.rxActivate().subscribe((activation) -> {
-                    try (val lock = new DebugLock(lock)) {
+                    // It'd be nice to eschew this lock and use observeOn instead, but this lets us
+                    // block context idle until we've finished processing.
+                    synchronized (lock) {
                         onActivate(record, activation);
                     }
                 }, Assertions::fail);
@@ -118,9 +118,9 @@ public class BanditTest {
         @Override
         public Collection<BanditRecord> runTrial() {
             newPulls = new ArrayList<>();
-            val context = new Context(kb::node);
+            val context = kb.newContext();
             choose.activate(context);
-            context.rxActive().filter(active -> !active).blockingFirst();
+            context.blockUntilIdle();
 
             if (newPulls.isEmpty()) {
                 context.reinforce(Optional.empty(), Optional.empty(), -.1f);
@@ -142,13 +142,13 @@ public class BanditTest {
         @Override
         public Collection<BanditRecord> runTrial() {
             newPulls = new ArrayList<>();
-            val context = new Context(kb::node);
+            val context = kb.newContext();
             choose.activate(context);
-            context.rxActive().filter(active -> !active).blockingFirst();
+            context.blockUntilIdle();
 
             if (newPulls.isEmpty()) {
                 bandits.get(random.nextInt(bandits.size())).node.activate(context);
-                context.rxActive().filter(active -> !active).blockingFirst();
+                context.blockUntilIdle();
             }
 
             return newPulls;
@@ -206,7 +206,7 @@ public class BanditTest {
                 try {
                     runSuite(harness);
                 } catch (Throwable e) {
-                    System.err.println(e);
+                    e.printStackTrace();
                     ++failures;
                 } finally {
                     report(harness);

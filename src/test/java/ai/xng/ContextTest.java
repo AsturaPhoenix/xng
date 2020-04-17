@@ -64,15 +64,15 @@ public class ContextTest {
   @Test
   public void testHebbianLearningOnHyperactivation() throws InterruptedException {
     val context = Context.newDedicated();
-    val a = new Node(), b = new Node(), c = new Node();
-    c.getSynapse().setCoefficient(a, 2);
-    c.getSynapse().setDecayPeriod(a, 1000);
+    val a = new Node(), b = new Node(), c = new SynapticNode();
+    c.synapse.setCoefficient(a, 2);
+    c.synapse.setDecayPeriod(a, 1000);
     a.activate(context);
     Thread.sleep(250);
     b.activate(context);
     context.blockUntilIdle();
     c.activate(context);
     context.blockUntilIdle();
-    assertThat(c.getSynapse().getCoefficient(b)).isGreaterThanOrEqualTo(0);
+    assertThat(c.synapse.getCoefficient(b)).isGreaterThanOrEqualTo(0);
   }
 }

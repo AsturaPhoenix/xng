@@ -10,9 +10,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -44,7 +41,7 @@ import lombok.val;
  * <li>mutators on {@link Context#index}
  * </ul>
  */
-public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node> {
+public class KnowledgeBase implements Serializable, AutoCloseable {
   private static final long serialVersionUID = -6461427806563494150L;
 
   /**
@@ -58,7 +55,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    * refer to their nodes, like {@link Context}s.
    */
   private Map<Serializable, Node> weakIndex = new MapMaker().weakKeys().weakValues().makeMap();
-  private Collection<Node> nodes = Collections.newSetFromMap(new MapMaker().weakKeys().makeMap());
 
   private transient Executor threadPool;
   private transient Subject<String> rxOutput;
@@ -239,7 +235,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       @Override
       public Node impl(final KnowledgeBase kb, Context context) {
         final Node invoke = context.node.properties.get(kb.node(Common.value));
-        return invoke == null ? kb.node() : kb.node(kb.new Invocation(invoke));
+        return invoke == null ? new SynapticNode() : kb.new InvocationNode(invoke);
       }
     },
     print {
@@ -272,7 +268,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       }
     };
 
-    public abstract Node impl(KnowledgeBase kb, Context context) throws Exception;
+    protected abstract Node impl(KnowledgeBase kb, Context context) throws Exception;
+
+    private Node node(final KnowledgeBase kb) {
+      return new Node(this) {
+        private static final long serialVersionUID = -307360749192088062L;
+
+        @Override
+        protected Completable onActivate(final Context context) {
+          return Completable
+              .fromAction(() -> kb.setProperty(context, null, kb.node(Common.returnValue), impl(kb, context)));
+        }
+      };
+    }
   }
 
   public KnowledgeBase() {
@@ -291,10 +299,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
   private void postInit() {
     postInitEav();
-
-    for (final Node node : nodes) {
-      initNode(node);
-    }
   }
 
   /**
@@ -303,16 +307,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    */
   public Context newContext() {
     return new Context(this::node, () -> threadPool);
-  }
-
-  private void initNode(final Node node) {
-    // TODO: upgrade to java 14
-    if (node.value instanceof BuiltIn) {
-      node.setOnActivate(context -> Completable.fromAction(
-          () -> setProperty(context, null, node(Common.returnValue), ((BuiltIn) node.value).impl(this, context))));
-    } else if (node.value instanceof Invocation) {
-      node.setOnActivate(context -> ((Invocation) node.value).onActivate(node, context));
-    }
   }
 
   private static Node propertyDescent(Node node, final Node... properties) {
@@ -338,21 +332,21 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   /**
-   * Invocation activates the specified node with a child context constructed from
-   * {@link Common#literal} and {@link Common#transform}. Literal properties are
-   * assigned directly to the new context, and transform properties are copied
-   * from the parent context entry named by the value of the transform property.
-   * Transform properties take precedence over literal properties if present,
-   * allowing literals to act as defaults. The return value, if any, is assigned
-   * to the context property named by the node with the invocation, whose
-   * activation triggered the invocation.
+   * Invocation nodes activate the specified entry point node with a child context
+   * constructed from their {@link Common#literal} and {@link Common#transform}
+   * properties. Literal properties are assigned directly to the new context, and
+   * transform properties are copied from the parent context entry named by the
+   * value of the transform property. Transform properties take precedence over
+   * literal properties if present, allowing literals to act as defaults. The
+   * return value, if any, is assigned to the context property named by the node
+   * with the invocation, whose activation triggered the invocation.
    * 
    * Tail recursion can be achieved by setting the caller to the parent caller
-   * (via {@code transform} or {@link Invocation#inherit(Node)}).
+   * (via {@code transform} or {@link #inherit(Node)}).
    */
   @RequiredArgsConstructor
-  public class Invocation implements Serializable {
-    private static final long serialVersionUID = -3534915519016230141L;
+  public class InvocationNode extends SynapticNode {
+    private static final long serialVersionUID = 3233708822279852070L;
 
     private final Node invoke;
 
@@ -361,13 +355,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       return "Invocation of " + invoke;
     }
 
-    public Completable onActivate(final Node node, final Context parentContext) {
+    @Override
+    protected Completable onActivate(final Context parentContext) {
       final Context childContext = newContext();
       // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
       // and making it look like we're transitioning to idle early.
       try (val ref = childContext.new Ref()) {
-        final Node caller = node();
-        setProperty(childContext, caller, node(Common.invocation), node);
+        final Node caller = new Node();
+        setProperty(childContext, caller, node(Common.invocation), this);
         setProperty(childContext, caller, node(Common.context), parentContext.node);
 
         setProperty(childContext, null, node(Common.caller), caller);
@@ -404,7 +399,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
           }
         });
 
-        final Node literal = node.properties.get(node(Common.literal));
+        final Node literal = properties.get(node(Common.literal));
         if (literal != null) {
           synchronized (literal.properties) {
             for (final Entry<Node, Node> mapping : literal.properties.entrySet()) {
@@ -413,7 +408,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
           }
         }
 
-        final Node transform = node.properties.get(node(Common.transform));
+        final Node transform = properties.get(node(Common.transform));
         if (transform != null) {
           synchronized (transform.properties) {
             for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
@@ -425,11 +420,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
           }
         }
 
-        final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
+        final Node exceptionHandler = properties.get(node(Common.exceptionHandler));
         if (exceptionHandler != null) {
           childContext.exceptionHandler = e -> {
             final Node exceptionNode = node(new ImmutableException(e));
-            exceptionNode.properties.put(node(Common.source), node);
+            exceptionNode.properties.put(node(Common.source), this);
             // Right now we use the same context for the exception handler, so if another
             // exception is thrown the exception handler is invoked again (and is likely to
             // hit a refractory dedup). We should consider changing this once contexts can
@@ -449,31 +444,23 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       });
       return completable;
     }
-  }
 
-  public class InvocationBuilder {
-    public final Node node;
-
-    public InvocationBuilder(final Node invoke) {
-      node = node(new Invocation(invoke));
-    }
-
-    public InvocationBuilder literal(final Node key, final Node value) {
-      node.properties.computeIfAbsent(node(Common.literal), k -> node()).properties.put(key, value);
+    public InvocationNode literal(final Node key, final Node value) {
+      properties.computeIfAbsent(node(Common.literal), k -> new Node()).properties.put(key, value);
       return this;
     }
 
-    public InvocationBuilder transform(final Node key, final Node value) {
-      node.properties.computeIfAbsent(node(Common.transform), k -> node()).properties.put(key, value);
+    public InvocationNode transform(final Node key, final Node value) {
+      properties.computeIfAbsent(node(Common.transform), k -> new Node()).properties.put(key, value);
       return this;
     }
 
-    public InvocationBuilder inherit(final Node key) {
+    public InvocationNode inherit(final Node key) {
       return transform(key, key);
     }
 
-    public InvocationBuilder exceptionHandler(final Node exceptionHandler) {
-      node.properties.put(node(Common.exceptionHandler), exceptionHandler);
+    public InvocationNode exceptionHandler(final Node exceptionHandler) {
+      properties.put(node(Common.exceptionHandler), exceptionHandler);
       return this;
     }
   }
@@ -571,7 +558,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   private Node eavNode(final Node... tuple) {
     return eavNodes.computeIfAbsent(new EavTuple(tuple), t -> {
       t.makeCanonical();
-      return systemNode();
+      return new Node();
     });
   }
 
@@ -760,35 +747,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     final Serializable resolvedValue = resolvingValue;
 
     final Map<Serializable, Node> index = resolvedValue instanceof Context ? weakIndex : strongIndex;
-    return index.computeIfAbsent(resolvedValue, v -> createNodeWithHooks(v, true));
-  }
-
-  // All kb nodes must be created through a node(...) method to ensure the
-  // proper callbacks are set.
-  public Node node() {
-    return createNodeWithHooks(null, true);
-  }
-
-  public Node systemNode() {
-    return createNodeWithHooks(null, false);
-  }
-
-  private Node createNodeWithHooks(final Serializable value, final boolean hasSynapse) {
-    final Node node = new Node(value, hasSynapse);
-    initNode(node);
-    synchronized (nodes) {
-      nodes.add(node);
-    }
-    return node;
-  }
-
-  @Override
-  public Iterator<Node> iterator() {
-    return nodes.iterator();
-  }
-
-  public Object iteratorMutex() {
-    return nodes;
+    return index.computeIfAbsent(resolvedValue,
+        v -> v instanceof BuiltIn ? ((BuiltIn) v).node(this) : new SynapticNode(v));
   }
 
   public enum Bootstrap {
@@ -799,11 +759,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     newInstance {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node newInstance) {
-        final Node call = kb.new InvocationBuilder(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.name), kb.node("newInstance"))
-            .transform(kb.node(Common.object), kb.node(Common.javaClass)).node;
-        newInstance.then(call).then(kb.new InvocationBuilder(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), call).node);
+        val call = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("newInstance"))
+            .transform(kb.node(Common.object), kb.node(Common.javaClass));
+        val setProperty = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), call);
+
+        newInstance.then(call).then(setProperty);
       }
     },
     /**
@@ -812,19 +773,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     markImmutable {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node markImmutable) {
-        final Node newMap = kb.new InvocationBuilder(kb.node(newInstance)).literal(kb.node(Common.javaClass),
-            kb.node(ConcurrentHashMap.class)).node;
+        val newMap = kb.new InvocationNode(kb.node(newInstance)).literal(kb.node(Common.javaClass),
+            kb.node(ConcurrentHashMap.class));
 
-        final Node setValue = kb.new InvocationBuilder(kb.node(BuiltIn.setProperty))
+        val setValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
             .literal(kb.node(Common.name), kb.node(Common.value))
-            .transform(kb.node(Common.object), kb.node(Common.javaClass)).transform(kb.node(Common.value), newMap).node;
+            .transform(kb.node(Common.object), kb.node(Common.javaClass)).transform(kb.node(Common.value), newMap);
 
         markImmutable.then(newMap).then(setValue);
 
         // Mark some more common types immutable.
         for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class, Character.class, Integer.class,
             Long.class, Float.class, Double.class }) {
-          kb.new InvocationBuilder(markImmutable).literal(kb.node(Common.javaClass), kb.node(type)).node
+          kb.new InvocationNode(markImmutable).literal(kb.node(Common.javaClass), kb.node(type))
               .activate(kb.newContext());
         }
       }
@@ -835,21 +796,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     eval {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node eval) {
-        final Node stream = kb.new InvocationBuilder(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.name), kb.node("codePoints"))
-            .transform(kb.node(Common.object), kb.node(Common.value)).node;
+        val stream = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("codePoints"))
+            .transform(kb.node(Common.object), kb.node(Common.value));
         eval.then(stream);
 
-        final Node iterator = kb.new InvocationBuilder(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.name), kb.node("iterator")).transform(kb.node(Common.object), stream).node;
+        val iterator = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("iterator"))
+            .transform(kb.node(Common.object), stream);
         stream.then(iterator);
 
-        final Node hasNext = kb.new InvocationBuilder(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.name), kb.node("hasNext")).transform(kb.node(Common.object), iterator).node;
+        val hasNext = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("hasNext"))
+            .transform(kb.node(Common.object), iterator);
         iterator.then(hasNext);
 
-        final Node next = kb.new InvocationBuilder(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.name), kb.node("next")).transform(kb.node(Common.object), iterator).node;
+        val next = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("next"))
+            .transform(kb.node(Common.object), iterator);
         kb.eavNode(null, hasNext, kb.node(true)).then(next);
       }
     };

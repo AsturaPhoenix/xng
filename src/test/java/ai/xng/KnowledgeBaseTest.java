@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,19 +15,12 @@ import org.junit.jupiter.api.Test;
 
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
+import io.reactivex.Completable;
 import io.reactivex.subjects.CompletableSubject;
 import lombok.val;
 
 public class KnowledgeBaseTest {
   private static final Duration TIMEOUT = Duration.ofMillis(500);
-
-  @Test
-  public void testNodeCreation() {
-    try (val kb = new KnowledgeBase()) {
-      val a = kb.node(), b = kb.node();
-      assertNotSame(a, b);
-    }
-  }
 
   @Test
   public void testEmptySerialization() throws Exception {
@@ -59,9 +51,9 @@ public class KnowledgeBaseTest {
   @Test
   public void testInvocationUtility() {
     try (val kb = new KnowledgeBase()) {
-      val invocation = kb.new InvocationBuilder(kb.node(BuiltIn.print));
+      val invocation = kb.new InvocationNode(kb.node(BuiltIn.print));
       invocation.literal(kb.node(Common.value), kb.node("foo"));
-      assertThat(invocation.node.properties).hasSize(1).extractingByKey(kb.node(Common.literal))
+      assertThat(invocation.properties).hasSize(1).extractingByKey(kb.node(Common.literal))
           .satisfies(node -> assertThat(node.properties).containsOnly(entry(kb.node(Common.value), kb.node("foo"))));
     }
   }
@@ -70,9 +62,9 @@ public class KnowledgeBaseTest {
     final Node roses = kb.node("roses"), color = kb.node("color");
     roses.properties.put(color, kb.node("red"));
 
-    final Node rosesAre = kb.new InvocationBuilder(kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), roses)
-        .literal(kb.node(Common.name), color).node;
-    final Node print = kb.new InvocationBuilder(kb.node(BuiltIn.print)).transform(kb.node(Common.value), rosesAre).node;
+    val rosesAre = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), roses)
+        .literal(kb.node(Common.name), color);
+    val print = kb.new InvocationNode(kb.node(BuiltIn.print)).transform(kb.node(Common.value), rosesAre);
 
     rosesAre.then(print);
 
@@ -100,7 +92,7 @@ public class KnowledgeBaseTest {
     try {
       assertTrue(sanity3.didEmit());
     } catch (final Throwable t) {
-      final Synapse synapse = print.getSynapse();
+      final Synapse synapse = ((SynapticNode) print).synapse;
       System.err.printf("Invocation synapse:\n%s\n\nRecent evaluations:\n%s\n\n", synapse,
           synapse.getRecentEvaluations(context, System.currentTimeMillis() - 500));
       throw t;
@@ -137,36 +129,7 @@ public class KnowledgeBaseTest {
       val gc = new GcFixture(kb);
 
       for (int i = 0; i < 1000; ++i) {
-        kb.node();
-      }
-
-      gc.assertNoGrowth();
-    }
-  }
-
-  @Test
-  public void testSynapseGc() throws Exception {
-    try (val kb = new KnowledgeBase()) {
-      val posterior = kb.node();
-
-      val gc = new GcFixture(kb);
-
-      for (int i = 0; i < 1000; ++i) {
-        kb.node().then(posterior);
-      }
-
-      gc.assertNoGrowth();
-    }
-  }
-
-  @Test
-  public void testCycleGc() throws Exception {
-    try (val kb = new KnowledgeBase()) {
-      val gc = new GcFixture(kb);
-
-      for (int i = 0; i < 1000; ++i) {
-        val a = kb.node(), b = kb.node();
-        a.then(b).then(a);
+        kb.new InvocationNode(kb.node(BuiltIn.print));
       }
 
       gc.assertNoGrowth();
@@ -175,8 +138,9 @@ public class KnowledgeBaseTest {
 
   @Test
   public void testActivationGc() throws Exception {
+    val node = new Node();
+
     try (val kb = new KnowledgeBase()) {
-      val node = kb.node();
       {
         val context = kb.newContext();
         node.activate(context);
@@ -197,11 +161,11 @@ public class KnowledgeBaseTest {
 
   @Test
   public void testSynapseActivationGc() throws Exception {
-    try (val kb = new KnowledgeBase()) {
-      val posterior = kb.node();
+    val posterior = new SynapticNode();
 
+    try (val kb = new KnowledgeBase()) {
       {
-        val prior = kb.node();
+        val prior = new Node();
         prior.then(posterior);
 
         val context = kb.newContext();
@@ -212,7 +176,7 @@ public class KnowledgeBaseTest {
       val gc = new GcFixture(kb);
 
       for (int i = 0; i < 1000; ++i) {
-        val prior = kb.node();
+        val prior = new Node();
         prior.then(posterior);
 
         val context = kb.newContext();
@@ -258,10 +222,10 @@ public class KnowledgeBaseTest {
   @Test
   public void testException() {
     try (val kb = new KnowledgeBase()) {
-      final Node exceptionHandler = kb.node();
+      final Node exceptionHandler = new Node();
       val monitor = new EmissionMonitor<>(exceptionHandler.rxActivate());
 
-      final Node invocation = kb.new InvocationBuilder(kb.node(BuiltIn.print)).exceptionHandler(exceptionHandler).node;
+      final Node invocation = kb.new InvocationNode(kb.node(BuiltIn.print)).exceptionHandler(exceptionHandler);
       val context = kb.newContext();
       invocation.activate(context);
       context.blockUntilIdle();
@@ -281,7 +245,7 @@ public class KnowledgeBaseTest {
   public void testCustomInvocationCompletes() {
     try (val kb = new KnowledgeBase()) {
       val context = kb.newContext();
-      kb.new InvocationBuilder(kb.node()).node.activate(context);
+      kb.new InvocationNode(new Node()).activate(context);
       context.blockUntilIdle(TIMEOUT);
     }
   }
@@ -289,15 +253,21 @@ public class KnowledgeBaseTest {
   @Test
   public void testParentContextInheritsChildActivity() {
     try (val kb = new KnowledgeBase()) {
-      val block = kb.node();
       val sync = CompletableSubject.create();
-      block.setOnActivate(c -> sync);
-      val returnToParent = kb.new InvocationBuilder(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
-          kb.node(Common.returnValue)).node;
+      val block = new SynapticNode() {
+        private static final long serialVersionUID = 1419012533053020615L;
+
+        @Override
+        protected Completable onActivate(Context context) {
+          return sync;
+        }
+      };
+      val returnToParent = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
+          kb.node(Common.returnValue));
       returnToParent.then(block);
 
-      val invoke = kb.new InvocationBuilder(returnToParent).node;
-      val end = kb.node();
+      val invoke = kb.new InvocationNode(returnToParent);
+      val end = new SynapticNode();
       val monitor = new EmissionMonitor<>(end.rxActivate());
       invoke.then(end);
 

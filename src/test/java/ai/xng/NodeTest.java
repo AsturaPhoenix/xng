@@ -13,13 +13,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import com.google.common.collect.Iterables;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
+import io.reactivex.Completable;
 import io.reactivex.subjects.CompletableSubject;
+import lombok.RequiredArgsConstructor;
 import lombok.val;
 
 public class NodeTest {
@@ -65,10 +68,10 @@ public class NodeTest {
 
   @Test
   public void testAnd() throws Exception {
-    val a = new Node(), b = new Node(), and = new Node();
+    val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.getSynapse().setCoefficient(a, .8f);
-    and.getSynapse().setCoefficient(b, .8f);
+    and.synapse.setCoefficient(a, .8f);
+    and.synapse.setCoefficient(b, .8f);
 
     val context1 = Context.newDedicated();
     val activeMonitor1 = new EmissionMonitor<>(context1.rxActive());
@@ -86,9 +89,9 @@ public class NodeTest {
 
   @Test
   public void testAndStability() {
-    val a = new Node(), b = new Node(), and = new Node();
-    and.getSynapse().setCoefficient(a, .8f);
-    and.getSynapse().setCoefficient(b, .8f);
+    val a = new Node(), b = new Node(), and = new SynapticNode();
+    and.synapse.setCoefficient(a, .8f);
+    and.synapse.setCoefficient(b, .8f);
 
     for (int i = 0; i < 1000; ++i) {
       val context = Context.newDedicated();
@@ -97,7 +100,7 @@ public class NodeTest {
       context.blockUntilIdle();
     }
 
-    System.out.println(and.getSynapse());
+    System.out.println(and.synapse);
 
     val monitor = new EmissionMonitor<>(and.rxActivate());
     val context1 = Context.newDedicated();
@@ -114,10 +117,10 @@ public class NodeTest {
 
   @Test
   public void testDisjointContexts() {
-    val a = new Node(), b = new Node(), and = new Node();
+    val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.getSynapse().setCoefficient(a, .8f);
-    and.getSynapse().setCoefficient(b, .8f);
+    and.synapse.setCoefficient(a, .8f);
+    and.synapse.setCoefficient(b, .8f);
     a.activate(Context.newDedicated());
     b.activate(Context.newDedicated());
     assertFalse(monitor.didEmit());
@@ -125,9 +128,9 @@ public class NodeTest {
 
   @Test
   public void testAndSerialization() throws Exception {
-    Node[] nodes = { new Node(), new Node(), new Node() };
-    nodes[2].getSynapse().setCoefficient(nodes[0], .8f);
-    nodes[2].getSynapse().setCoefficient(nodes[1], .8f);
+    SynapticNode[] nodes = { new SynapticNode(), new SynapticNode(), new SynapticNode() };
+    nodes[2].synapse.setCoefficient(nodes[0], .8f);
+    nodes[2].synapse.setCoefficient(nodes[1], .8f);
 
     nodes = TestUtil.serialize(nodes);
 
@@ -150,10 +153,10 @@ public class NodeTest {
    */
   @Test
   public void testAndRefractory() throws InterruptedException {
-    val a = new Node(), b = new Node(), and = new Node();
+    val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.getSynapse().setCoefficient(a, .8f);
-    and.getSynapse().setCoefficient(b, .8f);
+    and.synapse.setCoefficient(a, .8f);
+    and.synapse.setCoefficient(b, .8f);
     val context = Context.newDedicated();
     a.activate(context);
     b.activate(context);
@@ -163,10 +166,10 @@ public class NodeTest {
 
   @Test
   public void testNearCoincidentInhibition() {
-    val up = new Node(), down = new Node(), out = new Node();
+    val up = new Node(), down = new Node(), out = new SynapticNode();
     val monitor = new EmissionMonitor<>(out.rxActivate());
-    out.getSynapse().setCoefficient(up, 1);
-    out.getSynapse().setCoefficient(down, -1);
+    out.synapse.setCoefficient(up, 1);
+    out.synapse.setCoefficient(down, -1);
     val context = Context.newDedicated();
     down.activate(context);
     up.activate(context);
@@ -175,16 +178,16 @@ public class NodeTest {
 
   @Test
   public void testShortPullDown() throws Exception {
-    val up = new Node(), down = new Node(), out = new Node();
+    val up = new Node(), down = new Node(), out = new SynapticNode();
 
     val activations = new ArrayList<Long>();
     final long beginning = System.currentTimeMillis();
     out.rxActivate().subscribe(a -> activations.add(a.timestamp - beginning));
 
-    out.getSynapse().setCoefficient(up, 2.1f);
-    out.getSynapse().setDecayPeriod(up, 1000);
-    out.getSynapse().setCoefficient(down, -3);
-    out.getSynapse().setDecayPeriod(down, 500);
+    out.synapse.setCoefficient(up, 2.1f);
+    out.synapse.setDecayPeriod(up, 1000);
+    out.synapse.setCoefficient(down, -3);
+    out.synapse.setDecayPeriod(down, 500);
     val context = Context.newDedicated();
     down.activate(context);
     up.activate(context);
@@ -194,11 +197,22 @@ public class NodeTest {
     assertThat(activations.get(0)).isGreaterThan(400);
   }
 
+  @RequiredArgsConstructor
+  private static class TestNode extends SynapticNode {
+    private static final long serialVersionUID = 1L;
+
+    final Supplier<Completable> onActivate;
+
+    @Override
+    protected Completable onActivate(Context context) {
+      return onActivate.get();
+    }
+  }
+
   @Test
   public void testBlocking() throws Exception {
-    val node = new Node();
     val sync = CompletableSubject.create();
-    node.setOnActivate(context -> sync);
+    val node = new TestNode(() -> sync);
     val monitor = new EmissionMonitor<>(node.rxActivate());
     val context = Context.newDedicated();
     node.activate(context);
@@ -210,10 +224,9 @@ public class NodeTest {
 
   @Test
   public void testBlockingThenActivate() throws Exception {
-    val a = new Node(), b = new Node();
-    a.then(b);
     val sync = CompletableSubject.create();
-    a.setOnActivate(c -> sync);
+    val a = new Node(), b = new TestNode(() -> sync);
+    a.then(b);
     val monitor = new EmissionMonitor<>(b.rxActivate());
     val context = Context.newDedicated();
     val activeMonitor = new EmissionMonitor<>(context.rxActive());
@@ -226,14 +239,26 @@ public class NodeTest {
 
   @Test
   public void testThenOnActivate() {
-    val a = new Node(), b = new Node();
-    a.then(b);
     val sync = CompletableSubject.create();
-    b.setOnActivate(c -> {
+    val a = new Node(), b = new TestNode(() -> {
       sync.onComplete();
       return sync;
     });
+    a.then(b);
     a.activate(Context.newDedicated());
     assertTimeoutPreemptively(Duration.ofSeconds(1), (Executable) sync::blockingAwait);
+  }
+
+  @Test
+  public void testSynapseGc() throws Exception {
+    val posterior = new SynapticNode();
+
+    val gc = new GcFixture(posterior);
+
+    for (int i = 0; i < 1000; ++i) {
+      new Node().then(posterior);
+    }
+
+    gc.assertNoGrowth();
   }
 }

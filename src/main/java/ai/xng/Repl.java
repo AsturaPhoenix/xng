@@ -21,7 +21,6 @@ public class Repl {
   }
 
   public void sendInput(final String input) {
-    kb.new InvocationBuilder(kb.node(Bootstrap.eval)).literal(kb.node(Common.value), kb.node(input)).node
-        .activate(rootContext);
+    kb.new InvocationNode(kb.node(Bootstrap.eval)).literal(kb.node(Common.value), kb.node(input)).activate(rootContext);
   }
 }

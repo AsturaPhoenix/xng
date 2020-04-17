@@ -293,7 +293,10 @@ public class Context implements Serializable {
 
   private void hebbianReinforcement(final List<Node> snapshot, final Optional<Long> time, final float baseWeight) {
     final Node posterior = snapshot.get(0);
-    final Synapse synapse = posterior.getSynapse();
+    if (!(posterior instanceof SynapticNode))
+      return;
+
+    final Synapse synapse = ((SynapticNode) posterior).synapse;
     if (synapse == null)
       return;
 

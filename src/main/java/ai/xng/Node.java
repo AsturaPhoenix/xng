@@ -6,7 +6,6 @@ import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Completable;
@@ -14,9 +13,7 @@ import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.EqualsAndHashCode;
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import lombok.val;
 
 public class Node implements Serializable {
@@ -44,12 +41,10 @@ public class Node implements Serializable {
         // readability.
         assert context.getScheduler().isOnThread();
 
-        // An important consequence is that nodes with an onActivate will not appear to
-        // activate immediately but rather after their completion task has run.
-        final Completable completion = onActivate == null ? Completable.complete()
-            : onActivate.run(context).observeOn(context.getScheduler());
-
-        completion
+        // If onActivate doesn't take us off the dispatch thread, prefer to update
+        // timestamps immediately. Note that synapses will defer further propagation
+        // themselves regardless.
+        onActivate(context).observeOn(context.getScheduler().preferImmediate())
             // It's important to note that this holds onto the ref through the error
             // handler. Were we to release the ref before catch, we could close the context
             // prematurely when it's about to complete exceptionally.
@@ -75,11 +70,6 @@ public class Node implements Serializable {
     return state == null ? 0 : state.lastActivation;
   }
 
-  @Getter
-  private final Synapse synapse;
-
-  @Setter
-  private transient OnActivate onActivate;
   private transient Subject<Activation> rxOutput;
 
   public Node() {
@@ -87,36 +77,29 @@ public class Node implements Serializable {
   }
 
   public Node(final Serializable value) {
-    this(value, true);
-  }
-
-  public Node(final Serializable value, final boolean hasSynapse) {
     this.value = value;
-    preInit();
-
-    synapse = hasSynapse ? new Synapse() : null;
-
-    postInit();
+    init();
   }
 
-  private void preInit() {
+  private void init() {
     rxOutput = PublishSubject.create();
   }
 
-  private void postInit() {
-    if (synapse != null)
-      synapse.rxActivate().subscribe(a -> activate(a.context));
-  }
-
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
-    preInit();
+    init();
     stream.defaultReadObject();
-    postInit();
   }
 
   public void activate(final Context context) {
     val ref = context.new Ref();
     context.getScheduler().ensureOnThread(() -> context.nodeState(this).rxInput.onNext(ref));
+  }
+
+  /**
+   * An optional handler that
+   */
+  protected Completable onActivate(final Context context) {
+    return Completable.complete();
   }
 
   public Observable<Activation> rxActivate() {
@@ -138,14 +121,10 @@ public class Node implements Serializable {
     return sb.toString();
   }
 
-  public String displayString() {
-    return Objects.toString(value);
-  }
-
   /**
    * @return next
    */
-  public Node then(final Node next) {
+  public Node then(final SynapticNode next) {
     next.synapse.setCoefficient(this, 1);
     return next;
   }

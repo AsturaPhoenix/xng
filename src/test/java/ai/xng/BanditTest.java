@@ -10,10 +10,9 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.function.Supplier;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import io.reactivex.disposables.Disposable;
+import io.reactivex.Completable;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
 
@@ -41,63 +40,54 @@ public class BanditTest {
 
     private abstract class BinaryHarness implements AutoCloseable {
         @RequiredArgsConstructor
-        protected class BanditRecord {
-            final BinaryBandit bandit;
-            final Node node;
-            Disposable subscription;
-        }
+        protected class BanditNode extends SynapticNode {
+            private static final long serialVersionUID = 1L;
 
-        final Object lock = new Object();
+            final BinaryBandit bandit;
+
+            @Override
+            protected Completable onActivate(Context context) {
+                ++pulls;
+
+                float reinforcement;
+                if (bandit.pull()) {
+                    ++reward;
+                    reinforcement = 1;
+                } else {
+                    reinforcement = reward / (reward - pulls) - NEGATIVE_BIAS;
+                }
+
+                context.reinforce(Optional.empty(), Optional.empty(), reinforcement);
+                newPulls.add(bandit);
+
+                return Completable.complete();
+            }
+        }
 
         final KnowledgeBase kb;
         final Node choose;
-        final List<BanditRecord> bandits;
+        final List<BanditNode> bandits;
         float reward = 0;
         int pulls = 0;
-        List<BanditRecord> newPulls;
+        List<BinaryBandit> newPulls;
 
         public BinaryHarness(int banditCount) {
             kb = new KnowledgeBase();
-            choose = kb.node();
+            choose = new Node();
             choose.comment = "choose";
-            bandits = new ArrayList<BanditRecord>(banditCount);
+            bandits = new ArrayList<>(banditCount);
 
             while (bandits.size() < banditCount) {
-                val record = new BanditRecord(new BinaryBandit(random.nextDouble()), kb.node());
-                bandits.add(record);
-                record.node.comment = String.format("%.4g", record.bandit.p);
-                record.subscription = record.node.rxActivate().subscribe((activation) -> {
-                    // It'd be nice to eschew this lock and use observeOn instead, but this lets us
-                    // block context idle until we've finished processing.
-                    synchronized (lock) {
-                        onActivate(record, activation);
-                    }
-                }, Assertions::fail);
+                val node = new BanditNode(new BinaryBandit(random.nextDouble()));
+                bandits.add(node);
+                node.comment = String.format("%.4g", node.bandit.p);
             }
         }
 
-        public void onActivate(final BanditRecord record, final Node.Activation activation) {
-            ++pulls;
-
-            float reinforcement;
-            if (record.bandit.pull()) {
-                ++reward;
-                reinforcement = 1;
-            } else {
-                reinforcement = reward / (reward - pulls) - NEGATIVE_BIAS;
-            }
-
-            activation.context.reinforce(Optional.empty(), Optional.empty(), reinforcement);
-            newPulls.add(record);
-        }
-
-        public abstract Collection<BanditRecord> runTrial();
+        public abstract Collection<BinaryBandit> runTrial();
 
         @Override
         public void close() {
-            for (val record : bandits) {
-                record.subscription.dispose();
-            }
             kb.close();
         }
     }
@@ -110,13 +100,13 @@ public class BanditTest {
         public ExplicitHarness(int banditCount) {
             super(banditCount);
 
-            for (val record : bandits) {
-                choose.then(record.node);
+            for (val node : bandits) {
+                choose.then(node);
             }
         }
 
         @Override
-        public Collection<BanditRecord> runTrial() {
+        public Collection<BinaryBandit> runTrial() {
             newPulls = new ArrayList<>();
             val context = kb.newContext();
             choose.activate(context);
@@ -140,14 +130,14 @@ public class BanditTest {
         }
 
         @Override
-        public Collection<BanditRecord> runTrial() {
+        public Collection<BinaryBandit> runTrial() {
             newPulls = new ArrayList<>();
             val context = kb.newContext();
             choose.activate(context);
             context.blockUntilIdle();
 
             if (newPulls.isEmpty()) {
-                bandits.get(random.nextInt(bandits.size())).node.activate(context);
+                bandits.get(random.nextInt(bandits.size())).activate(context);
                 context.blockUntilIdle();
             }
 
@@ -157,15 +147,15 @@ public class BanditTest {
 
     private void report(final BinaryHarness harness) {
         for (val bandit : harness.bandits) {
-            System.out.println(bandit.node);
-            for (val line : bandit.node.getSynapse().toString().split("\n")) {
+            System.out.println(bandit);
+            for (val line : bandit.synapse.toString().split("\n")) {
                 System.out.println("\t" + line);
             }
         }
     }
 
     private void runSuite(final BinaryHarness harness) {
-        val best = harness.bandits.stream().max((a, b) -> Double.compare(a.bandit.p, b.bandit.p)).get();
+        val best = harness.bandits.stream().map(node -> node.bandit).max((a, b) -> Double.compare(a.p, b.p)).get();
 
         int consecutiveBest = 0;
         double efficacy = 0;
@@ -179,7 +169,7 @@ public class BanditTest {
                     consecutiveBest = 0;
                 }
 
-                efficacy = harness.reward / harness.pulls / best.bandit.p;
+                efficacy = harness.reward / harness.pulls / best.p;
 
                 if (harness.pulls > 10000) {
                     if (efficacy > .9) {

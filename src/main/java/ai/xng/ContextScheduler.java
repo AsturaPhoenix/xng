@@ -15,8 +15,10 @@ import io.reactivex.Scheduler;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.disposables.Disposables;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
+import lombok.experimental.Accessors;
 
 /**
  * A sequential scheduler for contexts. Tasks are executed in a non-overlapping
@@ -49,7 +51,7 @@ public class ContextScheduler extends Scheduler implements Executor {
   }
 
   @RequiredArgsConstructor
-  private class Worker extends Scheduler.Worker {
+  private static abstract class LazyShutdownWorker extends Scheduler.Worker {
     final Disposable parent;
     volatile boolean isDisposed;
 
@@ -61,6 +63,12 @@ public class ContextScheduler extends Scheduler implements Executor {
     @Override
     public boolean isDisposed() {
       return isDisposed || parent.isDisposed();
+    }
+  }
+
+  private class Worker extends LazyShutdownWorker {
+    Worker(final Disposable parent) {
+      super(parent);
     }
 
     @Override
@@ -363,4 +371,62 @@ public class ContextScheduler extends Scheduler implements Executor {
     if (task.isDisposed())
       throw new RejectedExecutionException("ContextScheduler is not started.");
   }
+
+  /**
+   * A view of a {@link ContextScheduler} that prefers to run actions immediately
+   * if scheduled from the dispatch thread without delay.
+   */
+  private class PreferImmediateScheduler extends Scheduler {
+    class Worker extends LazyShutdownWorker {
+      Worker(final Disposable parent) {
+        super(parent);
+      }
+
+      @Override
+      public Disposable schedule(final Runnable run, final long delay, final TimeUnit unit) {
+        return PreferImmediateScheduler.this.schedule(this, run, deadline(delay, unit));
+      }
+    }
+
+    @Override
+    public Worker createWorker() {
+      return new Worker(controller);
+    }
+
+    Disposable schedule(final Disposable controller, final Runnable run, final long deadline) {
+      if (isOnThread() && deadline <= now(RESOLUTION)) {
+        run.run();
+        return Disposables.empty();
+      } else {
+        return ContextScheduler.this.schedule(controller, run, deadline);
+      }
+    }
+
+    /**
+     * Schedules the execution of the given task with the given delay amount. If
+     * called from the dispatch thread with non-positive delay, the action executes
+     * immediately. Otherwise, negative delays may be used to raise priority. This
+     * method is safe to be called from multiple threads. Tasks scheduled from the
+     * same thread (or otherwise synchronized) with the same delay will be executed
+     * in order.
+     */
+    @Override
+    public Disposable scheduleDirect(final Runnable run, final long delay, final TimeUnit unit) {
+      return schedule(controller, run, deadline(delay, unit));
+    }
+
+    @Override
+    public void start() {
+      ContextScheduler.this.start();
+    }
+
+    @Override
+    public void shutdown() {
+      ContextScheduler.this.shutdown();
+    }
+  }
+
+  @Getter(lazy = true)
+  @Accessors(fluent = true)
+  private final Scheduler preferImmediate = new PreferImmediateScheduler();
 }

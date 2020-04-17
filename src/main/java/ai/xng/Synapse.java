@@ -103,20 +103,30 @@ public class Synapse implements Serializable {
     }
 
     private void onActivate(final Node.Activation activation) {
-      assert activation.context.getScheduler().isOnThread();
-
       val ref = activation.context.new Ref();
 
-      final ContextualState state = activation.context.synapseState(Synapse.this);
-      synchronized (Synapse.this.$lock) {
-        final float before = getValue(activation.context, activation.timestamp);
-        final float value = coefficient.generate();
-        coefficient.add(value, AUTOREINFORCEMENT);
-        state.evaluations.computeIfAbsent(incoming.get(), node -> new ArrayDeque<>())
-            .add(new Evaluation(activation.timestamp, value));
-        state.rxEvaluations
-            .onNext(evaluate(activation.context, activation.timestamp, value - before).doFinally(ref::close));
-      }
+      // Although we should already be on the context thread by now, defer evaluation
+      // until peer node activation timestamps have had a chacne to catch up.
+      //
+      // Notably we defer here rather than on the Node side because, for example,
+      // rxActivate also drives reinforcement, which requires consistency. e.g. there
+      // was a case where posteriors looked like priors because they were already
+      // present in the activation history and then had their timestamp updated before
+      // the call to update the reinforcement was triggered from the prior, which was
+      // then the "most recent" activation.
+
+      activation.context.getScheduler().scheduleDirect(() -> {
+        final ContextualState state = activation.context.synapseState(Synapse.this);
+        synchronized (Synapse.this.$lock) {
+          final float before = getValue(activation.context, activation.timestamp);
+          final float value = coefficient.generate();
+          coefficient.add(value, AUTOREINFORCEMENT);
+          state.evaluations.computeIfAbsent(incoming.get(), node -> new ArrayDeque<>())
+              .add(new Evaluation(activation.timestamp, value));
+          state.rxEvaluations
+              .onNext(evaluate(activation.context, activation.timestamp, value - before).doFinally(ref::close));
+        }
+      });
     }
 
     public float getValue(final Context context, final long time) {

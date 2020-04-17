@@ -1,5 +1,7 @@
 package ai.xng;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -18,6 +20,8 @@ import io.reactivex.subjects.CompletableSubject;
 import lombok.val;
 
 public class KnowledgeBaseTest {
+  private static final Duration TIMEOUT = Duration.ofMillis(500);
+
   @Test
   public void testNodeCreation() {
     try (val kb = new KnowledgeBase()) {
@@ -55,11 +59,10 @@ public class KnowledgeBaseTest {
   @Test
   public void testInvocationUtility() {
     try (val kb = new KnowledgeBase()) {
-      val invocation = kb.new Invocation(kb.node(), kb.node(BuiltIn.print));
-      assertEquals(1, invocation.node.properties.size());
+      val invocation = kb.new InvocationBuilder(kb.node(BuiltIn.print));
       invocation.literal(kb.node(Common.value), kb.node("foo"));
-      assertEquals(2, invocation.node.properties.size());
-      assertEquals(1, invocation.node.properties.get(kb.node(Common.literal)).properties.size());
+      assertThat(invocation.node.properties).hasSize(1).extractingByKey(kb.node(Common.literal))
+          .satisfies(node -> assertThat(node.properties).containsOnly(entry(kb.node(Common.value), kb.node("foo"))));
     }
   }
 
@@ -67,16 +70,22 @@ public class KnowledgeBaseTest {
     final Node roses = kb.node("roses"), color = kb.node("color");
     roses.properties.put(color, kb.node("red"));
 
-    final Node rosesAre = kb.node("roses are");
-    kb.new Invocation(rosesAre, kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), roses)
-        .literal(kb.node(Common.name), color);
+    final Node rosesAre = kb.new InvocationBuilder(kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), roses)
+        .literal(kb.node(Common.name), color).node;
+    final Node print = kb.new InvocationBuilder(kb.node(BuiltIn.print)).transform(kb.node(Common.value), rosesAre).node;
 
-    rosesAre.then(kb.new Invocation(kb.node("print invocation"), kb.node(BuiltIn.print))
-        .transform(kb.node(Common.value), rosesAre).node);
+    rosesAre.then(print);
+
+    final Node index = kb.node("index");
+    index.properties.put(kb.node("rosesAre"), rosesAre);
+    index.properties.put(kb.node("print"), print);
   }
 
   private static void assertPropGet(final KnowledgeBase kb) {
-    val sanity1 = new EmissionMonitor<>(kb.node("roses are").rxActivate()),
+    final Node index = kb.node("index");
+    final Node rosesAre = index.properties.get(kb.node("rosesAre")), print = index.properties.get(kb.node("print"));
+
+    val sanity1 = new EmissionMonitor<>(rosesAre.rxActivate()),
         sanity2 = new EmissionMonitor<>(kb.node(BuiltIn.getProperty).rxActivate()),
         sanity3 = new EmissionMonitor<>(kb.node(BuiltIn.print).rxActivate());
     val valueMonitor = new EmissionMonitor<>(kb.rxOutput());
@@ -84,14 +93,14 @@ public class KnowledgeBaseTest {
     final Context context = kb.newContext();
     context.fatalOnExceptions();
 
-    kb.node("roses are").activate(context);
-    context.blockUntilIdle();
+    rosesAre.activate(context);
+    context.blockUntilIdle(Duration.ofSeconds(5));
     assertTrue(sanity1.didEmit());
     assertTrue(sanity2.didEmit());
     try {
       assertTrue(sanity3.didEmit());
     } catch (final Throwable t) {
-      final Synapse synapse = kb.node("print invocation").getSynapse();
+      final Synapse synapse = print.getSynapse();
       System.err.printf("Invocation synapse:\n%s\n\nRecent evaluations:\n%s\n\n", synapse,
           synapse.getRecentEvaluations(context, System.currentTimeMillis() - 500));
       throw t;
@@ -252,8 +261,7 @@ public class KnowledgeBaseTest {
       final Node exceptionHandler = kb.node();
       val monitor = new EmissionMonitor<>(exceptionHandler.rxActivate());
 
-      final Node invocation = kb.node();
-      kb.new Invocation(invocation, kb.node(BuiltIn.print)).exceptionHandler(exceptionHandler);
+      final Node invocation = kb.new InvocationBuilder(kb.node(BuiltIn.print)).exceptionHandler(exceptionHandler).node;
       val context = kb.newContext();
       invocation.activate(context);
       context.blockUntilIdle();
@@ -273,8 +281,8 @@ public class KnowledgeBaseTest {
   public void testCustomInvocationCompletes() {
     try (val kb = new KnowledgeBase()) {
       val context = kb.newContext();
-      kb.new Invocation(kb.node(), kb.node()).node.activate(context);
-      context.blockUntilIdle(Duration.ofMillis(500));
+      kb.new InvocationBuilder(kb.node()).node.activate(context);
+      context.blockUntilIdle(TIMEOUT);
     }
   }
 
@@ -284,11 +292,11 @@ public class KnowledgeBaseTest {
       val block = kb.node();
       val sync = CompletableSubject.create();
       block.setOnActivate(c -> sync);
-      val returnToParent = kb.new Invocation(kb.node(), kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
+      val returnToParent = kb.new InvocationBuilder(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
           kb.node(Common.returnValue)).node;
       returnToParent.then(block);
 
-      val invoke = kb.new Invocation(kb.node(), returnToParent).node;
+      val invoke = kb.new InvocationBuilder(returnToParent).node;
       val end = kb.node();
       val monitor = new EmissionMonitor<>(end.rxActivate());
       invoke.then(end);
@@ -298,7 +306,7 @@ public class KnowledgeBaseTest {
       assertTrue(monitor.didEmit());
       assertEquals(Arrays.asList(true), context.rxActive().take(500, TimeUnit.MILLISECONDS).toList().blockingGet());
       sync.onComplete();
-      context.blockUntilIdle(Duration.ofMillis(500));
+      context.blockUntilIdle(TIMEOUT);
     }
   }
 }

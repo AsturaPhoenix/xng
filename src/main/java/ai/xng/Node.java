@@ -44,9 +44,12 @@ public class Node implements Serializable {
         // readability.
         assert context.getScheduler().isOnThread();
 
-        final Completable completion = onActivate == null ? Completable.complete() : onActivate.run(context);
+        // An important consequence is that nodes with an onActivate will not appear to
+        // activate immediately but rather after their completion task has run.
+        final Completable completion = onActivate == null ? Completable.complete()
+            : onActivate.run(context).observeOn(context.getScheduler());
 
-        completion.observeOn(context.getScheduler())
+        completion
             // It's important to note that this holds onto the ref through the error
             // handler. Were we to release the ref before catch, we could close the context
             // prematurely when it's about to complete exceptionally.

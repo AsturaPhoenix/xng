@@ -31,6 +31,7 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.CompletableSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import lombok.RequiredArgsConstructor;
 import lombok.Value;
 import lombok.val;
 
@@ -61,18 +62,17 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
 
   private transient Executor threadPool;
   private transient Subject<String> rxOutput;
-  private transient Subject<Node> rxNodeAdded;
 
   public enum Common {
     // invocation
-    invoke, literal, transform, exceptionHandler,
+    literal, transform, exceptionHandler,
 
     // When a value is assigned to this key, it is also assigned to the parent
     // context keyed by the invocation node.
     returnValue,
 
     // stack frames
-    invoker, invocation, context,
+    caller, invocation, context,
 
     javaClass, object, name, exception, source, value,
 
@@ -95,7 +95,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
         Node activationContext = context.node.properties.get(kb.node(Common.context));
         if (activationContext == null)
-          activationContext = propertyDescent(context.node, kb.node(Common.invoker), kb.node(Common.context));
+          activationContext = propertyDescent(context.node, kb.node(Common.caller), kb.node(Common.context));
 
         context.require(kb.node(Common.value)).activate((Context) activationContext.value);
         return null;
@@ -231,10 +231,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
         return kb.node(Class.forName((String) context.require(kb.node(Common.name)).value));
       }
     },
+    /**
+     * Creates a new anonymous or invocation node. Invocation nodes are created by
+     * specifying a {@link Common#value}, which serves as the entrypoint.
+     */
     createNode {
       @Override
       public Node impl(final KnowledgeBase kb, Context context) {
-        return kb.node();
+        final Node invoke = context.node.properties.get(kb.node(Common.value));
+        return invoke == null ? kb.node() : kb.node(kb.new Invocation(invoke));
       }
     },
     print {
@@ -290,17 +295,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     for (final Node node : nodes) {
       initNode(node);
     }
-
-    // create any new Common nodes
-    for (final Common common : Common.values()) {
-      node(common);
-    }
-
-    for (final BuiltIn builtIn : BuiltIn.values()) {
-      registerBuiltIn(builtIn);
-    }
-
-    rxNodeAdded = PublishSubject.create();
   }
 
   /**
@@ -312,10 +306,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   }
 
   private void initNode(final Node node) {
-    node.setOnActivate(context -> maybeInvoke(node, context));
-
-    if (rxNodeAdded != null) {
-      rxNodeAdded.onNext(node);
+    // TODO: upgrade to java 14
+    if (node.value instanceof BuiltIn) {
+      node.setOnActivate(context -> Completable.fromAction(
+          () -> setProperty(context, null, node(Common.returnValue), ((BuiltIn) node.value).impl(this, context))));
+    } else if (node.value instanceof Invocation) {
+      node.setOnActivate(context -> ((Invocation) node.value).onActivate(node, context));
     }
   }
 
@@ -337,128 +333,149 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
    * case null is returned.
    */
   private Context getParent(final Context context) {
-    final Node parentNode = propertyDescent(context.node, node(Common.invoker), node(Common.context));
+    final Node parentNode = propertyDescent(context.node, node(Common.caller), node(Common.context));
     return parentNode == null ? context : (Context) parentNode.value;
   }
 
   /**
-   * Invocation activates the node specified by {@link Common#invoke} with a child
-   * context constructed from {@link Common#literal} and {@link Common#transform}.
-   * Literal properties are assigned directly to the new context, and transform
-   * properties are copied from the parent context entry named by the value of the
-   * transform property. Transform properties take precedence over literal
-   * properties if present, allowing literals to act as defaults. The return
-   * value, if any, is assigned to the context property named by the node with the
-   * invocation, whose activation triggered the invocation.
+   * Invocation activates the specified node with a child context constructed from
+   * {@link Common#literal} and {@link Common#transform}. Literal properties are
+   * assigned directly to the new context, and transform properties are copied
+   * from the parent context entry named by the value of the transform property.
+   * Transform properties take precedence over literal properties if present,
+   * allowing literals to act as defaults. The return value, if any, is assigned
+   * to the context property named by the node with the invocation, whose
+   * activation triggered the invocation.
    * 
-   * Tail recursion can be achieved by setting the invoker to the parent invoker
+   * Tail recursion can be achieved by setting the caller to the parent caller
    * (via {@code transform} or {@link Invocation#inherit(Node)}).
-   * 
-   * @param node
-   * @param context
    */
-  private Completable maybeInvoke(final Node node, final Context context) {
-    final Node invoke = node.properties.get(node(Common.invoke));
-    if (invoke == null)
-      return Completable.complete();
+  @RequiredArgsConstructor
+  public class Invocation implements Serializable {
+    private static final long serialVersionUID = -3534915519016230141L;
 
-    final Context childContext = newContext();
-    // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
-    // and making it look like we're transitioning to idle early.
-    try (val ref = childContext.new Ref()) {
-      final Node invoker = node();
-      setProperty(childContext, invoker, node(Common.invocation), node);
-      setProperty(childContext, invoker, node(Common.context), context.node);
+    private final Node invoke;
 
-      setProperty(childContext, null, node(Common.invoker), invoker);
-      // Tie the parent activity to the child activity.
-      childContext.rxActive().subscribe(new Observer<Boolean>() {
-        Context.Ref ref;
+    @Override
+    public String toString() {
+      return "Invocation of " + invoke;
+    }
 
-        @Override
-        public void onNext(Boolean active) {
-          if (active) {
-            assert ref == null;
-            ref = context.new Ref();
-          } else if (!active && ref != null) {
-            ref.close();
-            ref = null;
+    public Completable onActivate(final Node node, final Context parentContext) {
+      final Context childContext = newContext();
+      // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
+      // and making it look like we're transitioning to idle early.
+      try (val ref = childContext.new Ref()) {
+        final Node caller = node();
+        setProperty(childContext, caller, node(Common.invocation), node);
+        setProperty(childContext, caller, node(Common.context), parentContext.node);
+
+        setProperty(childContext, null, node(Common.caller), caller);
+        // Tie the parent activity to the child activity.
+        childContext.rxActive().subscribe(new Observer<Boolean>() {
+          Context.Ref ref;
+
+          @Override
+          public void onNext(Boolean active) {
+            if (active) {
+              assert ref == null;
+              ref = parentContext.new Ref();
+            } else if (!active && ref != null) {
+              ref.close();
+              ref = null;
+            }
           }
-        }
 
-        @Override
-        public void onSubscribe(Disposable d) {
-        }
-
-        @Override
-        public void onError(Throwable e) {
-          e.printStackTrace();
-          if (ref != null)
-            ref.close();
-        }
-
-        @Override
-        public void onComplete() {
-          if (ref != null)
-            ref.close();
-        }
-      });
-
-      final Node literal = node.properties.get(node(Common.literal));
-      if (literal != null) {
-        synchronized (literal.properties) {
-          for (final Entry<Node, Node> mapping : literal.properties.entrySet()) {
-            setProperty(childContext, null, mapping.getKey(), mapping.getValue());
+          @Override
+          public void onSubscribe(Disposable d) {
           }
-        }
-      }
 
-      final Node transform = node.properties.get(node(Common.transform));
-      if (transform != null) {
-        synchronized (transform.properties) {
-          for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
-            final Node value = context.node.properties.get(mapping.getValue());
-            if (value != null) {
-              setProperty(childContext, null, mapping.getKey(), value);
+          @Override
+          public void onError(Throwable e) {
+            e.printStackTrace();
+            if (ref != null)
+              ref.close();
+          }
+
+          @Override
+          public void onComplete() {
+            if (ref != null)
+              ref.close();
+          }
+        });
+
+        final Node literal = node.properties.get(node(Common.literal));
+        if (literal != null) {
+          synchronized (literal.properties) {
+            for (final Entry<Node, Node> mapping : literal.properties.entrySet()) {
+              setProperty(childContext, null, mapping.getKey(), mapping.getValue());
             }
           }
         }
+
+        final Node transform = node.properties.get(node(Common.transform));
+        if (transform != null) {
+          synchronized (transform.properties) {
+            for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
+              final Node value = parentContext.node.properties.get(mapping.getValue());
+              if (value != null) {
+                setProperty(childContext, null, mapping.getKey(), value);
+              }
+            }
+          }
+        }
+
+        final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
+        if (exceptionHandler != null) {
+          childContext.exceptionHandler = e -> {
+            final Node exceptionNode = node(new ImmutableException(e));
+            exceptionNode.properties.put(node(Common.source), node);
+            // Right now we use the same context for the exception handler, so if another
+            // exception is thrown the exception handler is invoked again (and is likely to
+            // hit a refractory dedup). We should consider changing this once contexts can
+            // inherit activations.
+            setProperty(childContext, null, node(Common.exception), exceptionNode);
+            exceptionHandler.activate(childContext);
+          };
+        }
+
+        invoke.activate(childContext);
       }
 
-      final Node exceptionHandler = node.properties.get(node(Common.exceptionHandler));
-      if (exceptionHandler != null) {
-        childContext.exceptionHandler = e -> {
-          final Node exceptionNode = node(new ImmutableException(e));
-          exceptionNode.properties.put(node(Common.source), node);
-          // Right now we use the same context for the exception handler, so if another
-          // exception is thrown the exception handler is invoked again (and is likely to
-          // hit a refractory dedup). We should consider changing this once contexts can
-          // inherit activations.
-          setProperty(childContext, null, node(Common.exception), exceptionNode);
-          exceptionHandler.activate(childContext);
-        };
-      }
-
-      invoke.activate(childContext);
+      val completable = CompletableSubject.create();
+      childContext.continuation().thenRun(completable::onComplete).exceptionally(t -> {
+        completable.onError(t);
+        return null;
+      });
+      return completable;
     }
-
-    val completable = CompletableSubject.create();
-    childContext.continuation().thenRun(completable::onComplete).exceptionally(t -> {
-      completable.onError(t);
-      return null;
-    });
-    return completable;
   }
 
-  private Node registerBuiltIn(final BuiltIn builtIn) {
-    // TODO(rosswang): Keep the original built-in impl node indexed separate
-    // from the main index so that we can rebind the impl to the correct
-    // node after deserialization.
-    final Node node = node(builtIn);
-    // TODO(rosswang): This overrides maybeInvoke on the node. Is that alright?
-    node.setOnActivate(context -> Completable
-        .fromAction(() -> setProperty(context, null, node(Common.returnValue), builtIn.impl(this, context))));
-    return node;
+  public class InvocationBuilder {
+    public final Node node;
+
+    public InvocationBuilder(final Node invoke) {
+      node = node(new Invocation(invoke));
+    }
+
+    public InvocationBuilder literal(final Node key, final Node value) {
+      node.properties.computeIfAbsent(node(Common.literal), k -> node()).properties.put(key, value);
+      return this;
+    }
+
+    public InvocationBuilder transform(final Node key, final Node value) {
+      node.properties.computeIfAbsent(node(Common.transform), k -> node()).properties.put(key, value);
+      return this;
+    }
+
+    public InvocationBuilder inherit(final Node key) {
+      return transform(key, key);
+    }
+
+    public InvocationBuilder exceptionHandler(final Node exceptionHandler) {
+      node.properties.put(node(Common.exceptionHandler), exceptionHandler);
+      return this;
+    }
   }
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
@@ -483,11 +500,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
   public void close() {
     eavCleanupThread.interrupt();
     rxOutput.onComplete();
-    rxNodeAdded.onComplete();
-  }
-
-  public Observable<Node> rxNodeAdded() {
-    return rxNodeAdded;
   }
 
   public Observable<String> rxOutput() {
@@ -702,7 +714,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
       }
 
       if (property.value == Common.returnValue) {
-        final Node invocation = propertyDescent(context.node, node(Common.invoker), node(Common.invocation));
+        final Node invocation = propertyDescent(context.node, node(Common.caller), node(Common.invocation));
         if (invocation != null) {
           setProperty(getParent(context), null, invocation, value);
         }
@@ -721,6 +733,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     return old;
   }
 
+  // A type is marked immutable by its class node having a value property with a
+  // canonicalizing map.
   private void markImmutable(Class<?> type) {
     node(type).properties.put(node(Common.value), node(new ConcurrentHashMap<Serializable, Serializable>()));
   }
@@ -785,11 +799,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     newInstance {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node newInstance) {
-        kb.new Invocation(newInstance, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("newInstance"))
-            .transform(kb.node(Common.object), kb.node(Common.javaClass));
-
-        kb.new Invocation(newInstance.then(kb.node()), kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), newInstance);
+        final Node call = kb.new InvocationBuilder(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.name), kb.node("newInstance"))
+            .transform(kb.node(Common.object), kb.node(Common.javaClass)).node;
+        newInstance.then(call).then(kb.new InvocationBuilder(kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), call).node);
       }
     },
     /**
@@ -798,18 +812,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     markImmutable {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node markImmutable) {
-        kb.new Invocation(markImmutable, kb.node(newInstance)).literal(kb.node(Common.javaClass),
-            kb.node(ConcurrentHashMap.class));
+        final Node newMap = kb.new InvocationBuilder(kb.node(newInstance)).literal(kb.node(Common.javaClass),
+            kb.node(ConcurrentHashMap.class)).node;
 
-        kb.new Invocation(markImmutable.then(kb.node()), kb.node(BuiltIn.setProperty))
+        final Node setValue = kb.new InvocationBuilder(kb.node(BuiltIn.setProperty))
             .literal(kb.node(Common.name), kb.node(Common.value))
-            .transform(kb.node(Common.object), kb.node(Common.javaClass))
-            .transform(kb.node(Common.value), markImmutable);
+            .transform(kb.node(Common.object), kb.node(Common.javaClass)).transform(kb.node(Common.value), newMap).node;
+
+        markImmutable.then(newMap).then(setValue);
 
         // Mark some more common types immutable.
         for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class, Character.class, Integer.class,
             Long.class, Float.class, Double.class }) {
-          kb.new Invocation(kb.node(), markImmutable).literal(kb.node(Common.javaClass), kb.node(type)).node
+          kb.new InvocationBuilder(markImmutable).literal(kb.node(Common.javaClass), kb.node(type)).node
               .activate(kb.newContext());
         }
       }
@@ -820,58 +835,26 @@ public class KnowledgeBase implements Serializable, AutoCloseable, Iterable<Node
     eval {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node eval) {
-        final Node stream = kb.node();
+        final Node stream = kb.new InvocationBuilder(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.name), kb.node("codePoints"))
+            .transform(kb.node(Common.object), kb.node(Common.value)).node;
         eval.then(stream);
-        kb.new Invocation(stream, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("codePoints"))
-            .transform(kb.node(Common.object), kb.node(Common.value));
 
-        final Node iterator = kb.node();
+        final Node iterator = kb.new InvocationBuilder(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.name), kb.node("iterator")).transform(kb.node(Common.object), stream).node;
         stream.then(iterator);
-        kb.new Invocation(iterator, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("iterator"))
-            .transform(kb.node(Common.object), stream);
 
-        final Node hasNext = kb.node();
+        final Node hasNext = kb.new InvocationBuilder(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.name), kb.node("hasNext")).transform(kb.node(Common.object), iterator).node;
         iterator.then(hasNext);
-        kb.new Invocation(hasNext, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("hasNext"))
-            .transform(kb.node(Common.object), iterator);
 
-        final Node next = kb.node();
+        final Node next = kb.new InvocationBuilder(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.name), kb.node("next")).transform(kb.node(Common.object), iterator).node;
         kb.eavNode(null, hasNext, kb.node(true)).then(next);
-
-        kb.new Invocation(next, kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("next"))
-            .transform(kb.node(Common.object), iterator);
       }
     };
 
     protected abstract void setUp(KnowledgeBase kb, Node node);
-  }
-
-  public class Invocation {
-    public final Node node;
-
-    public Invocation(final Node node, final Node invoke) {
-      this.node = node;
-      node.properties.put(node(Common.invoke), invoke);
-    }
-
-    public Invocation literal(final Node key, final Node value) {
-      node.properties.computeIfAbsent(node(Common.literal), k -> node()).properties.put(key, value);
-      return this;
-    }
-
-    public Invocation transform(final Node key, final Node value) {
-      node.properties.computeIfAbsent(node(Common.transform), k -> node()).properties.put(key, value);
-      return this;
-    }
-
-    public Invocation inherit(final Node key) {
-      return transform(key, key);
-    }
-
-    public Invocation exceptionHandler(final Node invoke) {
-      node.properties.put(node(Common.exceptionHandler), invoke);
-      return this;
-    }
   }
 
   // Creates common support routines and marks basic immutable types.

@@ -21,7 +21,6 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterators;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import io.reactivex.Observable;
@@ -29,7 +28,6 @@ import io.reactivex.functions.Consumer;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Getter;
-import lombok.val;
 
 /**
  * A node value that signifies that a node is behaving as an
@@ -85,7 +83,7 @@ public class Context implements Serializable {
     return continuation;
   }
 
-  public Context(final Function<Serializable, Node> nodeFactory,
+  public Context(final Function<? super Context, Node> nodeFactory,
       final SerializableSupplier<Executor> executorSupplier) {
     this.executorSupplier = executorSupplier;
     init();
@@ -120,17 +118,6 @@ public class Context implements Serializable {
 
     continuation = new CompletableFuture<>();
     exceptionHandler = continuation::completeExceptionally;
-
-    // While contextual activations can still happen, the context is kept alive by
-    // thread reference paths. However, this subscription itself should not be
-    // allowed to keep the context alive.
-    val ref = new DisposingWeakReference<>(this);
-    ref.disposable = activations.rxActivate().subscribe(node -> {
-      final Context context = ref.get();
-      final List<Node> recent;
-      recent = Iterators.find(context.new HebbianReinforcementWindow(Optional.empty()), deck -> deck.get(0) == node);
-      context.hebbianReinforcement(recent, Optional.empty(), HEBBIAN_IMPLICIT_WEIGHT);
-    });
   }
 
   private void writeObject(final ObjectOutputStream stream) throws IOException {
@@ -235,6 +222,19 @@ public class Context implements Serializable {
       // There are definitely more efficient ways to do this.
       for (final Synapse.ContextualState synapseState : synapseStates.values()) {
         synapseState.reinforce(time, decayPeriod, weight);
+      }
+    });
+  }
+
+  public void hebbianReinforcement(final Node posterior, final float weight) {
+    scheduler.ensureOnThread(() -> {
+      for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(Optional.empty()); window
+          .hasNext();) {
+        final List<Node> snapshot = window.next();
+        if (snapshot.get(0) == posterior) {
+          hebbianReinforcement(snapshot, Optional.empty(), weight);
+          return;
+        }
       }
     });
   }

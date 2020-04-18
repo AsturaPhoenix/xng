@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,7 +34,7 @@ public class NodeTest {
 
   @Test
   public void testValueSerialization() throws Exception {
-    assertEquals("foo", TestUtil.serialize(new Node("foo")).value);
+    assertEquals("foo", TestUtil.serialize(new Node("foo")).getValue());
   }
 
   @Test
@@ -43,8 +44,13 @@ public class NodeTest {
 
     final Node sObj = TestUtil.serialize(oObj);
     final Entry<Node, Node> prop = Iterables.getOnlyElement(sObj.properties.entrySet());
-    assertEquals("foo", prop.getKey().value);
-    assertEquals("bar", prop.getValue().value);
+    assertEquals("foo", prop.getKey().getValue());
+    assertEquals("bar", prop.getValue().getValue());
+  }
+
+  @Test
+  public void testUnserializableValue() throws Exception {
+    assertNull(TestUtil.serialize(new Node(new Object())).getValue());
   }
 
   private static void testActivation(final Node node) {

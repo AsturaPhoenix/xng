@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
@@ -301,6 +302,39 @@ public class KnowledgeBaseTest {
       resolveCustom.activate(context);
       context.blockUntilIdle();
       assertEquals(kb.node(KnowledgeBase.Bootstrap.eval), context.node.properties.get(resolveCustom));
+    }
+  }
+
+  private static class TestRepl {
+    final Repl repl;
+
+    TestRepl(final KnowledgeBase kb) {
+      repl = new Repl(kb);
+    }
+
+    String eval(final String input) throws InterruptedException, ExecutionException {
+      val sb = new StringBuilder();
+      val subscription = repl.rxOutput().subscribe(sb::append);
+      try {
+        repl.sendInput(input).get();
+      } finally {
+        subscription.dispose();
+      }
+      return sb.toString();
+    }
+  }
+
+  @Test
+  public void testEval() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      val repl = new TestRepl(kb);
+
+      repl.eval("value = &print");
+      assertEquals("print", repl.eval("print"));
+
+      repl.eval("node");
+      repl.eval("value = returnValue");
+      assertEquals("null", repl.eval("print"));
     }
   }
 }

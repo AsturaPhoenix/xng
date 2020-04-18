@@ -1,5 +1,6 @@
 package ai.xng;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -9,27 +10,30 @@ import java.io.ObjectOutputStream;
 import java.io.ObjectStreamException;
 import java.nio.file.Path;
 import lombok.RequiredArgsConstructor;
+import lombok.val;
 
 @RequiredArgsConstructor
 public class SerializingPersistence {
   private final Path root;
 
   public KnowledgeBase load() throws IOException, ClassNotFoundException, ClassCastException {
-    try (final ObjectInputStream oin = new ObjectInputStream(new FileInputStream(root.toFile()))) {
-      return (KnowledgeBase) oin.readObject();
+    final File file = root.toFile();
+    try (final ObjectInputStream oin = new ObjectInputStream(new FileInputStream(file))) {
+      val kb = (KnowledgeBase) oin.readObject();
+      System.out.printf("Using persistence at %s.\n", file.getAbsolutePath());
+      return kb;
     } catch (final FileNotFoundException e) {
-      System.out.println("Persistence not found at " + root + "; creating new persistence.");
+      System.out.printf("Persistence not found at %s; creating new persistence.\n", file.getAbsolutePath());
       return new KnowledgeBase();
     } catch (final ObjectStreamException e) {
-      System.out.println(
-          "Persistence not compatible at " + root + ". If this is expected, delete the file.");
+      System.out.printf("Persistence not compatible at %s. If this is expected, delete the file.\n",
+          file.getAbsolutePath());
       throw e;
     }
   }
 
   public void save(final KnowledgeBase kb) throws FileNotFoundException, IOException {
-    try (final ObjectOutputStream oout =
-        new ObjectOutputStream(new FileOutputStream(root.toFile()))) {
+    try (final ObjectOutputStream oout = new ObjectOutputStream(new FileOutputStream(root.toFile()))) {
       oout.writeObject(kb);
     }
   }

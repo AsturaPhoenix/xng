@@ -10,6 +10,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -18,6 +19,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.MapMaker;
@@ -29,7 +31,6 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.CompletableSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import lombok.RequiredArgsConstructor;
 import lombok.val;
 
 /**
@@ -49,12 +50,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * here is just to use identity keys with concurrency; since nodes have strong
    * references to their values, they will never actually be evicted.
    */
-  private Map<Serializable, Node> strongIndex = new MapMaker().weakKeys().makeMap();
+  private transient Map<Object, Node> strongIndex;
   /**
    * Map that does not keep its nodes alive. This is suitable only for values that
    * refer to their nodes, like {@link Context}s.
    */
-  private Map<Serializable, Node> weakIndex = new MapMaker().weakKeys().weakValues().makeMap();
+  private transient Map<Object, Node> weakIndex;
 
   private transient Executor threadPool;
   private transient Subject<String> rxOutput;
@@ -70,7 +71,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     // stack frames
     caller, invocation, context,
 
-    javaClass, object, name, exception, source, value,
+    javaClass, object, name, exception, source, value, entrypoint,
 
     // association
     prior, posterior, coefficient,
@@ -100,7 +101,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         if (activationContext == null)
           activationContext = propertyDescent(context.node, kb.node(Common.caller), kb.node(Common.context));
 
-        context.require(kb.node(Common.value)).activate((Context) activationContext.value);
+        context.require(kb.node(Common.value)).activate((Context) activationContext.getValue());
         return null;
       }
     },
@@ -120,7 +121,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final Node value = context.node.properties.get(kb.node(Common.value));
 
         return value == null ? kb.eavNode(object, property)
-            : kb.eavNode(object, property, value.value == Common.eavUnset ? null : value);
+            : kb.eavNode(object, property, value.getValue() == Common.eavUnset ? null : value);
       }
     },
     /**
@@ -136,10 +137,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final Class<?> clazz;
 
         if (objectNode != null) {
-          object = objectNode.value;
+          object = objectNode.getValue();
 
           if (classNode != null) {
-            clazz = (Class<?>) classNode.value;
+            clazz = (Class<?>) classNode.getValue();
             if (!clazz.isAssignableFrom(object.getClass())) {
               throw new IllegalArgumentException("Provided class does not match object class");
             }
@@ -148,13 +149,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           }
         } else {
           object = null;
-          clazz = (Class<?>) classNode.value;
+          clazz = (Class<?>) classNode.getValue();
         }
 
-        Field field = clazz.getField((String) fieldNode.value);
-
-        Object ret = field.get(object);
-        return kb.node((Serializable) ret);
+        Field field = clazz.getField((String) fieldNode.getValue());
+        return kb.node(field.get(object));
       }
     },
     /**
@@ -178,8 +177,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     /**
      * A limited Java interop bridge. Method parameter types must be fully and
      * exactly specified via "paramN" index entries, null-terminated, having values
-     * of Java classes. Arguments are passed as "argN" index entries, and must be
-     * serializable. Missing arguments are passed null.
+     * of Java classes. Arguments are passed as "argN" index entries. Missing
+     * arguments are passed null.
+     * <p>
+     * If the class is not explicitly specified, this bridge may attempt to use the
+     * inaccessible concrete class of the object. More mature knowledge bases should
+     * implement a more intelligent interop mechanism, which may include better
+     * resolution, caching, and/or lambda metafactory.
      * 
      * {@link Common#javaClass}: optional class on which to invoke method. If
      * {@link Common#object} is also provided, this must be a supertype.
@@ -196,10 +200,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final Class<?> clazz;
 
         if (objectNode != null) {
-          object = objectNode.value;
+          object = objectNode.getValue();
 
           if (classNode != null) {
-            clazz = (Class<?>) classNode.value;
+            clazz = (Class<?>) classNode.getValue();
             if (!clazz.isAssignableFrom(object.getClass())) {
               throw new IllegalArgumentException("Provided class does not match object class");
             }
@@ -208,47 +212,47 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           }
         } else {
           object = null;
-          clazz = (Class<?>) classNode.value;
+          clazz = (Class<?>) classNode.getValue();
         }
 
         ArrayList<Class<?>> params = new ArrayList<>();
         Node param;
         for (int i = 1; (param = context.node.properties.get(kb.param(i))) != null; i++) {
-          params.add((Class<?>) param.value);
+          params.add((Class<?>) param.getValue());
         }
 
-        Method method = clazz.getMethod((String) methodNode.value, params.toArray(new Class<?>[0]));
+        Method method = clazz.getMethod((String) methodNode.getValue(), params.toArray(new Class<?>[0]));
         ArrayList<Object> args = new ArrayList<>();
         for (int i = 1; i <= params.size(); i++) {
           Node arg = context.node.properties.get(kb.arg(i));
-          args.add(arg == null ? null : arg.value);
+          args.add(arg == null ? null : arg.getValue());
         }
 
-        Object ret = method.invoke(object, args.toArray());
-        return method.getReturnType() == null ? null : kb.node((Serializable) ret);
+        final Object ret = method.invoke(object, args.toArray());
+        return method.getReturnType() == null ? null : kb.node(ret);
       }
     },
     findClass {
       @Override
       public Node impl(final KnowledgeBase kb, Context context) throws ClassNotFoundException {
-        return kb.node(Class.forName((String) context.require(kb.node(Common.name)).value));
+        return kb.node(Class.forName((String) context.require(kb.node(Common.name)).getValue()));
       }
     },
     /**
-     * Creates a new anonymous or invocation node. Invocation nodes are created by
-     * specifying a {@link Common#value}, which serves as the entrypoint.
+     * Creates a new anonymous node. Invocation nodes are created by specifying a
+     * {@link Common#entrypoint}, which serves as the entrypoint.
      */
-    createNode {
+    node {
       @Override
       public Node impl(final KnowledgeBase kb, Context context) {
-        final Node invoke = context.node.properties.get(kb.node(Common.value));
-        return invoke == null ? new SynapticNode() : kb.new InvocationNode(invoke);
+        final Node entrypoint = context.node.properties.get(kb.node(Common.entrypoint));
+        return entrypoint == null ? new SynapticNode() : kb.new InvocationNode(entrypoint);
       }
     },
     print {
       @Override
       public Node impl(final KnowledgeBase kb, Context context) {
-        kb.rxOutput.onNext(Objects.toString(context.require(kb.node(Common.value)).value));
+        kb.rxOutput.onNext(Objects.toString(context.require(kb.node(Common.value)).getValue()));
         return null;
       }
     },
@@ -297,6 +301,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   }
 
   private void preInit() {
+    strongIndex = new MapMaker().weakKeys().makeMap();
+    weakIndex = new MapMaker().weakKeys().weakValues().makeMap();
+
     preInitEav();
 
     rxOutput = PublishSubject.create();
@@ -335,7 +342,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    */
   private Context getParent(final Context context) {
     final Node parentNode = propertyDescent(context.node, node(Common.caller), node(Common.context));
-    return parentNode == null ? context : (Context) parentNode.value;
+    return parentNode == null ? context : (Context) parentNode.getValue();
   }
 
   /**
@@ -351,15 +358,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * Tail recursion can be achieved by setting the caller to the parent caller
    * (via {@code transform} or {@link #inherit(Node)}).
    */
-  @RequiredArgsConstructor
   public class InvocationNode extends SynapticNode {
     private static final long serialVersionUID = 3233708822279852070L;
 
-    private final Node invoke;
+    public InvocationNode(final Node invoke) {
+      super(invoke);
+    }
 
     @Override
     public String toString() {
-      return "Invocation of " + invoke;
+      return "Invocation of " + getValue();
     }
 
     @Override
@@ -420,6 +428,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           synchronized (transform.properties) {
             for (final Entry<Node, Node> mapping : transform.properties.entrySet()) {
               final Node value = parentContext.node.properties.get(mapping.getValue());
+
+              // Note that this implies that missing transform values will not have their
+              // null-value EAV nodes pulsed, but nor will they have their EAV set nodes
+              // pulsed. While different from the behavior for literals, this is akin to the
+              // argument not being passed in, and is more consistent for tail recursion.
               if (value != null) {
                 setProperty(childContext, null, mapping.getKey(), value);
               }
@@ -441,7 +454,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           };
         }
 
-        invoke.activate(childContext);
+        ((Node) getValue()).activate(childContext);
       }
 
       val completable = CompletableSubject.create();
@@ -472,9 +485,38 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
   }
 
+  private static void writeIndex(final Map<Object, Node> index, final ObjectOutputStream stream) throws IOException {
+    // Discard keys that aren't serializable.
+    for (val entry : index.entrySet()) {
+      if (entry.getKey() instanceof Serializable) {
+        stream.writeObject(entry.getKey());
+        stream.writeObject(entry.getValue());
+      }
+    }
+    stream.writeObject(null);
+  }
+
+  private void writeObject(final ObjectOutputStream stream) throws IOException {
+    stream.defaultWriteObject();
+    writeIndex(strongIndex, stream);
+    writeIndex(weakIndex, stream);
+  }
+
+  private static void readIndex(final Map<Object, Node> index, final ObjectInputStream stream)
+      throws IOException, ClassNotFoundException {
+    Object key;
+    while ((key = stream.readObject()) != null) {
+      index.put(key, (Node) stream.readObject());
+    }
+  }
+
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
     preInit();
     stream.defaultReadObject();
+
+    readIndex(strongIndex, stream);
+    readIndex(weakIndex, stream);
+
     val it = eavNodes.entrySet().iterator();
     while (it.hasNext()) {
       val entry = it.next();
@@ -572,7 +614,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     // potentialy affect other state once they are connected through Hebbian
     // learning, it is not obvious in what cases it would be safe to cull them).
     // Thus, go ahead and omit those EAV nodes.
-    if (object != null && object.value instanceof Context || value != null && value.value instanceof Context)
+    if (object != null && object.getValue() instanceof Context || value != null && value.getValue() instanceof Context)
       return;
     // (The case of property.value instanceof context is not covered because what
     // does that even mean, and there would probably be an interesting reason for
@@ -703,7 +745,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         old = context.node.properties.put(property, value);
       }
 
-      if (property.value == Common.returnValue) {
+      if (property.getValue() == Common.returnValue) {
         final Node invocation = propertyDescent(context.node, node(Common.caller), node(Common.invocation));
         if (invocation != null) {
           setProperty(getParent(context), null, invocation, value);
@@ -729,30 +771,45 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     node(type).properties.put(node(Common.value), node(new ConcurrentHashMap<Serializable, Serializable>()));
   }
 
+  // The index doesn't allow nulls and we can short-circuit most of our logic, so
+  // special-case this here.
+  private final Node nullNode = new SynapticNode();
+
+  /**
+   * Single-instance resolution for immutable types. Skip for/bootstrap with Class
+   * and enum since they're always single-instance.
+   * 
+   * An immutable class is designated by having the node for the class instance
+   * have a Common.value property that has a value of a ConcurrentHashMap, which
+   * will be used to resolve values to canonical instances.
+   */
   @SuppressWarnings("unchecked")
-  public Node node(final Serializable value) {
-    // Single-instance resolution for immutable types. Skip for/bootstrap
-    // with Class and enum since they're always single-instance.
-    //
-    // An immutable class is designated by having the node for the class
-    // instance have a Common.value property that has a value of a
-    // ConcurrentHashMap, which will be used to resolve values to canonical
-    // instances.
-    Serializable resolvingValue = value;
-    if (!(value instanceof Class<?> || value instanceof Enum)) {
-      final Node values = node(value.getClass()).properties.get(node(Common.value));
-      if (values != null && values.value instanceof ConcurrentHashMap) {
-        resolvingValue = ((ConcurrentHashMap<Serializable, Serializable>) values.value).computeIfAbsent(value,
-            x -> value);
-      }
+  private Serializable canonicalize(Serializable value) {
+    if (value instanceof Class<?> || value instanceof Enum)
+      return value;
+
+    final Node values = node(value.getClass()).properties.get(node(Common.value));
+    if (values != null && values.getValue() instanceof ConcurrentHashMap) {
+      return ((ConcurrentHashMap<Serializable, Serializable>) values.getValue()).computeIfAbsent(value, x -> value);
+    } else {
+      return value;
     }
-
-    final Serializable resolvedValue = resolvingValue;
-
-    final Map<Serializable, Node> index = resolvedValue instanceof Context ? weakIndex : strongIndex;
-    return index.computeIfAbsent(resolvedValue, v -> v instanceof BuiltIn b ? b.node(this) : new SynapticNode(v));
   }
 
+  public Node node(Object value) {
+    if (value == null)
+      return nullNode;
+
+    if (value instanceof Serializable s) {
+      value = canonicalize(s);
+    }
+
+    final Map<Object, Node> index = value instanceof Context ? weakIndex : strongIndex;
+    return index.computeIfAbsent(value, v -> v instanceof BuiltIn b ? b.node(this) : new SynapticNode(v));
+  }
+
+  // The ordering of the members is significant; later setups can depend on
+  // earlier ones.
   public enum Bootstrap {
     /**
      * <li>{@link Common#javaClass}: class for which to invoke default constructor.
@@ -787,8 +844,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         // Mark some more common types immutable.
         for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class, Character.class, Integer.class,
             Long.class, Float.class, Double.class }) {
-          kb.new InvocationNode(markImmutable).literal(kb.node(Common.javaClass), kb.node(type))
-              .activate(kb.newContext());
+          val context = kb.newContext();
+          kb.new InvocationNode(markImmutable).literal(kb.node(Common.javaClass), kb.node(type)).activate(context);
+          context.blockUntilIdle();
         }
       }
     },
@@ -828,21 +886,153 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     eval {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node eval) {
+        val token = new SynapticNode(), subject = new SynapticNode();
+
         val stream = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("codePoints"))
             .transform(kb.node(Common.object), kb.node(Common.value));
         eval.then(stream);
 
         val iterator = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("iterator"))
-            .transform(kb.node(Common.object), stream);
+            .literal(kb.node(Common.javaClass), kb.node(IntStream.class)).transform(kb.node(Common.object), stream);
         stream.then(iterator);
 
         val hasNext = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("hasNext"))
-            .transform(kb.node(Common.object), iterator);
+            .literal(kb.node(Common.javaClass), kb.node(Iterator.class)).transform(kb.node(Common.object), iterator);
         iterator.then(hasNext);
 
         val next = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("next"))
-            .transform(kb.node(Common.object), iterator);
+            .literal(kb.node(Common.javaClass), kb.node(Iterator.class)).transform(kb.node(Common.object), iterator);
         kb.eavNode(null, hasNext, kb.node(true)).then(next);
+
+        val buffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
+            kb.node(StringBuilder.class));
+
+        // State between tokens, represented by no buffer
+        val noBuffer = new SynapticNode();
+        noBuffer.synapse.setCoefficient(next, 1);
+        noBuffer.synapse.setCoefficient(kb.eavNode(null, buffer), -1);
+
+        // Transcribe identifier character
+        val ifIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.javaClass), kb.node(Character.class))
+            .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), next);
+        noBuffer.then(ifIdentifierStart);
+
+        kb.eavNode(null, ifIdentifierStart, kb.node(true)).then(buffer);
+        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
+            .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), next);
+        buffer.then(append);
+
+        val recurse = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator).inherit(buffer)
+            .inherit(token).inherit(subject);
+        append.then(recurse);
+
+        // Consume whitespace
+        val ifWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.javaClass), kb.node(Character.class))
+            .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), next);
+        noBuffer.then(ifWhitespace);
+
+        kb.eavNode(null, ifWhitespace, kb.node(true)).then(recurse);
+
+        // State token in progress, represented by buffer
+        val inProgress = new SynapticNode();
+        inProgress.synapse.setCoefficient(next, .8f);
+        inProgress.synapse.setCoefficient(kb.eavNode(null, buffer), .8f);
+        inProgress.synapse.setCoefficient(noBuffer, -1);
+
+        // Transcribe identifier character
+        val ifIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.javaClass), kb.node(Character.class))
+            .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), next);
+        inProgress.then(ifIdentifierPart);
+        kb.eavNode(null, ifIdentifierPart, kb.node(true)).then(append);
+
+        // Emit token otherwise
+        val emit = new SynapticNode();
+        val getToken = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
+            .literal(kb.node(Common.name), kb.node("toString"));
+        emit.then(getToken);
+        val resolve = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name), getToken);
+        getToken.then(resolve);
+        val emitContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+            .transform(kb.node(Common.object), kb.node(Common.caller))
+            .literal(kb.node(Common.name), kb.node(Common.context));
+        emit.then(emitContext);
+        val publishToken = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), emitContext).literal(kb.node(Common.name), token)
+            .transform(kb.node(Common.value), resolve);
+        publishToken.synapse.setCoefficient(resolve, .8f);
+        publishToken.synapse.setCoefficient(emitContext, .8f);
+
+        val intermediateEmit = kb.new InvocationNode(emit).inherit(buffer);
+        kb.eavNode(null, ifIdentifierPart, kb.node(false)).then(intermediateEmit);
+
+        val recurseInPlace = kb.new InvocationNode(noBuffer).inherit(kb.node(Common.caller)).inherit(iterator)
+            .inherit(next).inherit(token).inherit(subject);
+        intermediateEmit.then(recurseInPlace);
+
+        // =
+        val ifEq = kb.eavNode(null, next, kb.node((int) '='));
+        val setSubject = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), subject)
+            .transform(kb.node(Common.value), token);
+        setSubject.synapse.setCoefficient(ifEq, .8f);
+        setSubject.synapse.setCoefficient(noBuffer, .8f);
+
+        val recurseAfterEq = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator)
+            .inherit(subject);
+        setSubject.then(recurseAfterEq);
+
+        // &
+        val ifAmp = kb.eavNode(null, next, kb.node((int) '&'));
+        val pubOp = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), token)
+            .transform(kb.node(Common.value), next);
+        pubOp.synapse.setCoefficient(ifAmp, .8f);
+        pubOp.synapse.setCoefficient(noBuffer, .8f);
+
+        val recurseAfterOperator = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator)
+            .inherit(token).inherit(subject);
+        pubOp.then(recurseAfterOperator);
+
+        // EOL
+        val finalEmit = kb.new InvocationNode(emit).inherit(buffer);
+        finalEmit.synapse.setCoefficient(kb.eavNode(null, hasNext, kb.node(false)), .8f);
+        finalEmit.synapse.setCoefficient(kb.eavNode(null, buffer), .8f);
+
+        val parentContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+            .transform(kb.node(Common.object), kb.node(Common.caller))
+            .literal(kb.node(Common.name), kb.node(Common.context));
+        finalEmit.then(parentContext);
+
+        val hasSubject = kb.eavNode(null, subject);
+
+        // Handle =
+        val copy = new SynapticNode();
+        copy.synapse.setCoefficient(parentContext, .8f);
+        copy.synapse.setCoefficient(hasSubject, .8f);
+        val read = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), parentContext)
+            .transform(kb.node(Common.name), token);
+        copy.then(read);
+        val isRef = kb.eavNode(null, token, kb.node((int) '&'));
+        read.synapse.setCoefficient(isRef, -1);
+        val write = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), parentContext)
+            .transform(kb.node(Common.name), subject).transform(kb.node(Common.value), read);
+        copy.then(read).then(write);
+        val writeRef = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), parentContext).transform(kb.node(Common.name), subject)
+            .transform(kb.node(Common.value), token);
+        writeRef.synapse.setCoefficient(copy, .8f);
+        writeRef.synapse.setCoefficient(isRef, .8f);
+
+        // Handle activation
+        val activate = kb.new InvocationNode(kb.node(BuiltIn.activate)).transform(kb.node(Common.value), token)
+            .transform(kb.node(Common.context), parentContext);
+        activate.synapse.setCoefficient(parentContext, 1);
+        activate.synapse.setCoefficient(hasSubject, -1);
       }
     };
 

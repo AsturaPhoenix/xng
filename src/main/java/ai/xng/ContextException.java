@@ -13,7 +13,8 @@ public class ContextException extends IllegalArgumentException {
   public final Node missingProperty;
 
   public ContextException(final Context context, final Node missingProperty) {
-    super("Context missing required property " + missingProperty);
+    super(String.format("Context missing required property %s. Properties: %s", missingProperty,
+        context.node.properties));
     this.properties = ImmutableMap.copyOf(context.node.properties);
     this.missingProperty = missingProperty;
   }

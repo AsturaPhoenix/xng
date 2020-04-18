@@ -137,8 +137,10 @@ public class BanditTest {
             context.blockUntilIdle();
 
             if (newPulls.isEmpty()) {
-                bandits.get(random.nextInt(bandits.size())).activate(context);
+                final Node bandit = bandits.get(random.nextInt(bandits.size()));
+                bandit.activate(context);
                 context.blockUntilIdle();
+                context.hebbianReinforcement(bandit, 1);
             }
 
             return newPulls;

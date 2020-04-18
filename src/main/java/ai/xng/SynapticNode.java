@@ -2,7 +2,6 @@ package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.Serializable;
 
 /**
  * A node that allows synaptic input.
@@ -16,7 +15,7 @@ public class SynapticNode extends Node {
     this(null);
   }
 
-  public SynapticNode(final Serializable value) {
+  public SynapticNode(final Object value) {
     super(value);
     init();
   }

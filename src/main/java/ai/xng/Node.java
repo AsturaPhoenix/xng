@@ -2,6 +2,7 @@ package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashMap;
@@ -13,11 +14,12 @@ import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
 
 public class Node implements Serializable {
-  private static final long serialVersionUID = -4340465118968553513L;
+  private static final long serialVersionUID = 8798023148407057463L;
 
   @FunctionalInterface
   public static interface OnActivate {
@@ -63,12 +65,10 @@ public class Node implements Serializable {
     }
   }
 
-  public final Serializable value;
-
-  public long getLastActivation(final Context context) {
-    final ContextualState state = context.nodeState(this);
-    return state == null ? 0 : state.lastActivation;
-  }
+  @Getter
+  private transient Object value;
+  public String comment;
+  public final Map<Node, Node> properties = Collections.synchronizedMap(new HashMap<>());
 
   private transient Subject<Activation> rxOutput;
 
@@ -76,7 +76,7 @@ public class Node implements Serializable {
     this(null);
   }
 
-  public Node(final Serializable value) {
+  public Node(final Object value) {
     this.value = value;
     init();
   }
@@ -85,9 +85,28 @@ public class Node implements Serializable {
     rxOutput = PublishSubject.create();
   }
 
-  private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
-    init();
+  private void writeObject(ObjectOutputStream stream) throws IOException {
+    stream.defaultWriteObject();
+
+    if (value == null || value instanceof Serializable) {
+      stream.writeObject(value);
+    } else {
+      System.err.printf(
+          "Warning: attempted to serialize a node with non-serializable value %s. This value will be lost upon deserialization.\n",
+          value);
+      stream.writeObject(null);
+    }
+  }
+
+  private void readObject(final ObjectInputStream stream) throws IOException, ClassNotFoundException {
     stream.defaultReadObject();
+    value = stream.readObject();
+    init();
+  }
+
+  public long getLastActivation(final Context context) {
+    final ContextualState state = context.nodeState(this);
+    return state == null ? 0 : state.lastActivation;
   }
 
   public void activate(final Context context) {
@@ -96,7 +115,7 @@ public class Node implements Serializable {
   }
 
   /**
-   * An optional handler that
+   * An optional handler that can block activation until a task has completed.
    */
   protected Completable onActivate(final Context context) {
     return Completable.complete();
@@ -105,9 +124,6 @@ public class Node implements Serializable {
   public Observable<Activation> rxActivate() {
     return rxOutput;
   }
-
-  public String comment;
-  public final Map<Node, Node> properties = Collections.synchronizedMap(new HashMap<>());
 
   @Override
   public String toString() {

@@ -670,10 +670,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     public boolean equals(Object obj) {
       if (obj == this)
         return true;
-      if (!(obj instanceof EavTuple))
+
+      if (!(obj instanceof EavTuple other))
         return false;
 
-      final EavTuple other = (EavTuple) obj;
       if (tuple.length != other.tuple.length)
         return false;
 
@@ -755,8 +755,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     final Serializable resolvedValue = resolvingValue;
 
     final Map<Serializable, Node> index = resolvedValue instanceof Context ? weakIndex : strongIndex;
-    return index.computeIfAbsent(resolvedValue,
-        v -> v instanceof BuiltIn ? ((BuiltIn) v).node(this) : new SynapticNode(v));
+    return index.computeIfAbsent(resolvedValue, v -> v instanceof BuiltIn b ? b.node(this) : new SynapticNode(v));
   }
 
   public enum Bootstrap {

@@ -21,10 +21,8 @@ public class ImmutableException implements Serializable {
 	public ImmutableException(final Throwable exception) {
 		type = exception.getClass();
 		message = exception.getMessage();
-		stackTrace = Arrays.stream(exception.getStackTrace())
-				.map(Object::toString).<ImmutableList.Builder<String>>collect(ImmutableList::builder,
-						ImmutableList.Builder::add, (a, b) -> a.addAll(b.build()))
-				.build();
+		stackTrace = Arrays.stream(exception.getStackTrace()).map(Object::toString).<ImmutableList.Builder<String>>collect(
+				ImmutableList::builder, ImmutableList.Builder::add, (a, b) -> a.addAll(b.build())).build();
 		cause = exception.getCause() == null ? null : new ImmutableException(exception.getCause());
 	}
 

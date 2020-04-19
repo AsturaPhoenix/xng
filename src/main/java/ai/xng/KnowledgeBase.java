@@ -30,7 +30,6 @@ import io.reactivex.subjects.CompletableSubject;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.RequiredArgsConstructor;
-import lombok.Value;
 import lombok.val;
 
 /**
@@ -505,20 +504,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * Immutable class labeling a positional argument. This class is marked
    * immutable by the {@code KnowledgeBase}.
    */
-  @Value
-  private class Arg implements Serializable {
+  private static record Arg(int ordinal) implements Serializable {
     private static final long serialVersionUID = 1L;
-    int ordinal;
   }
 
   /**
    * Immutable class labeling a positional parameter. This class is marked
    * immutable by the {@code KnowledgeBase}.
    */
-  @Value
-  private class Param implements Serializable {
+  private static record Param(int ordinal) implements Serializable {
     private static final long serialVersionUID = 1L;
-    int ordinal;
   }
 
   /**

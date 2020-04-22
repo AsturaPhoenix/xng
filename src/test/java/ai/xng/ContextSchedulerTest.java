@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.disposables.CompositeDisposable;
 import lombok.val;
@@ -575,9 +576,9 @@ public class ContextSchedulerTest {
     val scheduler = new ContextScheduler(threadPool);
     scheduler.start();
 
-    val immediate = new CompletableFuture<Boolean>();
-    Observable.just(true).observeOn(scheduler.preferImmediate()).subscribe(immediate::complete);
-    immediate.complete(false);
-    assertFalse(immediate.get());
+    val thread = new CompletableFuture<Thread>();
+    Completable.complete().observeOn(scheduler.preferImmediate())
+        .subscribe(() -> thread.complete(Thread.currentThread()));
+    assertNotEquals(Thread.currentThread(), thread.get());
   }
 }

@@ -886,8 +886,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     eval {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node eval) {
-        val token = new SynapticNode(), subject = new SynapticNode();
-
         val stream = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("codePoints"))
             .transform(kb.node(Common.object), kb.node(Common.value));
         eval.then(stream);
@@ -904,134 +902,130 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             .literal(kb.node(Common.javaClass), kb.node(Iterator.class)).transform(kb.node(Common.object), iterator);
         kb.eavNode(null, hasNext, kb.node(true)).then(next);
 
-        val buffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
-            kb.node(StringBuilder.class));
+        val recurse = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator);
 
-        // State between tokens, represented by no buffer
-        val noBuffer = new SynapticNode();
-        noBuffer.synapse.setCoefficient(next, 1);
-        noBuffer.synapse.setCoefficient(kb.eavNode(null, buffer), -1);
+        val identifierBuffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
+            kb.node(StringBuilder.class));
+        recurse.inherit(identifierBuffer);
+
+        val noIdentifierBuffer = new SynapticNode();
+        noIdentifierBuffer.synapse.setCoefficient(hasNext, 1);
+        noIdentifierBuffer.synapse.setCoefficient(kb.eavNode(null, identifierBuffer), -1);
+
+        val hasIdentifierBuffer = new SynapticNode();
+        hasIdentifierBuffer.synapse.setCoefficient(kb.eavNode(null, identifierBuffer), 1);
+        hasIdentifierBuffer.synapse.setCoefficient(noIdentifierBuffer, -1);
 
         // Transcribe identifier character
         val ifIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
             .literal(kb.node(Common.javaClass), kb.node(Character.class))
             .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), next);
-        noBuffer.then(ifIdentifierStart);
+        ifIdentifierStart.synapse.setCoefficient(next, .8f);
+        ifIdentifierStart.synapse.setCoefficient(noIdentifierBuffer, .8f);
+        kb.eavNode(null, ifIdentifierStart, kb.node(true)).then(identifierBuffer);
 
-        kb.eavNode(null, ifIdentifierStart, kb.node(true)).then(buffer);
-        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
+        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), identifierBuffer)
             .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), next);
-        buffer.then(append);
-
-        val recurse = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator).inherit(buffer)
-            .inherit(token).inherit(subject);
+        identifierBuffer.then(append);
         append.then(recurse);
+
+        val ifIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.javaClass), kb.node(Character.class))
+            .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), next);
+        ifIdentifierPart.synapse.setCoefficient(next, .8f);
+        ifIdentifierPart.synapse.setCoefficient(hasIdentifierBuffer, .8f);
+        kb.eavNode(null, ifIdentifierPart, kb.node(true)).then(append);
+
+        val identifier = kb.new InvocationNode(kb.node(BuiltIn.method))
+            .transform(kb.node(Common.object), identifierBuffer).literal(kb.node(Common.name), kb.node("toString"));
+        val resetIdentifierBuffer = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
+            identifierBuffer);
+        identifier.then(resetIdentifierBuffer);
+        val resolvedIdentifier = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name),
+            identifier);
+        identifier.then(resolvedIdentifier);
+        recurse.inherit(resolvedIdentifier);
+
+        val identifierHandled = new SynapticNode();
+        noIdentifierBuffer.then(identifierHandled);
+        resolvedIdentifier.then(identifierHandled);
+
+        kb.eavNode(null, ifIdentifierPart, kb.node(false)).then(identifier);
 
         // Consume whitespace
         val ifWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
             .literal(kb.node(Common.javaClass), kb.node(Character.class))
             .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), next);
-        noBuffer.then(ifWhitespace);
-
+        ifWhitespace.synapse.setCoefficient(next, .8f);
+        ifWhitespace.synapse.setCoefficient(identifierHandled, .8f);
         kb.eavNode(null, ifWhitespace, kb.node(true)).then(recurse);
-
-        // State token in progress, represented by buffer
-        val inProgress = new SynapticNode();
-        inProgress.synapse.setCoefficient(next, .8f);
-        inProgress.synapse.setCoefficient(kb.eavNode(null, buffer), .8f);
-        inProgress.synapse.setCoefficient(noBuffer, -1);
-
-        // Transcribe identifier character
-        val ifIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.javaClass), kb.node(Character.class))
-            .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
-            .transform(kb.arg(1), next);
-        inProgress.then(ifIdentifierPart);
-        kb.eavNode(null, ifIdentifierPart, kb.node(true)).then(append);
-
-        // Emit token otherwise
-        val emit = new SynapticNode();
-        val getToken = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
-            .literal(kb.node(Common.name), kb.node("toString"));
-        emit.then(getToken);
-        val resolve = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name), getToken);
-        getToken.then(resolve);
-        val emitContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-            .transform(kb.node(Common.object), kb.node(Common.caller))
-            .literal(kb.node(Common.name), kb.node(Common.context));
-        emit.then(emitContext);
-        val publishToken = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), emitContext).literal(kb.node(Common.name), token)
-            .transform(kb.node(Common.value), resolve);
-        publishToken.synapse.setCoefficient(resolve, .8f);
-        publishToken.synapse.setCoefficient(emitContext, .8f);
-
-        val intermediateEmit = kb.new InvocationNode(emit).inherit(buffer);
-        kb.eavNode(null, ifIdentifierPart, kb.node(false)).then(intermediateEmit);
-
-        val recurseInPlace = kb.new InvocationNode(noBuffer).inherit(kb.node(Common.caller)).inherit(iterator)
-            .inherit(next).inherit(token).inherit(subject);
-        intermediateEmit.then(recurseInPlace);
 
         // =
         val ifEq = kb.eavNode(null, next, kb.node((int) '='));
+        val subject = new SynapticNode();
+        recurse.inherit(subject);
         val setSubject = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), subject)
-            .transform(kb.node(Common.value), token);
+            .transform(kb.node(Common.value), resolvedIdentifier);
         setSubject.synapse.setCoefficient(ifEq, .8f);
-        setSubject.synapse.setCoefficient(noBuffer, .8f);
-
-        val recurseAfterEq = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator)
-            .inherit(subject);
-        setSubject.then(recurseAfterEq);
+        setSubject.synapse.setCoefficient(identifierHandled, .8f);
+        val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
+            resolvedIdentifier);
+        setSubject.then(resetIdentifier);
+        resetIdentifier.then(recurse);
 
         // &
         val ifAmp = kb.eavNode(null, next, kb.node((int) '&'));
-        val pubOp = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), token)
+        val prefix = new SynapticNode();
+        recurse.inherit(prefix);
+        val pubOp = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), prefix)
             .transform(kb.node(Common.value), next);
         pubOp.synapse.setCoefficient(ifAmp, .8f);
-        pubOp.synapse.setCoefficient(noBuffer, .8f);
-
-        val recurseAfterOperator = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator)
-            .inherit(token).inherit(subject);
-        pubOp.then(recurseAfterOperator);
+        pubOp.synapse.setCoefficient(identifierHandled, .8f);
+        pubOp.then(recurse);
 
         // EOL
-        val finalEmit = kb.new InvocationNode(emit).inherit(buffer);
-        finalEmit.synapse.setCoefficient(kb.eavNode(null, hasNext, kb.node(false)), .8f);
-        finalEmit.synapse.setCoefficient(kb.eavNode(null, buffer), .8f);
+        val eol = kb.eavNode(null, hasNext, kb.node(false));
+        identifier.synapse.setCoefficient(eol, .8f);
+        identifier.synapse.setCoefficient(hasIdentifierBuffer, .8f);
 
         val parentContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
             .transform(kb.node(Common.object), kb.node(Common.caller))
             .literal(kb.node(Common.name), kb.node(Common.context));
-        finalEmit.then(parentContext);
-
-        val hasSubject = kb.eavNode(null, subject);
+        eol.then(parentContext);
 
         // Handle =
+        val hasSubject = kb.eavNode(null, subject);
+
         val copy = new SynapticNode();
-        copy.synapse.setCoefficient(parentContext, .8f);
-        copy.synapse.setCoefficient(hasSubject, .8f);
+        copy.synapse.setCoefficient(parentContext, .4f);
+        copy.synapse.setCoefficient(hasSubject, .4f);
+        copy.synapse.setCoefficient(identifierHandled, .4f);
+
         val read = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), parentContext)
-            .transform(kb.node(Common.name), token);
-        copy.then(read);
-        val isRef = kb.eavNode(null, token, kb.node((int) '&'));
+            .transform(kb.node(Common.name), resolvedIdentifier);
+        val isRef = kb.eavNode(null, prefix, kb.node((int) '&'));
+        read.synapse.setCoefficient(copy, 1);
         read.synapse.setCoefficient(isRef, -1);
+
         val write = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), parentContext)
             .transform(kb.node(Common.name), subject).transform(kb.node(Common.value), read);
         copy.then(read).then(write);
+
         val writeRef = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
             .transform(kb.node(Common.object), parentContext).transform(kb.node(Common.name), subject)
-            .transform(kb.node(Common.value), token);
+            .transform(kb.node(Common.value), resolvedIdentifier);
         writeRef.synapse.setCoefficient(copy, .8f);
         writeRef.synapse.setCoefficient(isRef, .8f);
 
         // Handle activation
-        val activate = kb.new InvocationNode(kb.node(BuiltIn.activate)).transform(kb.node(Common.value), token)
-            .transform(kb.node(Common.context), parentContext);
-        activate.synapse.setCoefficient(parentContext, 1);
+        val activate = kb.new InvocationNode(kb.node(BuiltIn.activate))
+            .transform(kb.node(Common.value), resolvedIdentifier).transform(kb.node(Common.context), parentContext);
+        activate.synapse.setCoefficient(parentContext, .8f);
+        activate.synapse.setCoefficient(resolvedIdentifier, .8f);
         activate.synapse.setCoefficient(hasSubject, -1);
       }
     };

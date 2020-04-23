@@ -76,8 +76,7 @@ public class NodeTest {
   public void testAnd() throws Exception {
     val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.synapse.setCoefficient(a, .8f);
-    and.synapse.setCoefficient(b, .8f);
+    and.conjunction(a, b);
 
     val context1 = Context.newDedicated();
     val activeMonitor1 = new EmissionMonitor<>(context1.rxActive());
@@ -96,8 +95,7 @@ public class NodeTest {
   @Test
   public void testAndStability() {
     val a = new Node(), b = new Node(), and = new SynapticNode();
-    and.synapse.setCoefficient(a, .8f);
-    and.synapse.setCoefficient(b, .8f);
+    and.conjunction(a, b);
 
     for (int i = 0; i < 1000; ++i) {
       val context = Context.newDedicated();
@@ -125,8 +123,7 @@ public class NodeTest {
   public void testDisjointContexts() {
     val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.synapse.setCoefficient(a, .8f);
-    and.synapse.setCoefficient(b, .8f);
+    and.conjunction(a, b);
     a.activate(Context.newDedicated());
     b.activate(Context.newDedicated());
     assertFalse(monitor.didEmit());
@@ -135,8 +132,7 @@ public class NodeTest {
   @Test
   public void testAndSerialization() throws Exception {
     SynapticNode[] nodes = { new SynapticNode(), new SynapticNode(), new SynapticNode() };
-    nodes[2].synapse.setCoefficient(nodes[0], .8f);
-    nodes[2].synapse.setCoefficient(nodes[1], .8f);
+    nodes[2].conjunction(nodes[0], nodes[1]);
 
     nodes = TestUtil.serialize(nodes);
 
@@ -161,8 +157,7 @@ public class NodeTest {
   public void testAndRefractory() throws InterruptedException {
     val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
-    and.synapse.setCoefficient(a, .8f);
-    and.synapse.setCoefficient(b, .8f);
+    and.conjunction(a, b);
     val context = Context.newDedicated();
     a.activate(context);
     b.activate(context);

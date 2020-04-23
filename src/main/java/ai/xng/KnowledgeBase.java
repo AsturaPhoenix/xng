@@ -921,8 +921,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             .literal(kb.node(Common.javaClass), kb.node(Character.class))
             .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), next);
-        ifIdentifierStart.synapse.setCoefficient(next, .8f);
-        ifIdentifierStart.synapse.setCoefficient(noIdentifierBuffer, .8f);
+        ifIdentifierStart.conjunction(next, noIdentifierBuffer);
         kb.eavNode(null, ifIdentifierStart, kb.node(true)).then(identifierBuffer);
 
         val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), identifierBuffer)
@@ -935,8 +934,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             .literal(kb.node(Common.javaClass), kb.node(Character.class))
             .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), next);
-        ifIdentifierPart.synapse.setCoefficient(next, .8f);
-        ifIdentifierPart.synapse.setCoefficient(hasIdentifierBuffer, .8f);
+        ifIdentifierPart.conjunction(next, hasIdentifierBuffer);
         kb.eavNode(null, ifIdentifierPart, kb.node(true)).then(append);
 
         val identifier = kb.new InvocationNode(kb.node(BuiltIn.method))
@@ -960,8 +958,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             .literal(kb.node(Common.javaClass), kb.node(Character.class))
             .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), next);
-        ifWhitespace.synapse.setCoefficient(next, .8f);
-        ifWhitespace.synapse.setCoefficient(identifierHandled, .8f);
+        ifWhitespace.conjunction(next, identifierHandled);
         kb.eavNode(null, ifWhitespace, kb.node(true)).then(recurse);
 
         // =
@@ -970,8 +967,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         recurse.inherit(subject);
         val setSubject = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), subject)
             .transform(kb.node(Common.value), resolvedIdentifier);
-        setSubject.synapse.setCoefficient(ifEq, .8f);
-        setSubject.synapse.setCoefficient(identifierHandled, .8f);
+        setSubject.conjunction(ifEq, identifierHandled);
         val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
             resolvedIdentifier);
         setSubject.then(resetIdentifier);
@@ -983,14 +979,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         recurse.inherit(prefix);
         val pubOp = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), prefix)
             .transform(kb.node(Common.value), next);
-        pubOp.synapse.setCoefficient(ifAmp, .8f);
-        pubOp.synapse.setCoefficient(identifierHandled, .8f);
+        pubOp.conjunction(ifAmp, identifierHandled);
         pubOp.then(recurse);
 
         // EOL
         val eol = kb.eavNode(null, hasNext, kb.node(false));
-        identifier.synapse.setCoefficient(eol, .8f);
-        identifier.synapse.setCoefficient(hasIdentifierBuffer, .8f);
+        identifier.conjunction(eol, hasIdentifierBuffer);
 
         val parentContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
             .transform(kb.node(Common.object), kb.node(Common.caller))
@@ -1001,9 +995,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         val hasSubject = kb.eavNode(null, subject);
 
         val copy = new SynapticNode();
-        copy.synapse.setCoefficient(parentContext, .4f);
-        copy.synapse.setCoefficient(hasSubject, .4f);
-        copy.synapse.setCoefficient(identifierHandled, .4f);
+        copy.conjunction(parentContext, hasSubject, identifierHandled);
 
         val read = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), parentContext)
             .transform(kb.node(Common.name), resolvedIdentifier);
@@ -1018,14 +1010,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         val writeRef = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
             .transform(kb.node(Common.object), parentContext).transform(kb.node(Common.name), subject)
             .transform(kb.node(Common.value), resolvedIdentifier);
-        writeRef.synapse.setCoefficient(copy, .8f);
-        writeRef.synapse.setCoefficient(isRef, .8f);
+        writeRef.conjunction(copy, isRef);
 
         // Handle activation
         val activate = kb.new InvocationNode(kb.node(BuiltIn.activate))
             .transform(kb.node(Common.value), resolvedIdentifier).transform(kb.node(Common.context), parentContext);
-        activate.synapse.setCoefficient(parentContext, .8f);
-        activate.synapse.setCoefficient(resolvedIdentifier, .8f);
+        activate.conjunction(parentContext, resolvedIdentifier);
         activate.synapse.setCoefficient(hasSubject, -1);
       }
     };

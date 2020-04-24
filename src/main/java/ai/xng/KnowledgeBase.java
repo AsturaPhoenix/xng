@@ -96,12 +96,23 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      */
     activate {
       @Override
-      public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
+      public Node impl(final KnowledgeBase kb, final Context context) {
         Node activationContext = context.node.properties.get(kb.node(Common.context));
         if (activationContext == null)
           activationContext = propertyDescent(context.node, kb.node(Common.caller), kb.node(Common.context));
 
         context.require(kb.node(Common.value)).activate((Context) activationContext.getValue());
+        return null;
+      }
+    },
+    associate {
+      @Override
+      public Node impl(final KnowledgeBase kb, final Context context) {
+        final Node prior = context.require(kb.node(Common.prior));
+        final SynapticNode posterior = (SynapticNode) context.require(kb.node(Common.posterior));
+        final Node coefficient = context.node.properties.get(kb.node(Common.coefficient));
+
+        posterior.synapse.setCoefficient(prior, coefficient == null ? 1 : (float) coefficient.getValue());
         return null;
       }
     },
@@ -115,7 +126,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      */
     eavTuple {
       @Override
-      public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
+      public Node impl(final KnowledgeBase kb, final Context context) {
         final Node object = context.node.properties.get(kb.node(Common.object));
         final Node property = context.require(kb.node(Common.name));
         final Node value = context.node.properties.get(kb.node(Common.value));
@@ -881,14 +892,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       }
     },
     /**
-     * <li>{@link Common#value}: string to evaluate
+     * <li>{@link Common#value}: string to parse
      */
-    eval {
+    parse {
       @Override
-      protected void setUp(final KnowledgeBase kb, final Node eval) {
+      protected void setUp(final KnowledgeBase kb, final Node parse) {
         val stream = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("codePoints"))
             .transform(kb.node(Common.object), kb.node(Common.value));
-        eval.then(stream);
+        parse.then(stream);
 
         val iterator = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("iterator"))
             .literal(kb.node(Common.javaClass), kb.node(IntStream.class)).transform(kb.node(Common.object), stream);
@@ -961,16 +972,29 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         ifWhitespace.conjunction(next, identifierHandled);
         kb.eavNode(null, ifWhitespace, kb.node(true)).then(recurse);
 
+        // EOL
+        val eol = kb.eavNode(null, hasNext, kb.node(false));
+        identifier.conjunction(eol, hasIdentifierBuffer);
+
         // =
         val ifEq = kb.eavNode(null, next, kb.node((int) '='));
-        val subject = new SynapticNode();
-        recurse.inherit(subject);
-        val setSubject = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), subject)
-            .transform(kb.node(Common.value), resolvedIdentifier);
-        setSubject.conjunction(ifEq, identifierHandled);
+        val setProperty = kb.new InvocationNode(kb.node(BuiltIn.node)).literal(kb.node(Common.entrypoint),
+            kb.node(BuiltIn.setProperty));
+        recurse.inherit(setProperty);
+        setProperty.conjunction(ifEq, identifierHandled);
+        val literal = kb.new InvocationNode(kb.node(BuiltIn.node));
+        recurse.inherit(literal);
+        setProperty.then(literal);
+        val setLiteral = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.literal))
+            .transform(kb.node(Common.value), literal);
+        literal.then(setLiteral);
+        val setName = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), literal)
+            .literal(kb.node(Common.name), kb.node(Common.name)).transform(kb.node(Common.value), resolvedIdentifier);
+        setLiteral.then(setName);
         val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
             resolvedIdentifier);
-        setSubject.then(resetIdentifier);
+        setName.then(resetIdentifier);
         resetIdentifier.then(recurse);
 
         // &
@@ -982,41 +1006,59 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         pubOp.conjunction(ifAmp, identifierHandled);
         pubOp.then(recurse);
 
-        // EOL
-        val eol = kb.eavNode(null, hasNext, kb.node(false));
-        identifier.conjunction(eol, hasIdentifierBuffer);
+        // Handle =
+        val hasSetProperty = kb.eavNode(null, setProperty);
+        val finishSetProperty = new SynapticNode();
+        finishSetProperty.conjunction(eol, hasSetProperty, identifierHandled);
+        val isRef = kb.eavNode(null, prefix, kb.node((int) '&'));
+
+        val setLiteralValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), literal).literal(kb.node(Common.name), kb.node(Common.value))
+            .transform(kb.node(Common.value), resolvedIdentifier);
+        setLiteralValue.conjunction(finishSetProperty, isRef);
+
+        val transform = kb.new InvocationNode(kb.node(BuiltIn.node));
+        transform.synapse.setCoefficient(finishSetProperty, 1);
+        transform.synapse.setCoefficient(isRef, -1);
+        val setTransform = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.transform))
+            .transform(kb.node(Common.value), transform);
+        transform.then(setTransform);
+        val setTransformValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), transform).literal(kb.node(Common.name), kb.node(Common.value))
+            .transform(kb.node(Common.value), resolvedIdentifier);
+        setTransform.then(setTransformValue);
+
+        val returnSetProperty = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), setProperty);
+        setLiteralValue.then(returnSetProperty);
+        setTransformValue.then(returnSetProperty);
+
+        // Non-assignment identifier
+        val returnResolved = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .literal(kb.node(Common.name), kb.node(Common.returnValue))
+            .transform(kb.node(Common.value), resolvedIdentifier);
+        returnResolved.conjunction(eol, identifierHandled);
+        returnResolved.synapse.setCoefficient(hasSetProperty, -1);
+      }
+    },
+    /**
+     * <li>{@link Common#value}: string to evaluate
+     */
+    eval {
+      @Override
+      protected void setUp(final KnowledgeBase kb, final Node eval) {
+        val parse = kb.new InvocationNode(kb.node(Bootstrap.parse)).inherit(kb.node(Common.value));
+        eval.then(parse);
 
         val parentContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
             .transform(kb.node(Common.object), kb.node(Common.caller))
             .literal(kb.node(Common.name), kb.node(Common.context));
-        eol.then(parentContext);
+        eval.then(parentContext);
 
-        // Handle =
-        val hasSubject = kb.eavNode(null, subject);
-
-        val copy = new SynapticNode();
-        copy.conjunction(parentContext, hasSubject, identifierHandled);
-
-        val read = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), parentContext)
-            .transform(kb.node(Common.name), resolvedIdentifier);
-        val isRef = kb.eavNode(null, prefix, kb.node((int) '&'));
-        read.synapse.setCoefficient(copy, 1);
-        read.synapse.setCoefficient(isRef, -1);
-
-        val write = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), parentContext)
-            .transform(kb.node(Common.name), subject).transform(kb.node(Common.value), read);
-        copy.then(read).then(write);
-
-        val writeRef = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), parentContext).transform(kb.node(Common.name), subject)
-            .transform(kb.node(Common.value), resolvedIdentifier);
-        writeRef.conjunction(copy, isRef);
-
-        // Handle activation
-        val activate = kb.new InvocationNode(kb.node(BuiltIn.activate))
-            .transform(kb.node(Common.value), resolvedIdentifier).transform(kb.node(Common.context), parentContext);
-        activate.conjunction(parentContext, resolvedIdentifier);
-        activate.synapse.setCoefficient(hasSubject, -1);
+        val activate = kb.new InvocationNode(kb.node(BuiltIn.activate)).transform(kb.node(Common.value), parse)
+            .transform(kb.node(Common.context), parentContext);
+        activate.conjunction(parse, parentContext);
       }
     };
 

@@ -241,7 +241,7 @@ public class ContextScheduler extends Scheduler implements Executor {
     lock.lock();
     try {
       ++pauseCount;
-      if (thread != null) {
+      if (thread != null && !isOnThread()) {
         // Interrupt any ongoing delay waits and wait for the thread to cede.
         delayCondition.signal();
         pauseCondition.awaitUninterruptibly();

@@ -11,6 +11,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -21,6 +22,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.MapMaker;
 
@@ -71,7 +73,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     // stack frames
     caller, invocation, context,
 
-    javaClass, object, name, exception, source, value, entrypoint,
+    javaClass, object, name, exception, source, value, entrypoint, relative,
 
     // association
     prior, posterior, coefficient,
@@ -120,6 +122,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * Get the node representing an entity-attribute-value tuple. This node is
      * automatically activated when a matching property is queried or written.
      * 
+     * If only one of {@link Common#object} or {@link Common#name} is specified, a
+     * relative EAV node to the contextual EAV node for the specified node is
+     * returned. Alternatively, {@link Common#relative} is a boolean to indicate a
+     * fully specified relative EAV node.
+     * 
      * If {@link Common#value} is omitted, the wildcard EAV node is returned. To
      * retrieve the EAV node for the clearing of a property, pass
      * {@link Common#eavUnset}.
@@ -128,11 +135,21 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
         final Node object = context.node.properties.get(kb.node(Common.object));
-        final Node property = context.require(kb.node(Common.name));
+        final Node name = context.node.properties.get(kb.node(Common.name));
         final Node value = context.node.properties.get(kb.node(Common.value));
+        final Node relative = context.node.properties.get(kb.node(Common.relative));
 
-        return value == null ? kb.eavNode(object, property)
-            : kb.eavNode(object, property, value.getValue() == Common.eavUnset ? null : value);
+        val path = new ArrayList<Node>(3);
+        if (object != null)
+          path.add(object);
+        if (name != null)
+          path.add(name);
+        final boolean srslyRelative = path.size() == 1 || (boolean) relative.getValue();
+
+        if (value != null)
+          path.add(value.getValue() == Common.eavUnset ? null : value);
+
+        return kb.eavNode(srslyRelative, value == null, path.toArray(new Node[] {}));
       }
     },
     /**
@@ -372,13 +389,24 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public class InvocationNode extends SynapticNode {
     private static final long serialVersionUID = 3233708822279852070L;
 
+    // This is only for debug and will get less useful as the knowledge base
+    // evolves.
+    private final List<StackTraceElement> trace;
+
     public InvocationNode(final Node invoke) {
       super(invoke);
+      val fullTrace = Arrays.asList(Thread.currentThread().getStackTrace());
+      trace = ImmutableList.copyOf(fullTrace.subList(2, fullTrace.size()));
     }
 
     @Override
     public String toString() {
-      return "Invocation of " + getValue();
+      val sb = new StringBuilder();
+      if (comment != null) {
+        sb.append(comment).append(": ");
+      }
+      sb.append("Invocation of ").append(getValue());
+      return sb.toString();
     }
 
     @Override
@@ -470,6 +498,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
       val completable = CompletableSubject.create();
       childContext.continuation().thenRun(completable::onComplete).exceptionally(t -> {
+        System.err.print("from ");
+        System.err.println(this);
+        for (val traceElement : trace) {
+          System.err.print("        at ");
+          System.err.println(traceElement);
+        }
         completable.onError(t);
         return null;
       });
@@ -611,8 +645,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     eavCleanupThread.start();
   }
 
-  private Node eavNode(final Node... tuple) {
-    return eavNodes.computeIfAbsent(new EavTuple(tuple), t -> {
+  private Node eavNode(final boolean relative, final boolean wildcard, final Node... tuple) {
+    return eavNodes.computeIfAbsent(new EavTuple(relative, wildcard, tuple), t -> {
       t.makeCanonical();
       return new Node();
     });
@@ -631,8 +665,56 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     // does that even mean, and there would probably be an interesting reason for
     // doing something like that.)
 
-    eavNode(object, property, value).activate(context);
-    eavNode(object, property).activate(context);
+    // In addition to top-level contextual nodes, we also activate EAV nodes for the
+    // first layer of properties of a contextual node. This is because there's no
+    // other way to watch "references" to nodes.
+
+    // For now, we don't attempt to activate EAV nodes across contexts, even if
+    // we're setting properties on a context node. This may change in the future.
+    // For now it can be seen kind of like synchronization in Java.
+
+    if (object == null) {
+      // It's important to activate specific nodes first and then wildcard nodes so
+      // that we can inhibit on particular values. By the same logic, activate
+      // properties before main nodes.
+      if (value != null) {
+        // We need to collect prior to activating since we're iterating over properties
+        // and activation could alter the context.
+        val propEavs = new ArrayList<Node>(2 * value.properties.size());
+        synchronized (value.properties) {
+          for (val entry : value.properties.entrySet()) {
+            propEavs.add(eavNode(true, false, property, entry.getKey(), entry.getValue()));
+            propEavs.add(eavNode(true, true, property, entry.getKey()));
+          }
+        }
+        for (val node : propEavs) {
+          node.activate(context);
+        }
+      }
+
+      eavNode(true, false, property, value).activate(context);
+      eavNode(true, true, property).activate(context);
+
+    } else {
+      eavNode(false, false, object, property, value).activate(context);
+      eavNode(false, true, object, property).activate(context);
+
+      // Also find contextual references.
+      // We need to collect prior to activating since we're iterating over properties
+      // and activation could alter the context.
+      val refEavs = new ArrayList<Node>();
+      synchronized (context.node.properties) {
+        for (val entry : context.node.properties.entrySet()) {
+          if (entry.getValue() == object) {
+            refEavs.add(eavNode(true, false, entry.getKey(), property, value));
+            refEavs.add(eavNode(true, true, entry.getKey(), property));
+          }
+        }
+      }
+      for (val node : refEavs) {
+        node.activate(context);
+      }
+    }
   }
 
   private final class EavTuple implements Serializable {
@@ -650,8 +732,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     transient WeakReference<Node>[] tuple;
     transient int hashCode;
+    final boolean relative, wildcard;
 
-    EavTuple(final Node... tuple) {
+    EavTuple(final boolean relative, final boolean wildcard, final Node... tuple) {
+      this.relative = relative;
+      this.wildcard = wildcard;
       init(tuple);
     }
 
@@ -661,7 +746,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       for (int i = 0; i < tuple.length; ++i) {
         this.tuple[i] = tuple[i] == null ? null : new WeakReference<>(tuple[i]);
       }
-      hashCode = Arrays.asList(tuple).hashCode();
+      hashCode = Arrays.deepHashCode(new Object[] { relative, wildcard, tuple });
     }
 
     void makeCanonical() {
@@ -673,7 +758,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
 
     private void writeObject(final ObjectOutputStream stream) throws IOException {
-      // Although all our fields look transient, we need to write KnowledgeBase.this.
       stream.defaultWriteObject();
 
       final Node[] tuple = new Node[this.tuple.length];
@@ -720,6 +804,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         return true;
 
       if (!(obj instanceof EavTuple other))
+        return false;
+
+      if (relative != other.relative || wildcard != other.wildcard)
         return false;
 
       if (tuple.length != other.tuple.length)
@@ -819,6 +906,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     return index.computeIfAbsent(value, v -> v instanceof BuiltIn b ? b.node(this) : new SynapticNode(v));
   }
 
+  /**
+   * Adds a debug listener that dumps the context when a node is activated.
+   */
+  public static void debug(final Node node) {
+    node.rxActivate()
+        .subscribe(a -> System.err.println(a.context.node.debugDump(e -> e.getKey().getValue() != Common.caller)));
+  }
+
   // The ordering of the members is significant; later setups can depend on
   // earlier ones.
   public enum Bootstrap {
@@ -882,7 +977,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), lookup);
         lookup.then(indexedResult);
 
-        final Node absent = kb.eavNode(null, lookup, null);
+        final Node absent = kb.eavNode(true, false, lookup, null);
         indexedResult.synapse.setCoefficient(absent, -1);
 
         val literalResult = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
@@ -911,135 +1006,247 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
         val next = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("next"))
             .literal(kb.node(Common.javaClass), kb.node(Iterator.class)).transform(kb.node(Common.object), iterator);
-        kb.eavNode(null, hasNext, kb.node(true)).then(next);
+        kb.eavNode(true, false, hasNext, kb.node(true)).then(next);
 
-        val recurse = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator);
+        val onNext = new SynapticNode();
+        indexNode(onNext, "onNext", parse, kb);
 
-        val identifierBuffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
-            kb.node(StringBuilder.class));
-        recurse.inherit(identifierBuffer);
+        val state = kb.new InvocationNode(kb.node(BuiltIn.node));
+        indexNode(state, "state", parse, kb);
+        parse.then(state);
+        val stateReady = kb.eavNode(true, true, state);
 
-        val noIdentifierBuffer = new SynapticNode();
-        noIdentifierBuffer.synapse.setCoefficient(hasNext, 1);
-        noIdentifierBuffer.synapse.setCoefficient(kb.eavNode(null, identifierBuffer), -1);
+        val onNextWithNext = kb.new InvocationNode(onNext).transform(kb.node(Common.value), next).inherit(state);
+        onNextWithNext.conjunction(next, stateReady);
 
-        val hasIdentifierBuffer = new SynapticNode();
-        hasIdentifierBuffer.synapse.setCoefficient(kb.eavNode(null, identifierBuffer), 1);
-        hasIdentifierBuffer.synapse.setCoefficient(noIdentifierBuffer, -1);
+        val recurse = kb.new InvocationNode(hasNext).inherit(kb.node(Common.caller)).inherit(iterator).inherit(state);
+        onNextWithNext.then(recurse);
 
-        // Transcribe identifier character
-        val ifIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.javaClass), kb.node(Character.class))
-            .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
-            .transform(kb.arg(1), next);
-        ifIdentifierStart.conjunction(next, noIdentifierBuffer);
-        kb.eavNode(null, ifIdentifierStart, kb.node(true)).then(identifierBuffer);
+        val eol = kb.eavNode(true, false, hasNext, kb.node(false));
+        val finalOnNext = kb.new InvocationNode(onNext).inherit(state);
+        finalOnNext.conjunction(eol, stateReady);
 
-        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), identifierBuffer)
-            .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
-            .transform(kb.arg(1), next);
-        identifierBuffer.then(append);
-        append.then(recurse);
+        // onNext: called for each character as Common.value, and at EOL without it.
+        // state is inherited.
+        {
+          val hasValue = kb.eavNode(true, true, kb.node(Common.value));
 
-        val ifIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.javaClass), kb.node(Character.class))
-            .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
-            .transform(kb.arg(1), next);
-        ifIdentifierPart.conjunction(next, hasIdentifierBuffer);
-        kb.eavNode(null, ifIdentifierPart, kb.node(true)).then(append);
+          val identifier = new SynapticNode();
+          indexNode(identifier, "identifier", parse, kb);
+          {
+            val buffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
+                kb.node(StringBuilder.class));
+            buffer.comment = "buffer";
+            {
+              val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                  .literal(kb.node(Common.name), buffer).transform(kb.node(Common.value), buffer);
+              buffer.then(publish);
+            }
 
-        val identifier = kb.new InvocationNode(kb.node(BuiltIn.method))
-            .transform(kb.node(Common.object), identifierBuffer).literal(kb.node(Common.name), kb.node("toString"));
-        val resetIdentifierBuffer = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
-            identifierBuffer);
-        identifier.then(resetIdentifierBuffer);
-        val resolvedIdentifier = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name),
-            identifier);
-        identifier.then(resolvedIdentifier);
-        recurse.inherit(resolvedIdentifier);
+            val getBuffer = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
+                .literal(kb.node(Common.name), buffer);
+            val cacheBuffer = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), buffer)
+                .transform(kb.node(Common.value), getBuffer);
+            getBuffer.then(cacheBuffer);
 
-        val identifierHandled = new SynapticNode();
-        noIdentifierBuffer.then(identifierHandled);
-        resolvedIdentifier.then(identifierHandled);
+            val notStarted = new SynapticNode(), inProgress = new SynapticNode();
+            indexNode(notStarted, "notStarted", identifier, kb);
+            indexNode(inProgress, "inProgress", identifier, kb);
 
-        kb.eavNode(null, ifIdentifierPart, kb.node(false)).then(identifier);
+            val hasBuffer = kb.eavNode(true, true, state, buffer);
 
-        // Consume whitespace
-        val ifWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.javaClass), kb.node(Character.class))
-            .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
-            .transform(kb.arg(1), next);
-        ifWhitespace.conjunction(next, identifierHandled);
-        kb.eavNode(null, ifWhitespace, kb.node(true)).then(recurse);
+            notStarted.synapse.setCoefficient(onNext, 1);
+            notStarted.synapse.setCoefficient(hasBuffer, -1);
 
-        // EOL
-        val eol = kb.eavNode(null, hasNext, kb.node(false));
-        identifier.conjunction(eol, hasIdentifierBuffer);
+            val hadBuffer = new SynapticNode();
+            hadBuffer.synapse.setCoefficient(hasBuffer, 1);
+            hadBuffer.synapse.setCoefficient(onNext, -1);
+            getBuffer.conjunction(onNext, hadBuffer);
+            cacheBuffer.then(inProgress);
 
-        // =
-        val ifEq = kb.eavNode(null, next, kb.node((int) '='));
-        val setProperty = kb.new InvocationNode(kb.node(BuiltIn.node)).literal(kb.node(Common.entrypoint),
-            kb.node(BuiltIn.setProperty));
-        recurse.inherit(setProperty);
-        setProperty.conjunction(ifEq, identifierHandled);
-        val literal = kb.new InvocationNode(kb.node(BuiltIn.node));
-        recurse.inherit(literal);
-        setProperty.then(literal);
-        val setLiteral = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.literal))
-            .transform(kb.node(Common.value), literal);
-        literal.then(setLiteral);
-        val setName = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), literal)
-            .literal(kb.node(Common.name), kb.node(Common.name)).transform(kb.node(Common.value), resolvedIdentifier);
-        setLiteral.then(setName);
-        val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name),
-            resolvedIdentifier);
-        setName.then(resetIdentifier);
-        resetIdentifier.then(recurse);
+            // Transcribe identifier character
+            val ifIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
+                .literal(kb.node(Common.javaClass), kb.node(Character.class))
+                .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart"))
+                .literal(kb.param(1), kb.node(int.class)).transform(kb.arg(1), kb.node(Common.value));
+            ifIdentifierStart.conjunction(notStarted, hasValue);
+            kb.eavNode(true, false, ifIdentifierStart, kb.node(true)).then(buffer);
 
-        // &
-        val ifAmp = kb.eavNode(null, next, kb.node((int) '&'));
-        val prefix = new SynapticNode();
-        recurse.inherit(prefix);
-        val pubOp = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), prefix)
-            .transform(kb.node(Common.value), next);
-        pubOp.conjunction(ifAmp, identifierHandled);
-        pubOp.then(recurse);
+            val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
+                .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
+                .transform(kb.arg(1), kb.node(Common.value));
+            buffer.then(append);
 
-        // Handle =
-        val hasSetProperty = kb.eavNode(null, setProperty);
-        val finishSetProperty = new SynapticNode();
-        finishSetProperty.conjunction(eol, hasSetProperty, identifierHandled);
-        val isRef = kb.eavNode(null, prefix, kb.node((int) '&'));
+            val ifIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
+                .literal(kb.node(Common.javaClass), kb.node(Character.class))
+                .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
+                .transform(kb.arg(1), kb.node(Common.value));
+            ifIdentifierPart.conjunction(inProgress, hasValue);
+            kb.eavNode(true, false, ifIdentifierPart, kb.node(true)).then(append);
 
-        val setLiteralValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), literal).literal(kb.node(Common.name), kb.node(Common.value))
-            .transform(kb.node(Common.value), resolvedIdentifier);
-        setLiteralValue.conjunction(finishSetProperty, isRef);
+            val collect = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
+                .literal(kb.node(Common.name), kb.node("toString"));
+            val resetBuffer = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+                .transform(kb.node(Common.object), state).literal(kb.node(Common.name), buffer);
+            collect.then(resetBuffer);
+            {
+              val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                  .literal(kb.node(Common.name), identifier).transform(kb.node(Common.value), collect);
+              collect.then(publish);
+            }
 
-        val transform = kb.new InvocationNode(kb.node(BuiltIn.node));
-        transform.synapse.setCoefficient(finishSetProperty, 1);
-        transform.synapse.setCoefficient(isRef, -1);
-        val setTransform = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.transform))
-            .transform(kb.node(Common.value), transform);
-        transform.then(setTransform);
-        val setTransformValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), transform).literal(kb.node(Common.name), kb.node(Common.value))
-            .transform(kb.node(Common.value), resolvedIdentifier);
-        setTransform.then(setTransformValue);
+            kb.eavNode(true, false, ifIdentifierPart, kb.node(false)).then(collect);
+            val noValue = new SynapticNode();
+            noValue.synapse.setCoefficient(inProgress, 1);
+            noValue.synapse.setCoefficient(hasValue, -1);
+            noValue.then(collect);
+          }
 
-        val returnSetProperty = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), setProperty);
-        setLiteralValue.then(returnSetProperty);
-        setTransformValue.then(returnSetProperty);
+          val resolvedIdentifier = new SynapticNode();
+          indexNode(resolvedIdentifier, "resolvedIdentifier", parse, kb);
+          {
+            val getIdentifier = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+                .transform(kb.node(Common.object), state).literal(kb.node(Common.name), identifier);
+            val unset = kb.eavNode(true, false, state, identifier, null);
+            val set = kb.eavNode(true, true, state, identifier);
+            val notAlreadySet = new SynapticNode();
+            notAlreadySet.synapse.setCoefficient(set, -1);
+            notAlreadySet.synapse.setCoefficient(onNext, 1);
+            getIdentifier.conjunction(notAlreadySet, set);
+            getIdentifier.synapse.setCoefficient(unset, -1);
+            val resolve = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name),
+                getIdentifier);
+            getIdentifier.then(resolve);
+            {
+              val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                  .literal(kb.node(Common.name), resolvedIdentifier).transform(kb.node(Common.value), resolve);
+              resolve.then(publish);
+            }
 
-        // Non-assignment identifier
-        val returnResolved = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue))
-            .transform(kb.node(Common.value), resolvedIdentifier);
-        returnResolved.conjunction(eol, identifierHandled);
-        returnResolved.synapse.setCoefficient(hasSetProperty, -1);
+            val remove = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                .literal(kb.node(Common.name), resolvedIdentifier);
+            remove.conjunction(onNext, unset);
+          }
+
+          val reference = new SynapticNode();
+          indexNode(reference, "reference", parse, kb);
+          {
+            val ifAmp = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '&'));
+            val set = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                .literal(kb.node(Common.name), reference).literal(kb.node(Common.value), reference);
+            set.conjunction(ifAmp, identifier.properties.get(kb.node("notStarted")));
+            set.synapse.setCoefficient(kb.eavNode(true, true, state, identifier), -1);
+            set.synapse.setCoefficient(kb.eavNode(true, true, state, reference), -1);
+
+            val unset = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                .literal(kb.node(Common.name), reference);
+            unset.conjunction(onNext, kb.eavNode(true, false, state, identifier, null));
+          }
+
+          val assignment = new SynapticNode();
+          indexNode(assignment, "assignment", parse, kb);
+          {
+            val ifEq = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '='));
+            val startAssignment = new SynapticNode();
+            startAssignment.conjunction(onNext, ifEq, kb.eavNode(true, true, state, resolvedIdentifier));
+
+            val setProperty = kb.new InvocationNode(kb.node(BuiltIn.node)).literal(kb.node(Common.entrypoint),
+                kb.node(BuiltIn.setProperty));
+            setProperty.comment = "setProperty";
+            {
+              val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                  .literal(kb.node(Common.name), setProperty).transform(kb.node(Common.value), setProperty);
+              setProperty.then(publish);
+            }
+            startAssignment.then(setProperty);
+            val literal = kb.new InvocationNode(kb.node(BuiltIn.node));
+            setProperty.then(literal);
+            val setLiteral = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+                .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.literal))
+                .transform(kb.node(Common.value), literal);
+            literal.then(setLiteral);
+            val consumeResolved = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+                .transform(kb.node(Common.object), state).literal(kb.node(Common.name), resolvedIdentifier);
+            {
+              val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+                  .transform(kb.node(Common.object), state).literal(kb.node(Common.name), identifier);
+              consumeResolved.then(resetIdentifier);
+            }
+            setProperty.then(consumeResolved);
+            val setName = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), literal)
+                .literal(kb.node(Common.name), kb.node(Common.name)).transform(kb.node(Common.value), consumeResolved);
+            setName.conjunction(setLiteral, consumeResolved);
+
+            val rhs = new SynapticNode();
+            val hadSetProperty = new SynapticNode();
+            hadSetProperty.synapse.setCoefficient(kb.eavNode(true, true, state, setProperty), 1);
+            hadSetProperty.synapse.setCoefficient(onNext, -1);
+            rhs.conjunction(onNext, hadSetProperty, kb.eavNode(true, true, state, resolvedIdentifier));
+            rhs.synapse.setCoefficient(kb.eavNode(true, false, state, resolvedIdentifier, null), -1);
+            rhs.then(consumeResolved);
+
+            val getSetProperty = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+                .transform(kb.node(Common.object), state).literal(kb.node(Common.name), setProperty);
+            {
+              val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+                  .literal(kb.node(Common.name), assignment).transform(kb.node(Common.value), getSetProperty);
+              getSetProperty.then(publish);
+              val resetSetProperty = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+                  .transform(kb.node(Common.object), state).literal(kb.node(Common.name), setProperty);
+              getSetProperty.then(resetSetProperty);
+            }
+            rhs.then(getSetProperty);
+
+            val isRef = kb.eavNode(true, false, state, reference, reference);
+
+            val getLiteral = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+                .transform(kb.node(Common.object), getSetProperty)
+                .literal(kb.node(Common.name), kb.node(Common.literal));
+            val setLiteralValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+                .transform(kb.node(Common.object), getLiteral).literal(kb.node(Common.name), kb.node(Common.value))
+                .transform(kb.node(Common.value), consumeResolved);
+            getLiteral.conjunction(getSetProperty, isRef);
+            setLiteralValue.conjunction(getLiteral, consumeResolved);
+
+            val transform = kb.new InvocationNode(kb.node(BuiltIn.node));
+            transform.synapse.setCoefficient(rhs, 1);
+            transform.synapse.setCoefficient(isRef, -1);
+            val setTransform = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+                .transform(kb.node(Common.object), getSetProperty)
+                .literal(kb.node(Common.name), kb.node(Common.transform)).transform(kb.node(Common.value), transform);
+            setTransform.conjunction(getSetProperty, transform);
+            val setTransformValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+                .transform(kb.node(Common.object), transform).literal(kb.node(Common.name), kb.node(Common.value))
+                .transform(kb.node(Common.value), consumeResolved);
+            setTransformValue.conjunction(setTransform, consumeResolved);
+          }
+        }
+
+        val collectResult = new SynapticNode();
+        indexNode(collectResult, "collectResult", parse, kb);
+        finalOnNext.then(collectResult);
+        {
+          val getAssignment = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+              .transform(kb.node(Common.object), state)
+              .literal(kb.node(Common.name), parse.properties.get(kb.node("assignment")));
+          collectResult.then(getAssignment);
+          val getResolvedIdentifier = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+              .transform(kb.node(Common.object), state)
+              .literal(kb.node(Common.name), parse.properties.get(kb.node("resolvedIdentifier")));
+          collectResult.then(getResolvedIdentifier);
+
+          val returnAssignment = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+              .literal(kb.node(Common.name), kb.node(Common.returnValue))
+              .transform(kb.node(Common.value), getAssignment);
+          getAssignment.then(returnAssignment);
+          returnAssignment.synapse.setCoefficient(kb.eavNode(true, false, getAssignment, null), -1);
+
+          val returnResolved = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+              .literal(kb.node(Common.name), kb.node(Common.returnValue))
+              .transform(kb.node(Common.value), getResolvedIdentifier);
+          returnResolved.conjunction(getResolvedIdentifier, getAssignment);
+          returnResolved.synapse.setCoefficient(kb.eavNode(true, false, getResolvedIdentifier, null), -1);
+        }
       }
     },
     /**
@@ -1054,13 +1261,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         val parentContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
             .transform(kb.node(Common.object), kb.node(Common.caller))
             .literal(kb.node(Common.name), kb.node(Common.context));
-        eval.then(parentContext);
+        parse.then(parentContext);
 
         val activate = kb.new InvocationNode(kb.node(BuiltIn.activate)).transform(kb.node(Common.value), parse)
             .transform(kb.node(Common.context), parentContext);
-        activate.conjunction(parse, parentContext);
+        parentContext.then(activate);
       }
     };
+
+    private static void indexNode(final Node node, final String name, final Node index, final KnowledgeBase kb) {
+      node.comment = name;
+      index.properties.put(kb.node(name), node);
+    }
 
     protected abstract void setUp(KnowledgeBase kb, Node node);
   }

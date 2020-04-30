@@ -546,6 +546,22 @@ public class ContextSchedulerTest {
   }
 
   @Test
+  public void testPauseAndResumeFromDispatchThread() throws Exception {
+    val scheduler = new ContextScheduler(threadPool);
+    scheduler.start();
+
+    val sync = new CountDownLatch(1);
+
+    scheduler.scheduleDirect(() -> {
+      scheduler.pause();
+      scheduler.resume();
+    });
+    scheduler.scheduleDirect(sync::countDown);
+
+    sync.await();
+  }
+
+  @Test
   public void testPreferDeferred() throws Exception {
     val scheduler = new ContextScheduler(threadPool);
     scheduler.start();

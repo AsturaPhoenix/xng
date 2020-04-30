@@ -6,8 +6,11 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 import io.reactivex.Completable;
 import io.reactivex.Observable;
@@ -78,10 +81,10 @@ public class Node implements Serializable {
 
   public Node(final Object value) {
     this.value = value;
-    init();
+    preInit();
   }
 
-  private void init() {
+  private void preInit() {
     rxOutput = PublishSubject.create();
   }
 
@@ -99,9 +102,9 @@ public class Node implements Serializable {
   }
 
   private void readObject(final ObjectInputStream stream) throws IOException, ClassNotFoundException {
+    preInit();
     stream.defaultReadObject();
     value = stream.readObject();
-    init();
   }
 
   public long getLastActivation(final Context context) {
@@ -135,6 +138,50 @@ public class Node implements Serializable {
       sb.append(" = ").append(value);
     }
     return sb.toString();
+  }
+
+  public String debugDump(final Predicate<? super Map.Entry<Node, Node>> propertyFilter) {
+    val out = new StringBuilder();
+    debugDump(0, new HashSet<>(), out, propertyFilter);
+    return out.toString();
+  }
+
+  private static void indent(final int level, final StringBuilder out) {
+    for (int i = 0; i < level; ++i) {
+      out.append("  ");
+    }
+  }
+
+  private void debugDump(final int indentLevel, final Set<Node> visited, final StringBuilder out,
+      final Predicate<? super Map.Entry<Node, Node>> propertyFilter) {
+    out.append(this);
+
+    synchronized (properties) {
+      val it = properties.entrySet().stream().filter(propertyFilter).iterator();
+      if (it.hasNext()) {
+        if (visited.contains(this)) {
+          out.append(" { ... }");
+        } else {
+          visited.add(this);
+          out.append(" {\n");
+          final int childIndent = indentLevel + 1;
+          while (it.hasNext()) {
+            val property = it.next();
+            indent(childIndent, out);
+            out.append(property.getKey());
+            out.append(" => ");
+            property.getValue().debugDump(childIndent, visited, out, propertyFilter);
+            if (it.hasNext()) {
+              out.append(",\n");
+            } else {
+              out.append('\n');
+            }
+          }
+          indent(indentLevel, out);
+          out.append('}');
+        }
+      }
+    }
   }
 
   /**

@@ -1,10 +1,7 @@
 package ai.xng;
 
+import static ai.xng.TestUtil.threadPool;
 import static org.assertj.core.api.Assertions.assertThat;
-
-import java.time.Duration;
-import java.util.Optional;
-import java.util.concurrent.Executors;
 
 import org.junit.jupiter.api.Test;
 
@@ -13,46 +10,21 @@ import lombok.val;
 public class ContextTest {
   @Test
   public void testEmptyReinforcement() {
-    Context.newImmediate().reinforce(Optional.empty(), Optional.empty(), 0);
+    Context.newImmediate().reinforce(0);
   }
 
   @Test
   public void testSingleNeverReinforcement() {
     val context = Context.newImmediate();
     context.getScheduler().scheduleDirect(() -> context.nodeState(new Node()));
-    context.reinforce(Optional.empty(), Optional.empty(), 0);
+    context.reinforce(1);
   }
 
   @Test
   public void testSingleOnceReinforcement() {
     val context = Context.newImmediate();
     new Node().activate(context);
-    context.reinforce(Optional.empty(), Optional.empty(), 0);
-  }
-
-  /**
-   * This test covers a historic deadlock between activation (which would lock
-   * part of the context and then the activation queue) and reinforcement (which
-   * locked the activation queue and then possibly part of the context).
-   */
-  @Test
-  public void testParallelActivationAndReinforcement() {
-    val threads = Executors.newFixedThreadPool(2);
-    for (int i = 0; i < 40000; ++i) {
-      val context = Context.newDedicated();
-      val a = new Node();
-      val b = new Node();
-
-      try (val ref = context.new Ref()) {
-        threads.submit(() -> {
-          a.activate(context);
-          context.reinforce(Optional.empty(), Optional.empty(), 0);
-        });
-        threads.submit(() -> b.activate(context));
-      }
-
-      context.blockUntilIdle(Duration.ofSeconds(5));
-    }
+    context.reinforce(1);
   }
 
   /**
@@ -63,17 +35,128 @@ public class ContextTest {
    */
   @Test
   public void testHebbianLearningOnHyperactivation() throws InterruptedException {
-    val context = Context.newDedicated();
+    val context = Context.newImmediate();
     val a = new Node(), b = new Node(), c = new SynapticNode();
     c.synapse.setCoefficient(a, 2);
     c.synapse.setDecayPeriod(a, 1000);
     a.activate(context);
-    Thread.sleep(250);
     b.activate(context);
-    context.blockUntilIdle();
     c.activate(context);
-    context.blockUntilIdle();
+    context.hebbianReinforcement(c, 1);
     assertThat(c.synapse.getCoefficient(b)).isGreaterThanOrEqualTo(0);
+  }
+
+  /**
+   * Consistent negative reinforcement should break a connection.
+   */
+  @Test
+  public void testBreakHabit() {
+    val a = new Node(), b = new SynapticNode();
+    a.then(b);
+    val monitor = new SynchronousEmissionMonitor<>(b.rxActivate());
+
+    val fixture = new LearningFixture(100, 1000);
+    do {
+      val context = Context.newWithExecutor(threadPool);
+      a.activate(context);
+      context.blockUntilIdle();
+      fixture.reinforce(!monitor.didEmit(), context, 0, -1);
+    } while (fixture.shouldContinue());
+    assertThat(b.synapse.getCoefficient(a)).isLessThan(1);
+  }
+
+  /**
+   * Ensures that negative reinforcement in the presence of a novel prior
+   * generates an inhibitory weight.
+   */
+  @Test
+  public void testDifferentialReinforcement() {
+    val a = new Node(), b = new Node(), c = new SynapticNode();
+    a.then(c);
+    val monitor = new SynchronousEmissionMonitor<>(c.rxActivate());
+
+    val fixture = new LearningFixture(100, 1000);
+    do {
+      {
+        val context = Context.newWithExecutor(threadPool);
+        a.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(monitor.didEmit(), context, 1, -1);
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        b.activate(context);
+        a.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(!monitor.didEmit(), context, 1, -1);
+      }
+    } while (fixture.shouldContinue());
+  }
+
+  /**
+   * Ensures that positive reinforcement does not destabilize the system.
+   */
+  @Test
+  public void testHebbianPositiveStability() {
+    val a = new Node(), b = new Node(), c = new Node(), d = new SynapticNode();
+    a.comment = "a";
+    b.comment = "b";
+    c.comment = "c";
+    d.comment = "d";
+    d.conjunction(a, b);
+    val monitor = new SynchronousEmissionMonitor<>(d.rxActivate());
+
+    final float weight = 1;
+    val fixture = new LearningFixture(700, 7000);
+    do {
+      {
+        val context = Context.newWithExecutor(threadPool);
+        a.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(!monitor.didEmit(), context, weight, -weight, "a");
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        b.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(!monitor.didEmit(), context, weight, -weight, "b");
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        c.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(!monitor.didEmit(), context, weight, -weight, "c");
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        a.activate(context);
+        b.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(monitor.didEmit(), context, weight, -weight, "ab");
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        a.activate(context);
+        c.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(!monitor.didEmit(), context, weight, -weight, "ac");
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        b.activate(context);
+        c.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(!monitor.didEmit(), context, weight, -weight, "bc");
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        a.activate(context);
+        b.activate(context);
+        c.activate(context);
+        context.blockUntilIdle();
+        fixture.reinforce(monitor.didEmit(), context, weight, -weight, "abc");
+      }
+    } while (fixture.shouldContinue());
   }
 
   @Test
@@ -84,6 +167,6 @@ public class ContextTest {
     b.activate(context);
     val other = Context.newImmediate();
     a.activate(other);
-    assertThat(context.snapshotNodes()).containsExactly(a, b);
+    assertThat(context.snapshotNodes()).containsExactly(b, a);
   }
 }

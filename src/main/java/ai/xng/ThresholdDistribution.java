@@ -38,7 +38,7 @@ public class ThresholdDistribution implements Distribution, Serializable {
     private static final long serialVersionUID = -2101048901598646069L;
     /** Number of "standard deviations" to include on each side. */
     public static final float TRUNCATE_BEYOND = 3;
-    public static final float SPREAD_FACTOR = .01f, DEFAULT_WEIGHT = 1;
+    public static final float SPREAD_FACTOR = .01f, DEFAULT_WEIGHT = 10;
 
     private final Random random;
     @Getter

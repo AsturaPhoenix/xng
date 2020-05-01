@@ -17,12 +17,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -57,12 +60,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * here is just to use identity keys with concurrency; since nodes have strong
    * references to their values, they will never actually be evicted.
    */
-  private transient Map<Object, Node> strongIndex;
+  private transient Map<Object, SynapticNode> strongIndex;
   /**
    * Map that does not keep its nodes alive. This is suitable only for values that
    * refer to their nodes, like {@link Context}s.
    */
-  private transient Map<Object, Node> weakIndex;
+  private transient Map<Object, SynapticNode> weakIndex;
 
   private transient Executor threadPool;
   private transient Subject<String> rxOutput;
@@ -314,7 +317,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     protected abstract Node impl(KnowledgeBase kb, Context context) throws Exception;
 
-    private Node node(final KnowledgeBase kb) {
+    private SynapticNode node(final KnowledgeBase kb) {
       return new SynapticNode(this) {
         private static final long serialVersionUID = -307360749192088062L;
 
@@ -474,6 +477,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
       // and making it look like we're transitioning to idle early.
       try (val ref = childContext.new Ref()) {
+        // Link the nodes for causal reinforcement.
+        parentContext.node.then((SynapticNode) childContext.node);
+
         final Node caller = new SynapticNode();
         setProperty(childContext, caller, node(Common.invocation), this);
         setProperty(childContext, caller, node(Common.context), parentContext.node);
@@ -587,7 +593,41 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
   }
 
-  private static void writeIndex(final Map<Object, Node> index, final ObjectOutputStream stream) throws IOException {
+  /**
+   * Recursively reinforce a context using the causal relations set up by a
+   * {@code KnowledgeBase}.
+   */
+  public CompletableFuture<Void> reinforceRecursively(final Context context, final Optional<Long> time,
+      final Optional<Long> decayPeriod, final float weight) {
+    val future = new CompletableFuture<Void>();
+    val traceContext = newContext();
+    context.node.activate(traceContext);
+    traceContext.rxActive().filter(active -> !active).firstOrError().toCompletable().subscribe(() -> {
+      val awaiting = new AtomicInteger(1);
+      final Runnable maybeSignal = () -> {
+        if (awaiting.decrementAndGet() == 0)
+          future.complete(null);
+      };
+
+      final ImmutableList<Node> snapshot = traceContext.snapshotNodes();
+      for (val node : snapshot) {
+        final Object value = node.getValue();
+        if (value instanceof Context subsequent) {
+          awaiting.incrementAndGet();
+          subsequent.reinforce(time, decayPeriod, weight).thenRun(maybeSignal);
+        }
+      }
+      maybeSignal.run();
+    }, future::completeExceptionally);
+    return future;
+  }
+
+  public CompletableFuture<Void> reinforceRecursively(final Context context, final float weight) {
+    return reinforceRecursively(context, Optional.empty(), Optional.empty(), weight);
+  }
+
+  private static void writeIndex(final Map<Object, SynapticNode> index, final ObjectOutputStream stream)
+      throws IOException {
     // Discard keys that aren't serializable.
     for (val entry : index.entrySet()) {
       if (entry.getKey() instanceof Serializable) {
@@ -604,11 +644,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     writeIndex(weakIndex, stream);
   }
 
-  private static void readIndex(final Map<Object, Node> index, final ObjectInputStream stream)
+  private static void readIndex(final Map<Object, SynapticNode> index, final ObjectInputStream stream)
       throws IOException, ClassNotFoundException {
     Object key;
     while ((key = stream.readObject()) != null) {
-      index.put(key, (Node) stream.readObject());
+      index.put(key, (SynapticNode) stream.readObject());
     }
   }
 
@@ -702,7 +742,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     eavCleanupThread.start();
   }
 
-  private Node eavNode(final boolean relative, final boolean wildcard, final Node... tuple) {
+  public Node eavNode(final boolean relative, final boolean wildcard, final Node... tuple) {
     return eavNodes.computeIfAbsent(new EavTuple(relative, wildcard, tuple), t -> {
       t.makeCanonical();
       return new Node();
@@ -932,7 +972,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   // The index doesn't allow nulls and we can short-circuit most of our logic, so
   // special-case this here.
-  private final Node nullNode = new SynapticNode();
+  private final SynapticNode nullNode = new SynapticNode();
 
   /**
    * Single-instance resolution for immutable types. Skip for/bootstrap with Class
@@ -955,7 +995,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
   }
 
-  public Node node(Object value) {
+  public SynapticNode node(Object value) {
     if (value == null)
       return nullNode;
 
@@ -963,7 +1003,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       value = canonicalize(s);
     }
 
-    final Map<Object, Node> index = value instanceof Context ? weakIndex : strongIndex;
+    final Map<Object, SynapticNode> index = value instanceof Context ? weakIndex : strongIndex;
     return index.computeIfAbsent(value, v -> v instanceof BuiltIn b ? b.node(this) : new SynapticNode(v));
   }
 

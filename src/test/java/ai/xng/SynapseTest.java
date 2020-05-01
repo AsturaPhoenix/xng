@@ -1,5 +1,6 @@
 package ai.xng;
 
+import static ai.xng.TestUtil.threadPool;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,7 +16,7 @@ public class SynapseTest {
     val monitor = new EmissionMonitor<>(s.rxActivate());
 
     s.setCoefficient(incoming, 1);
-    incoming.activate(Context.newDedicated());
+    incoming.activate(Context.newWithExecutor(threadPool));
     assertTrue(monitor.didEmit());
   }
 
@@ -28,7 +29,7 @@ public class SynapseTest {
     s.setDecayPeriod(a, 1000);
     s.setCoefficient(b, 2);
     s.setDecayPeriod(b, 1000);
-    val context = Context.newDedicated();
+    val context = Context.newWithExecutor(threadPool);
     a.activate(context);
     assertTrue(monitor.didEmit());
     b.activate(context);

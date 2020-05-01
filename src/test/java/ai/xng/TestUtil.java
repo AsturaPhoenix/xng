@@ -6,12 +6,19 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 
 @UtilityClass
 public class TestUtil {
+	/**
+	 * A common test thread pool suitable for reasonably low concurrency tests.
+	 */
+	public static final Executor threadPool = Executors.newFixedThreadPool(4);
+
 	public static int getSerializedSize(final Serializable object) throws IOException {
 		final ByteArrayOutputStream bout = new ByteArrayOutputStream();
 		try (final ObjectOutputStream oout = new ObjectOutputStream(bout)) {

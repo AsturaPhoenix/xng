@@ -14,7 +14,6 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -96,11 +95,11 @@ public class Context implements Serializable {
   }
 
   /**
-   * Creates a self-sufficient context with a dedicated thread, suitable for
-   * tests.
+   * Creates a context using the given executor but which is otherwise
+   * self-sufficient, suitable for tests that create many contexts.
    */
-  public static Context newDedicated() {
-    return new Context(Node::new, Executors::newSingleThreadExecutor);
+  public static Context newWithExecutor(final Executor executor) {
+    return new Context(Node::new, () -> executor);
   }
 
   /**
@@ -225,8 +224,21 @@ public class Context implements Serializable {
   /**
    * Applies reinforcement to the context. This may be called from any thread but
    * executes on the scheduler thread.
+   * <p>
+   * Note that negative weights, referred to throughout as negative reinforcement,
+   * corresponds loosely to punishment (negative feedback) rather than negative
+   * reinforcement in the psychological sense (removal of negative feedback).
+   * However, at the synaptic level the implications are substantially different
+   * than at the systemic level. The system may for example apply positive
+   * reinforcement to particular synapses in response to a negative stimulus or
+   * removal or a positive stimulus in order to correct behavior.
    */
-  public void reinforce(final Optional<Long> time, final Optional<Long> decayPeriod, final float weight) {
+  public CompletableFuture<Void> reinforce(final Optional<Long> time, final Optional<Long> decayPeriod,
+      final float weight) {
+    if (weight == 0)
+      return CompletableFuture.completedFuture(null);
+
+    val future = new CompletableFuture<Void>();
     scheduler.ensureOnThread(() -> {
       for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(time); window.hasNext();) {
         hebbianReinforcement(window.next(), time, weight * HEBBIAN_EXPLICIT_WEIGHT_FACTOR);
@@ -236,10 +248,21 @@ public class Context implements Serializable {
       for (final Synapse.ContextualState synapseState : synapseStates.values()) {
         synapseState.reinforce(time, decayPeriod, weight);
       }
+
+      future.complete(null);
     });
+
+    return future;
+  }
+
+  public CompletableFuture<Void> reinforce(final float weight) {
+    return reinforce(Optional.empty(), Optional.empty(), weight);
   }
 
   public void hebbianReinforcement(final Node posterior, final float weight) {
+    if (weight == 0)
+      return;
+
     scheduler.ensureOnThread(() -> {
       for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(Optional.empty()); window
           .hasNext();) {

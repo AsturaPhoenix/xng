@@ -1,5 +1,6 @@
 package ai.xng;
 
+import static ai.xng.TestUtil.threadPool;
 import static ai.xng.TestUtil.unchecked;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -12,7 +13,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.SynchronousQueue;
@@ -37,7 +37,6 @@ import lombok.val;
 
 @Timeout(1)
 public class ContextSchedulerTest {
-  private static final Executor threadPool = Executors.newFixedThreadPool(4);
   // TODO: use fake time in most tests
   private static final long DELAY = 100;
 

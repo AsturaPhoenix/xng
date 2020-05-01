@@ -8,12 +8,16 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 
+import ai.xng.KnowledgeBase.Bootstrap;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
 import io.reactivex.Completable;
@@ -336,6 +340,82 @@ public class KnowledgeBaseTest {
       repl.eval("node");
       repl.eval("value = returnValue");
       assertEquals("null", repl.eval("print"));
+    }
+  }
+
+  /**
+   * Simple precondition tweaks should be correctable through reinforcement.
+   * Starting with a naive (buggy) Fibonacci sequence generator, train it to
+   * correctness.
+   */
+  @Test
+  public void testFibonacciFixByReinforcement() {
+    try (val kb = new KnowledgeBase()) {
+      val count = new Node(), current = new Node(), previous = new Node(), out = new Node();
+      val iteration = new Node();
+
+      val countSign = kb.new InvocationNode(kb.node(BuiltIn.method))
+          .literal(kb.node(Common.javaClass), kb.node(Integer.class)).literal(kb.node(Common.name), kb.node("signum"))
+          .literal(kb.param(1), kb.node(int.class)).transform(kb.arg(1), count);
+      iteration.then(countSign);
+
+      val doFib = kb.eavNode(true, false, countSign, kb.node(1));
+
+      // TODO: stronger function pointer story.
+      val publish = kb.new InvocationNode(kb.node(BuiltIn.method))
+          .literal(kb.node(Common.javaClass), kb.node(List.class)).transform(kb.node(Common.object), out)
+          .literal(kb.node(Common.name), kb.node("add")).literal(kb.param(1), kb.node(Object.class))
+          .transform(kb.arg(1), current);
+      doFib.then(publish);
+
+      val add = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.javaClass), kb.node(Math.class))
+          .literal(kb.node(Common.name), kb.node("addExact")).literal(kb.param(1), kb.node(int.class))
+          .literal(kb.param(2), kb.node(int.class)).transform(kb.arg(1), previous).transform(kb.arg(2), current);
+      doFib.then(add);
+
+      val nextCount = kb.new InvocationNode(kb.node(BuiltIn.method))
+          .literal(kb.node(Common.javaClass), kb.node(Math.class))
+          .literal(kb.node(Common.name), kb.node("decrementExact")).literal(kb.param(1), kb.node(int.class))
+          .transform(kb.arg(1), count);
+      doFib.then(nextCount);
+
+      val recurse = kb.new InvocationNode(iteration).inherit(out).transform(current, add).transform(previous, current)
+          .transform(count, nextCount);
+      // should also predicate on publish and add:
+      // recurse.conjunction(publish, add, nextCount);
+      nextCount.then(recurse);
+
+      val fib = new Node();
+      val createOut = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
+          kb.node(ArrayList.class));
+      fib.then(createOut);
+      val iterate = kb.new InvocationNode(iteration).inherit(count).transform(out, createOut)
+          .literal(current, kb.node(1)).literal(previous, kb.node(0));
+      createOut.then(iterate);
+      val returnOut = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+          .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), createOut);
+      iterate.then(returnOut);
+
+      val fixture = new LearningFixture(100, 1000);
+      do {
+        val context = kb.newContext();
+        context.node.properties.put(count, kb.node(10));
+        fib.activate(context);
+        context.blockUntilIdle();
+        final Node result = context.node.properties.get(kb.node(Common.returnValue));
+
+        if (result != null && result.getValue() instanceof List<?>
+            && result.getValue().equals(Arrays.asList(1, 1, 2, 3, 5, 8, 13, 21, 34, 55))) {
+          fixture.pass();
+          kb.reinforceRecursively(context, 1).join();
+        } else {
+          fixture.fail();
+          // TODO: negative reinforcement on incorrect result. Right now, negative
+          // reinforcement destabilizes the system too broadly and black-holes it into an
+          // incorrect state.
+          // kb.reinforceRecursively(context, -1).join();
+        }
+      } while (fixture.shouldContinue());
     }
   }
 }

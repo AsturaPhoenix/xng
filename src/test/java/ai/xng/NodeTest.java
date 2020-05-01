@@ -1,5 +1,6 @@
 package ai.xng;
 
+import static ai.xng.TestUtil.threadPool;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -55,7 +56,7 @@ public class NodeTest {
 
   private static void testActivation(final Node node) {
     val monitor = new EmissionMonitor<>(node.rxActivate());
-    val context = Context.newDedicated();
+    val context = Context.newWithExecutor(threadPool);
     val activeMonitor = new EmissionMonitor<>(context.rxActive());
     node.activate(context);
     assertSame(context, monitor.emissions().blockingFirst().context);
@@ -75,21 +76,23 @@ public class NodeTest {
   @Test
   public void testAnd() throws Exception {
     val a = new Node(), b = new Node(), and = new SynapticNode();
-    val monitor = new EmissionMonitor<>(and.rxActivate());
+    val monitor = new SynchronousEmissionMonitor<>(and.rxActivate());
     and.conjunction(a, b);
 
-    val context1 = Context.newDedicated();
-    val activeMonitor1 = new EmissionMonitor<>(context1.rxActive());
-    a.activate(context1);
-    assertFalse(monitor.didEmit());
-    assertEquals(Arrays.asList(false, true, false), activeMonitor1.emissions().toList().blockingGet());
+    {
+      val context = Context.newWithExecutor(threadPool);
+      a.activate(context);
+      context.blockUntilIdle();
+      assertFalse(monitor.didEmit());
+    }
 
-    val context2 = Context.newDedicated();
-    val activeMonitor2 = new EmissionMonitor<>(context2.rxActive());
-    a.activate(context2);
-    b.activate(context2);
-    assertTrue(monitor.didEmit());
-    assertEquals(false, activeMonitor2.emissions().blockingLast());
+    {
+      val context = Context.newWithExecutor(threadPool);
+      a.activate(context);
+      b.activate(context);
+      context.blockUntilIdle();
+      assertTrue(monitor.didEmit());
+    }
   }
 
   @Test
@@ -98,25 +101,27 @@ public class NodeTest {
     and.conjunction(a, b);
 
     for (int i = 0; i < 1000; ++i) {
-      val context = Context.newDedicated();
+      val context = Context.newWithExecutor(threadPool);
       a.activate(context);
       b.activate(context);
       context.blockUntilIdle();
     }
 
-    System.out.println(and.synapse);
+    val monitor = new SynchronousEmissionMonitor<>(and.rxActivate());
+    {
+      val context = Context.newWithExecutor(threadPool);
+      a.activate(context);
+      context.blockUntilIdle();
+      assertFalse(monitor.didEmit());
+    }
 
-    val monitor = new EmissionMonitor<>(and.rxActivate());
-    val context1 = Context.newDedicated();
-    a.activate(context1);
-    context1.blockUntilIdle();
-    assertFalse(monitor.didEmit());
-
-    val context2 = Context.newDedicated();
-    a.activate(context2);
-    b.activate(context2);
-    context2.blockUntilIdle();
-    assertTrue(monitor.didEmit());
+    {
+      val context = Context.newWithExecutor(threadPool);
+      a.activate(context);
+      b.activate(context);
+      context.blockUntilIdle();
+      assertTrue(monitor.didEmit());
+    }
   }
 
   @Test
@@ -124,8 +129,8 @@ public class NodeTest {
     val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
     and.conjunction(a, b);
-    a.activate(Context.newDedicated());
-    b.activate(Context.newDedicated());
+    a.activate(Context.newWithExecutor(threadPool));
+    b.activate(Context.newWithExecutor(threadPool));
     assertFalse(monitor.didEmit());
   }
 
@@ -137,9 +142,9 @@ public class NodeTest {
     nodes = TestUtil.serialize(nodes);
 
     val monitor = new EmissionMonitor<>(nodes[2].rxActivate());
-    nodes[0].activate(Context.newDedicated());
+    nodes[0].activate(Context.newWithExecutor(threadPool));
     assertFalse(monitor.didEmit());
-    val andContext = Context.newDedicated();
+    val andContext = Context.newWithExecutor(threadPool);
     nodes[0].activate(andContext);
     nodes[1].activate(andContext);
     assertTrue(monitor.didEmit());
@@ -158,7 +163,7 @@ public class NodeTest {
     val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());
     and.conjunction(a, b);
-    val context = Context.newDedicated();
+    val context = Context.newWithExecutor(threadPool);
     a.activate(context);
     b.activate(context);
     b.activate(context);
@@ -171,7 +176,7 @@ public class NodeTest {
     val monitor = new EmissionMonitor<>(out.rxActivate());
     out.synapse.setCoefficient(up, 1);
     out.synapse.setCoefficient(down, -1);
-    val context = Context.newDedicated();
+    val context = Context.newWithExecutor(threadPool);
     down.activate(context);
     up.activate(context);
     assertFalse(monitor.didEmit());
@@ -189,7 +194,7 @@ public class NodeTest {
     out.synapse.setDecayPeriod(up, 1000);
     out.synapse.setCoefficient(down, -3);
     out.synapse.setDecayPeriod(down, 500);
-    val context = Context.newDedicated();
+    val context = Context.newWithExecutor(threadPool);
     down.activate(context);
     up.activate(context);
     context.blockUntilIdle();
@@ -215,7 +220,7 @@ public class NodeTest {
     val sync = CompletableSubject.create();
     val node = new TestNode(() -> sync);
     val monitor = new EmissionMonitor<>(node.rxActivate());
-    val context = Context.newDedicated();
+    val context = Context.newWithExecutor(threadPool);
     node.activate(context);
     assertFalse(monitor.didEmit());
     assertEquals(Arrays.asList(true), context.rxActive().take(500, TimeUnit.MILLISECONDS).toList().blockingGet());
@@ -229,7 +234,7 @@ public class NodeTest {
     val a = new Node(), b = new TestNode(() -> sync);
     a.then(b);
     val monitor = new EmissionMonitor<>(b.rxActivate());
-    val context = Context.newDedicated();
+    val context = Context.newWithExecutor(threadPool);
     val activeMonitor = new EmissionMonitor<>(context.rxActive());
     a.activate(context);
     assertFalse(monitor.didEmit());
@@ -246,7 +251,7 @@ public class NodeTest {
       return sync;
     });
     a.then(b);
-    a.activate(Context.newDedicated());
+    a.activate(Context.newWithExecutor(threadPool));
     assertTimeoutPreemptively(Duration.ofSeconds(1), (Executable) sync::blockingAwait);
   }
 

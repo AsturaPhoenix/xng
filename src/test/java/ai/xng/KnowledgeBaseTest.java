@@ -233,8 +233,9 @@ public class KnowledgeBaseTest {
 
       val activation = monitor.emissions().blockingFirst();
       final Node exception = activation.context.node.properties.get(kb.node(Common.exception));
-      // TODO(rosswang): Once we support node-space stack traces, the deepest frame in
-      // this case may be BuiltIn.print, followed by invocation.
+      // TODO(rosswang): If we ever elect to capture the node at finer than invocation
+      // granularity, the deepest frame in this case may be BuiltIn.print, followed by
+      // the invocation.
       assertSame(invocation, exception.properties.get(kb.node(Common.source)));
     }
   }

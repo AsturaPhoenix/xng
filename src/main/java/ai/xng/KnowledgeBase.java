@@ -3,6 +3,8 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.PrintStream;
+import java.io.PrintWriter;
 import java.io.Serializable;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
@@ -15,12 +17,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -373,6 +378,60 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     return parentNode == null ? context : (Context) parentNode.getValue();
   }
 
+  public static record NodeStackFrame(InvocationNode invocation, Context context) implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    @Override
+    public String toString() {
+      val sb = new StringBuilder("from ").append(invocation.debugDump(SKIP_CALLER));
+      for (val traceElement : invocation.trace) {
+        sb.append("\n        at ").append(traceElement);
+      }
+      return sb.toString();
+    }
+  }
+
+  public static class InvocationException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
+    private final NodeStackFrame stackFrame;
+    private final KnowledgeBase kb;
+
+    private InvocationException(final Throwable cause, final NodeStackFrame stackFrame, final KnowledgeBase kb) {
+      super(cause);
+      this.stackFrame = stackFrame;
+      this.kb = kb;
+    }
+
+    public Stream<NodeStackFrame> getNodeStackTrace() {
+      final Node callerKey = kb.node(Common.caller), invocationKey = kb.node(Common.invocation),
+          contextKey = kb.node(Common.context);
+
+      return Stream.iterate(stackFrame, s -> {
+        final Node caller = s.context.node.properties.get(callerKey);
+        if (caller == null)
+          return null;
+
+        final Node invocation = caller.properties.get(invocationKey), contextNode = caller.properties.get(contextKey);
+        final Object context = contextNode == null ? null : contextNode.getValue();
+
+        return invocation instanceof InvocationNode i && context instanceof Context c ? new NodeStackFrame(i, c) : null;
+      }).takeWhile(s -> s != null);
+    }
+
+    @Override
+    public void printStackTrace(final PrintWriter s) {
+      super.printStackTrace(s);
+      getNodeStackTrace().forEach(nsf -> s.println(nsf));
+    }
+
+    @Override
+    public void printStackTrace(PrintStream s) {
+      super.printStackTrace(s);
+      getNodeStackTrace().forEach(nsf -> s.println(nsf));
+    }
+  }
+
   /**
    * Invocation nodes activate the specified entry point node with a child context
    * constructed from their {@link Common#literal} and {@link Common#transform}
@@ -480,7 +539,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         }
 
         final Node exceptionHandler = properties.get(node(Common.exceptionHandler));
-        if (exceptionHandler != null) {
+        if (exceptionHandler == null) {
+          childContext.exceptionHandler = e -> childContext.continuation()
+              .completeExceptionally(e instanceof InvocationException ? e
+                  : new InvocationException(e, new NodeStackFrame(this, parentContext), KnowledgeBase.this));
+        } else {
           childContext.exceptionHandler = e -> {
             final Node exceptionNode = node(new ImmutableException(e));
             exceptionNode.properties.put(node(Common.source), this);
@@ -498,13 +561,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
       val completable = CompletableSubject.create();
       childContext.continuation().thenRun(completable::onComplete).exceptionally(t -> {
-        System.err.print("from ");
-        System.err.println(this);
-        for (val traceElement : trace) {
-          System.err.print("        at ");
-          System.err.println(traceElement);
-        }
-        completable.onError(t);
+        completable.onError(t instanceof CompletionException ? t.getCause() : t);
         return null;
       });
       return completable;
@@ -907,11 +964,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   }
 
   /**
+   * A predicate for {@link Node#debugDump(Predicate)} that skips caller records,
+   * which can bloat rapidly.
+   */
+  public static final Predicate<Map.Entry<Node, Node>> SKIP_CALLER = e -> e.getKey().getValue() != Common.caller;
+
+  /**
    * Adds a debug listener that dumps the context when a node is activated.
    */
   public static void debug(final Node node) {
-    node.rxActivate()
-        .subscribe(a -> System.err.println(a.context.node.debugDump(e -> e.getKey().getValue() != Common.caller)));
+    node.rxActivate().subscribe(a -> System.err.println(a.context.node.debugDump(SKIP_CALLER)));
   }
 
   // The ordering of the members is significant; later setups can depend on

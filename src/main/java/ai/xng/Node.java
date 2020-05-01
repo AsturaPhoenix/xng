@@ -61,8 +61,8 @@ public class Node implements Serializable {
                 // Caution, this may behave strangely if invocations happen against contexts
                 // that have been deserialized since contexts are intended to be ephemeral and
                 // overridden exception handlers will be lost.
-                // TODO(rosswang): preserve nodespace stack trace
-                // TODO(rosswang): do not allow activation against deserialized contexts
+                // TODO(rosswang): Maybe preserve the node that was actually activated.
+                // TODO(rosswang): Do not allow activation against deserialized contexts.
                 context.exceptionHandler);
       });
     }

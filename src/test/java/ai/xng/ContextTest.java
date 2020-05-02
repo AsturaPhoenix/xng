@@ -75,4 +75,15 @@ public class ContextTest {
     context.blockUntilIdle();
     assertThat(c.synapse.getCoefficient(b)).isGreaterThanOrEqualTo(0);
   }
+
+  @Test
+  public void testRecency() {
+    val context = Context.newImmediate();
+    val a = new Node(), b = new Node();
+    a.activate(context);
+    b.activate(context);
+    val other = Context.newImmediate();
+    a.activate(other);
+    assertThat(context.snapshotNodes()).containsExactly(a, b);
+  }
 }

@@ -24,10 +24,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import io.reactivex.Observable;
+import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.functions.Consumer;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Getter;
+import lombok.val;
 
 /**
  * A node value that signifies that a node is behaving as an
@@ -47,11 +49,14 @@ public class Context implements Serializable {
   private transient Map<Node, Node.ContextualState> nodeStates;
   private transient Map<Synapse, Synapse.ContextualState> synapseStates;
 
-  private final NodeQueue activations = new NodeQueue(this);
+  private final RecencyQueue<Node> activations = new RecencyQueue<>();
 
   private transient Subject<Boolean> rxActive;
   private transient int refCount;
   private transient Object refMutex;
+
+  private transient CompositeDisposable contextDisposable;
+  private transient DisposingWeakReference<Context> weakThis;
 
   private final SerializableSupplier<Executor> executorSupplier;
   @Getter
@@ -112,6 +117,9 @@ public class Context implements Serializable {
 
     refMutex = new Object();
     rxActive = BehaviorSubject.createDefault(false);
+
+    contextDisposable = new CompositeDisposable();
+    weakThis = new DisposingWeakReference<>(this, contextDisposable);
 
     scheduler = new ContextScheduler(executorSupplier.get());
     scheduler.start();
@@ -186,7 +194,12 @@ public class Context implements Serializable {
     assert scheduler.isOnThread();
 
     return nodeStates.computeIfAbsent(node, n -> {
-      activations.add(node);
+      val link = activations.new Link(n);
+      // local to avoid capturing this (lapsed listener)
+      val weakThis = this.weakThis;
+      val subscription = n.rxActivate().filter(a -> a.context == weakThis.get()).subscribe(a -> link.promote());
+      contextDisposable.add(subscription);
+
       return n.new ContextualState(this);
     });
   }
@@ -329,5 +342,13 @@ public class Context implements Serializable {
       final float target = Math.min(margin + distribution.getMode(), 1);
       distribution.add(target, weight);
     }
+  }
+
+  /**
+   * Captures a snapshot of nodes by activation recency. This should be called
+   * from the dispatch thread.
+   */
+  public ImmutableList<Node> snapshotNodes() {
+    return ImmutableList.copyOf(activations);
   }
 }

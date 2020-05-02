@@ -863,6 +863,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       if (!(obj instanceof EavTuple other))
         return false;
 
+      // eviction across serialization boundaries
+      if (tuple == null || other.tuple == null)
+        return false;
+
       if (relative != other.relative || wildcard != other.wildcard)
         return false;
 

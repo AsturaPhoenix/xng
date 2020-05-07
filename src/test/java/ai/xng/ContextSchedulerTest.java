@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,6 +26,7 @@ import com.google.common.collect.DiscreteDomain;
 import com.google.common.collect.Range;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.Runnables;
+import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -239,6 +241,49 @@ public class ContextSchedulerTest {
     assertThat(System.currentTimeMillis() - start).isGreaterThanOrEqualTo(DELAY);
     longDelay.await();
     assertThat(System.currentTimeMillis() - start).isGreaterThanOrEqualTo(2 * DELAY);
+  }
+
+  @Test
+  public void testOnThreadShutdown() throws Exception {
+    val executor = Executors.newSingleThreadExecutor();
+    val scheduler = new ContextScheduler(executor);
+    scheduler.start();
+    val sync = new Phaser(2);
+    scheduler.scheduleDirect(unchecked(() -> {
+      sync.arriveAndAwaitAdvance();
+      scheduler.shutdown();
+      // Actually, the thread is interrupted at this point. It's unclear whether
+      // that's for the best.
+      sync.arriveAndAwaitAdvance();
+    }));
+    scheduler.scheduleDirect(sync::arrive);
+
+    sync.arriveAndAwaitAdvance();
+    sync.arriveAndAwaitAdvance();
+    assertThrows(TimeoutException.class,
+        () -> sync.awaitAdvanceInterruptibly(sync.arrive(), DELAY, TimeUnit.MILLISECONDS));
+
+    val threadInterrupted = new CompletableFuture<Boolean>();
+    executor.submit(() -> threadInterrupted.complete(Thread.interrupted()));
+    // Actually, it appears as if the executor is resetting the interrupted status
+    // for us. It's unclear if that's for the best.
+    assertFalse(threadInterrupted.get(), "Unexpected interrupted status on relinquished thread.");
+  }
+
+  @Test
+  public void testPauseDuringShutdown() throws Exception {
+    val scheduler = new ContextScheduler(threadPool);
+    scheduler.start();
+
+    val sync = new CountDownLatch(1);
+    scheduler.scheduleDirect(() -> {
+      sync.countDown();
+      Uninterruptibles.sleepUninterruptibly(DELAY, TimeUnit.MILLISECONDS);
+    });
+
+    sync.await();
+    scheduler.shutdown();
+    scheduler.pause();
   }
 
   /**

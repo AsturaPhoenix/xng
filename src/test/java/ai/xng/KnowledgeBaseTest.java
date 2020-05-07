@@ -11,10 +11,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
+import org.assertj.core.util.Throwables;
 import org.junit.jupiter.api.Test;
 
 import ai.xng.KnowledgeBase.Bootstrap;
@@ -78,7 +79,7 @@ public class KnowledgeBaseTest {
     index.properties.put(kb.node("print"), print);
   }
 
-  private static void assertPropGet(final KnowledgeBase kb) {
+  private static void assertPropGet(final KnowledgeBase kb) throws TimeoutException {
     final Node index = kb.node("index");
     final Node rosesAre = index.properties.get(kb.node("rosesAre")), print = index.properties.get(kb.node("print"));
 
@@ -106,7 +107,7 @@ public class KnowledgeBaseTest {
   }
 
   @Test
-  public void testPrintProp() {
+  public void testPrintProp() throws Exception {
     try (val kb = new KnowledgeBase()) {
       setUpPropGet(kb);
       assertPropGet(kb);
@@ -114,7 +115,7 @@ public class KnowledgeBaseTest {
   }
 
   @Test
-  public void testPrintReliability() throws InterruptedException {
+  public void testPrintReliability() throws Exception {
     try (val kb = new KnowledgeBase()) {
       setUpPropGet(kb);
       for (int i = 0; i < 500; i++) {
@@ -248,7 +249,7 @@ public class KnowledgeBaseTest {
    * Ensures that the invocation of a trivial custom subroutine completes.
    */
   @Test
-  public void testCustomInvocationCompletes() {
+  public void testCustomInvocationCompletes() throws Exception {
     try (val kb = new KnowledgeBase()) {
       val context = kb.newContext();
       kb.new InvocationNode(new Node()).activate(context);
@@ -257,7 +258,7 @@ public class KnowledgeBaseTest {
   }
 
   @Test
-  public void testParentContextInheritsChildActivity() {
+  public void testParentContextInheritsChildActivity() throws Exception {
     try (val kb = new KnowledgeBase()) {
       val sync = CompletableSubject.create();
       val block = new SynapticNode() {
@@ -343,6 +344,24 @@ public class KnowledgeBaseTest {
     }
   }
 
+  @Test
+  public void testEvalReinforcementStability() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      final Node value = kb.node(Common.value), hi = kb.node("hi"),
+          invocation = kb.new InvocationNode(kb.node(Bootstrap.eval)).literal(value, kb.node("print"));
+      val monitor = new SynchronousEmissionMonitor<>(kb.rxOutput());
+
+      for (int i = 0; i < 100; ++i) {
+        val context = kb.newContext();
+        context.node.properties.put(value, hi);
+        invocation.activate(context);
+        context.blockUntilIdle();
+        assertThat(monitor.emissions()).as("iteration %s", i).containsExactly("hi");
+        KnowledgeBase.reinforceRecursively(context, 1).join();
+      }
+    }
+  }
+
   /**
    * Simple precondition tweaks should be correctable through reinforcement.
    * Starting with a naive (buggy) Fibonacci sequence generator, train it to
@@ -399,21 +418,24 @@ public class KnowledgeBaseTest {
       val fixture = new LearningFixture(100, 1000);
       do {
         val context = kb.newContext();
+        context.fatalOnExceptions();
         context.node.properties.put(count, kb.node(10));
         fib.activate(context);
-        context.blockUntilIdle();
+        try {
+          context.blockUntilIdle();
+        } catch (final RuntimeException e) {
+          fixture.fail(Throwables.getStackTrace(e));
+          continue;
+        }
+
         final Node result = context.node.properties.get(kb.node(Common.returnValue));
 
         if (result != null && result.getValue() instanceof List<?>
             && result.getValue().equals(Arrays.asList(1, 1, 2, 3, 5, 8, 13, 21, 34, 55))) {
           fixture.pass();
-          kb.reinforceRecursively(context, 1).join();
+          KnowledgeBase.reinforceRecursively(context, 1).join();
         } else {
-          fixture.fail();
-          // TODO: negative reinforcement on incorrect result. Right now, negative
-          // reinforcement destabilizes the system too broadly and black-holes it into an
-          // incorrect state.
-          // kb.reinforceRecursively(context, -1).join();
+          fixture.fail(String.format("result = %s", result));
         }
       } while (fixture.shouldContinue());
     }

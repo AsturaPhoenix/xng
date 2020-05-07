@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -11,6 +12,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
+
+import com.google.common.collect.Streams;
 
 import io.reactivex.Completable;
 import io.reactivex.Observable;
@@ -23,6 +27,17 @@ import lombok.val;
 
 public class Node implements Serializable {
   private static final long serialVersionUID = 8798023148407057463L;
+
+  /**
+   * Margin by which to pad on either side of a threshold for default conjunctive
+   * or disjunctive edges.
+   */
+  public static final float THRESHOLD_MARGIN = .2f;
+
+  /**
+   * Activation history TTL, in ms.
+   */
+  public static final long ACTIVATION_HISTORY = 15000;
 
   @FunctionalInterface
   public static interface OnActivate {
@@ -37,14 +52,31 @@ public class Node implements Serializable {
   }
 
   public class ContextualState {
-    private long lastActivation;
-    private Subject<Context.Ref> rxInput = PublishSubject.create();
+    private final ArrayDeque<Long> activations = new ArrayDeque<>();
+    private final Subject<Context.Ref> rxInput = PublishSubject.create();
 
-    public ContextualState(final Context context) {
+    public ContextualState(final Context context, final RecencyQueue<Node>.Link activationListener) {
       rxInput.subscribe(ref -> {
         // This isn't critical here, but this establishes a frame of reference to aid
         // readability.
         assert context.getScheduler().isOnThread();
+
+        // Update the activation timestamp early on as reinforcement calculations use it
+        // for correlation. Accordingly, update the recency queue. However, note that
+        // the posterior may activate with a later timestamp or not at all, depending on
+        // onActivate. This should be fine because although still reflected in the
+        // recency queue, the actual evaluations used for reinforcement calculations are
+        // in the posterior synapse.
+        final long now = context.getScheduler().now(TimeUnit.MILLISECONDS);
+        final long oldestAllowed = now - ACTIVATION_HISTORY;
+        while (!activations.isEmpty() && activations.getLast() < oldestAllowed) {
+          activations.removeLast();
+        }
+        activations.addFirst(now);
+        // Also, since Hebbian reinforcement windows look at timestamps in the recency
+        // queue, it's better if we do maintain consistency between these timestamps and
+        // the ordering in the queue.
+        activationListener.promote();
 
         // If onActivate doesn't take us off the dispatch thread, prefer to update
         // timestamps immediately. Note that synapses will defer further propagation
@@ -54,9 +86,8 @@ public class Node implements Serializable {
             // handler. Were we to release the ref before catch, we could close the context
             // prematurely when it's about to complete exceptionally.
             .doFinally(ref::close).subscribe(() -> {
-              lastActivation = context.getScheduler().now(TimeUnit.MILLISECONDS);
               // continuation: Synapse.Profile::onActivate
-              rxOutput.onNext(new Activation(context, lastActivation));
+              rxOutput.onNext(new Activation(context, context.getScheduler().now(TimeUnit.MILLISECONDS)));
             },
                 // Caution, this may behave strangely if invocations happen against contexts
                 // that have been deserialized since contexts are intended to be ephemeral and
@@ -107,9 +138,13 @@ public class Node implements Serializable {
     value = stream.readObject();
   }
 
+  public Stream<Long> getRecentActivations(final Context context, final boolean oldestFirst) {
+    val activations = context.nodeState(this).activations;
+    return oldestFirst ? Streams.stream(activations.descendingIterator()) : activations.stream();
+  }
+
   public long getLastActivation(final Context context) {
-    final ContextualState state = context.nodeState(this);
-    return state == null ? 0 : state.lastActivation;
+    return getRecentActivations(context, false).findFirst().orElse(0L);
   }
 
   public void activate(final Context context) {
@@ -188,7 +223,7 @@ public class Node implements Serializable {
    * @return next
    */
   public Node then(final SynapticNode next) {
-    next.synapse.setCoefficient(this, 1);
+    next.synapse.setCoefficient(this, Synapse.THRESHOLD + THRESHOLD_MARGIN);
     return next;
   }
 }

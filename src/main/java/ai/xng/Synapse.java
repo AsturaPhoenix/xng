@@ -10,44 +10,41 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.WeakHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-
-import com.google.common.collect.Iterators;
 
 import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import lombok.EqualsAndHashCode;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.Synchronized;
-import lombok.ToString;
 import lombok.val;
 
 /**
  * Represents the incoming logical junction of input node signals towards a
- * specific output node.
+ * specific output node. This implements a simplified, linear form of leaky
+ * integrate and fire.
  * 
  * Minimal effort is made to preserve activation across serialization boundaries
  * since behavior while the system is down is discontinuous anyway. In the
  * future, it is likely that either we will switch to relative time and fully
  * support serialization or else completely clear activation on deserialization.
- * 
- * Concurrency note: Although Synapse has a lot of state both contextual and
- * global, all synchronization is done through a common mutex to avoid deadlock
- * in cases where mutex nesting may vary.
  */
 public class Synapse implements Serializable {
   private static final long serialVersionUID = 1779165354354490167L;
 
   public static final float THRESHOLD = 1;
-  public static final float AUTOREINFORCEMENT = .05f;
+  public static final float REINFORCEMENT_MARGIN = .2f;
+  public static final float AUTOREINFORCEMENT = .2f;
   public static final long DEFAULT_DECAY = 100;
+  public static final float HEBBIAN_WEIGHT_FACTOR = .45f;
+  // Evaluation history TTL, in ms.
+  public static final long EVALUATION_HISTORY = 15000;
 
   public class ContextualState {
     private final Context context;
@@ -57,33 +54,67 @@ public class Synapse implements Serializable {
     public ContextualState(final Context context) {
       this.context = context;
       rxEvaluations = PublishSubject.create();
-      Observable.switchOnNext(rxEvaluations).subscribe(t -> rxOutput.onNext(new Node.Activation(context, t)));
+      Observable.switchOnNext(rxEvaluations).subscribe(t -> node.activate(context));
     }
 
-    public void reinforce(Optional<Long> time, Optional<Long> decayPeriod, float weight) {
+    public CompletableFuture<Void> reinforce(Optional<Long> decayPeriod, float weight) {
+      val future = new CompletableFuture<Void>();
+
       context.getScheduler().ensureOnThread(() -> {
         synchronized (Synapse.this.$lock) {
+          final long now = context.getScheduler().now(TimeUnit.MILLISECONDS);
+
           for (final Entry<Node, ArrayDeque<Evaluation>> entry : evaluations.entrySet()) {
             final Profile profile = inputs.get(entry.getKey());
+
             for (final Evaluation evaluation : entry.getValue()) {
               final long t = evaluation.time;
               float wt = weight;
-              if (time.isPresent()) {
-                if (t > time.get())
+              if (decayPeriod.isPresent()) {
+                long t0 = now - decayPeriod.get();
+                if (t <= t0)
                   continue;
-                if (decayPeriod.isPresent()) {
-                  long t0 = time.get() - decayPeriod.get();
-                  if (t <= t0)
-                    continue;
-                  wt *= (float) (t - t0) / decayPeriod.get();
-                }
+                wt *= (float) (t - t0) / decayPeriod.get();
               }
 
-              profile.coefficient.add(evaluation.value, wt);
+              val distribution = profile.coefficient;
+              distribution.add(evaluation.value, wt);
+
+              // Hebbian element
+
+              final float wh = HEBBIAN_WEIGHT_FACTOR * wt;
+
+              final Optional<Long> followingActivation = node.getRecentActivations(context, true)
+                  .dropWhile(ta -> ta < t).takeWhile(ta -> ta < t + 2 * profile.decayPeriod).findFirst();
+
+              // correlation between prior and posterior
+              final float correlation = followingActivation.map(ta -> 1 - 2 * (float) (ta - t) / profile.decayPeriod)
+                  .orElse(-1f);
+
+              float effectiveTotal = evaluation.total.value;
+              if (followingActivation.isPresent()) {
+                // We could analyze over any subsequent activations or evaluations within the
+                // window to find a maximum, but the first peak should be sufficient to get us
+                // moving in the right direction.
+                final float activationValue = Synapse.this.getValue(context, followingActivation.get()).value;
+                effectiveTotal = Math.max(effectiveTotal, activationValue);
+              }
+
+              distribution.add(
+                  evaluation.value
+                      + Math.max(THRESHOLD + REINFORCEMENT_MARGIN - effectiveTotal, 0) / evaluation.total.weight,
+                  wh * correlation);
+              distribution.add(
+                  evaluation.value
+                      + Math.min(THRESHOLD - REINFORCEMENT_MARGIN - effectiveTotal, 0) / evaluation.total.weight,
+                  -wh * correlation);
             }
           }
         }
+        future.complete(null);
       });
+
+      return future;
     }
   }
 
@@ -96,7 +127,7 @@ public class Synapse implements Serializable {
     private final Disposable subscription;
 
     private Profile(final Node incoming) {
-      coefficient = new ThresholdDistribution(0);
+      coefficient = new UnimodalHypothesis(0);
       this.incoming = new WeakReference<>(incoming);
       decayPeriod = DEFAULT_DECAY;
       subscription = incoming.rxActivate().subscribe(this::onActivate);
@@ -118,18 +149,29 @@ public class Synapse implements Serializable {
       activation.context.getScheduler().scheduleDirect(() -> {
         final ContextualState state = activation.context.synapseState(Synapse.this);
         synchronized (Synapse.this.$lock) {
-          final float before = getValue(activation.context, activation.timestamp);
-          final float value = coefficient.generate();
-          coefficient.add(value, AUTOREINFORCEMENT);
-          state.evaluations.computeIfAbsent(incoming.get(), node -> new ArrayDeque<>())
-              .add(new Evaluation(activation.timestamp, value));
+          final ExtrapolatedEvaluation totalBefore = Synapse.this.getValue(activation.context, activation.timestamp);
+          final ExtrapolatedEvaluation localBefore = getValue(activation.context, activation.timestamp);
+          final float localAfter = coefficient.generate();
+          assert Float.isFinite(localAfter) : String.format("%s (%s)", localAfter, coefficient);
+          final float totalAfter = totalBefore.value - localBefore.value + localAfter;
+
+          coefficient.add(localAfter, AUTOREINFORCEMENT);
+
+          val evaluations = state.evaluations.computeIfAbsent(incoming.get(), node -> new ArrayDeque<>());
+          final long oldestAllowed = activation.context.getScheduler().now(TimeUnit.MILLISECONDS) - EVALUATION_HISTORY;
+          while (!evaluations.isEmpty() && evaluations.getLast().time < oldestAllowed) {
+            evaluations.removeLast();
+          }
+          evaluations.addFirst(new Evaluation(activation.timestamp, localAfter,
+              new ExtrapolatedEvaluation(totalAfter, totalBefore.weight - localBefore.weight + 1)));
           state.rxEvaluations
-              .onNext(evaluate(activation.context, activation.timestamp, value - before).doFinally(ref::close));
+              .onNext(processTransition(activation.context, activation.timestamp, totalBefore.value, totalAfter)
+                  .doFinally(ref::close));
         }
       });
     }
 
-    public float getValue(final Context context, final long time) {
+    public ExtrapolatedEvaluation getValue(final Context context, final long time) {
       val incoming = incoming.get();
       if (incoming == null)
         // This can only happen in the pathological usage where a caller holds onto a
@@ -142,45 +184,53 @@ public class Synapse implements Serializable {
       // particular we'd force discrete time steps).
 
       final Evaluation lastEvaluation = getPrecedingEvaluation(context, incoming, time);
-      return lastEvaluation == null ? 0 : extrapolateEvaluation(lastEvaluation, time);
+      return lastEvaluation == null ? ExtrapolatedEvaluation.ZERO : extrapolateEvaluation(lastEvaluation, time);
     }
 
-    public float extrapolateEvaluation(final Evaluation evaluation, final long time) {
+    public ExtrapolatedEvaluation extrapolateEvaluation(final Evaluation evaluation, final long time) {
       final long dt = time - evaluation.time;
-      return dt < decayPeriod ? evaluation.value * (1 - (float) dt / decayPeriod) : 0;
+      return dt < decayPeriod ? ExtrapolatedEvaluation.extrapolate(evaluation.value, 1 - (float) dt / decayPeriod)
+          : ExtrapolatedEvaluation.ZERO;
     }
   }
 
+  private final SynapticNode node;
   private transient Map<Node, Profile> inputs;
-  private transient Subject<Node.Activation> rxOutput;
 
-  public Synapse() {
+  public Synapse(final SynapticNode node) {
+    this.node = node;
     init();
   }
 
   private void init() {
     inputs = new WeakHashMap<>();
-    rxOutput = PublishSubject.create();
   }
 
-  @RequiredArgsConstructor
-  @ToString
-  @EqualsAndHashCode
-  public static class Evaluation {
-    public final long time;
-    public final float value;
+  public static record Evaluation(long time, float value, ExtrapolatedEvaluation total) {
+  }
+
+  /**
+   * An evaluation in the context of integration. For an individual profile, the
+   * weight is the time decay at the requested time. For the synapse, it is the
+   * sum of these weights from all profiles.
+   */
+  public static record ExtrapolatedEvaluation(float value, float weight) {
+    public static final ExtrapolatedEvaluation ZERO = new ExtrapolatedEvaluation(0, 0);
+
+    public static ExtrapolatedEvaluation extrapolate(final float v0, final float weight) {
+      return new ExtrapolatedEvaluation(v0 * weight, weight);
+    }
   }
 
   /**
    * Emits an activation signal or schedules a re-evaluation at a future time,
    * depending on current state.
    */
-  private Observable<Long> evaluate(final Context context, final long time, final float margin) {
-    final float value = getValue(context, time);
-
-    if (value >= THRESHOLD) {
+  private Observable<Long> processTransition(final Context context, final long time, final float before,
+      final float after) {
+    if (after >= THRESHOLD) {
       // Only signal on transitions.
-      return value - margin < THRESHOLD ? Observable.just(time) : Observable.empty();
+      return before < THRESHOLD ? Observable.just(time) : Observable.empty();
     } else {
       final long nextThreshold = getNextThreshold(context, time);
       if (nextThreshold == Long.MAX_VALUE) {
@@ -192,9 +242,10 @@ public class Synapse implements Serializable {
   }
 
   @Synchronized
-  public float getValue(final Context context, final long time) {
+  public ExtrapolatedEvaluation getValue(final Context context, final long time) {
     assert context.getScheduler().isOnThread();
-    return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(0.f, Float::sum);
+    return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(ExtrapolatedEvaluation.ZERO,
+        (a, b) -> new ExtrapolatedEvaluation(a.value + b.value, a.weight + b.weight));
   }
 
   private static class EvaluationDecayProfile {
@@ -220,6 +271,7 @@ public class Synapse implements Serializable {
       decayProfile.evaluation = getPrecedingEvaluation(context, entry.getKey(), time);
       if (decayProfile.evaluation == null)
         continue;
+      assert decayProfile.evaluation.time <= time;
 
       decayProfile.expiration = decayProfile.evaluation.time + profile.decayPeriod;
       if (time >= decayProfile.expiration)
@@ -228,15 +280,21 @@ public class Synapse implements Serializable {
       decayProfile.decayRate = decayProfile.evaluation.value / profile.decayPeriod;
       decayProfiles.add(decayProfile);
 
-      totalValue += profile.extrapolateEvaluation(decayProfile.evaluation, time);
+      totalValue += profile.extrapolateEvaluation(decayProfile.evaluation, time).value;
       totalDecayRate += decayProfile.decayRate;
+    }
+
+    if (totalValue >= THRESHOLD) {
+      // floating point roundoff edge case
+      return time;
     }
 
     // Descend by expiration; we'll pop from the back as evaluations expire.
     decayProfiles.sort((a, b) -> Long.compare(b.expiration, a.expiration));
 
     while (!decayProfiles.isEmpty()) {
-      assert totalValue < THRESHOLD;
+      assert totalValue < THRESHOLD : totalValue;
+
       val expiringProfile = decayProfiles.remove(decayProfiles.size() - 1);
 
       if (totalDecayRate < 0) {
@@ -246,14 +304,15 @@ public class Synapse implements Serializable {
       }
 
       totalValue -= (expiringProfile.expiration - time) * totalDecayRate;
+      if (totalValue >= THRESHOLD) {
+        // floating point roundoff edge case
+        return expiringProfile.expiration;
+      }
+
       time = expiringProfile.expiration;
       totalDecayRate -= expiringProfile.decayRate;
     }
     return Long.MAX_VALUE;
-  }
-
-  public Observable<Node.Activation> rxActivate() {
-    return rxOutput;
   }
 
   @Synchronized
@@ -303,6 +362,10 @@ public class Synapse implements Serializable {
    *                  activation to 0
    */
   public Synapse setDecayPeriod(final Node node, final long decayPeriod) {
+    if (decayPeriod <= 0) {
+      // This condition simplifies the math and promotes timing tolerance.
+      throw new IllegalArgumentException("Decay period must be positive.");
+    }
     profile(node).decayPeriod = decayPeriod;
     return this;
   }
@@ -331,26 +394,17 @@ public class Synapse implements Serializable {
     if (evaluations == null)
       return null;
 
-    return Iterators.tryFind(evaluations.descendingIterator(), e -> e.time <= time).orNull();
+    return evaluations.stream().dropWhile(e -> e.time > time).findFirst().orElse(null);
   }
 
   @Synchronized
   public Map<Node, List<Evaluation>> getRecentEvaluations(final Context context, final long since) {
     val evaluations = context.synapseState(this).evaluations;
+
     final Map<Node, List<Evaluation>> recent = new HashMap<>();
     for (val entry : evaluations.entrySet()) {
-      final List<Evaluation> recentForPrior = new ArrayList<>();
-      recent.put(entry.getKey(), recentForPrior);
-
-      val it = entry.getValue().descendingIterator();
-      while (it.hasNext()) {
-        val evaluation = it.next();
-
-        if (evaluation.time < since)
-          break;
-
-        recentForPrior.add(evaluation);
-      }
+      recent.put(entry.getKey(),
+          entry.getValue().stream().takeWhile(e -> e.time >= since).collect(Collectors.toList()));
     }
     return recent;
   }
@@ -358,7 +412,8 @@ public class Synapse implements Serializable {
   @Synchronized
   @Override
   public String toString() {
-    return inputs.entrySet().stream().map(entry -> entry.getKey() + ": " + entry.getValue().getCoefficient())
+    return inputs.entrySet().stream()
+        .map(entry -> String.format("%s: %s", entry.getKey(), entry.getValue().getCoefficient()))
         .collect(Collectors.joining("\n"));
   }
 }

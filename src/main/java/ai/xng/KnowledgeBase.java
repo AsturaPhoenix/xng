@@ -25,7 +25,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -55,6 +54,8 @@ import lombok.val;
 public class KnowledgeBase implements Serializable, AutoCloseable {
   private static final long serialVersionUID = -6461427806563494150L;
 
+  public static final int DEFAULT_MAX_STACK_DEPTH = 512;
+
   /**
    * Map that keeps its nodes alive. Note that the {@code weakKeys} configuration
    * here is just to use identity keys with concurrency; since nodes have strong
@@ -79,7 +80,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     returnValue,
 
     // stack frames
-    caller, invocation, context,
+    caller, invocation, context, maxStackDepth,
 
     javaClass, object, name, exception, source, value, entrypoint, relative,
 
@@ -343,12 +344,44 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     preInitEav();
 
     rxOutput = PublishSubject.create();
-    threadPool = new ThreadPoolExecutor(Runtime.getRuntime().availableProcessors(), Integer.MAX_VALUE, 60,
-        TimeUnit.SECONDS, new SynchronousQueue<>());
+
+    final int corePoolSize = Runtime.getRuntime().availableProcessors();
+    threadPool = new ThreadPoolExecutor(corePoolSize, 4 * corePoolSize, 60, TimeUnit.SECONDS, new SynchronousQueue<>());
   }
 
   private void postInit() {
     postInitEav();
+  }
+
+  private static class KbContext extends ai.xng.Context {
+    static final long serialVersionUID = 4387542426477791967L;
+
+    List<Context> children = new ArrayList<>();
+
+    KbContext(final KnowledgeBase kb) {
+      super(kb::node, () -> kb.threadPool);
+    }
+
+    CompletableFuture<Void> reinforceRecursively(final Optional<Long> decayPeriod, final float weight) {
+      val async = new AsyncJoiner();
+
+      getScheduler().ensureOnThread(() -> {
+        for (final Context child : children) {
+          async.add(child.reinforce(decayPeriod, weight));
+        }
+        async.arrive();
+      });
+
+      return async.future;
+    }
+
+    void shutDownRecurisvely() {
+      getScheduler().shutdown();
+      getScheduler().pause();
+      for (final Context child : children) {
+        shutDownRecursively(child);
+      }
+    }
   }
 
   /**
@@ -356,7 +389,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * representation and uses a common thread pool.
    */
   public Context newContext() {
-    return new Context(this::node, () -> threadPool);
+    return new KbContext(this);
   }
 
   private static Node propertyDescent(Node node, final Node... properties) {
@@ -394,21 +427,37 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
   }
 
-  public static class InvocationException extends RuntimeException {
+  /**
+   * Exception thrown when a {@link KnowledgeBase} invocation exceeds the stack
+   * depth limit specified in the context (as
+   * {@link KnowledgeBase.Common#maxStackDepth}).
+   */
+  public class StackDepthExceededException extends InvocationException {
+    private static final long serialVersionUID = 1L;
+
+    private StackDepthExceededException(final NodeStackFrame stackFrame) {
+      super("Recursion limit exceeded.", stackFrame);
+    }
+  }
+
+  public class InvocationException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
     private final NodeStackFrame stackFrame;
-    private final KnowledgeBase kb;
 
-    private InvocationException(final Throwable cause, final NodeStackFrame stackFrame, final KnowledgeBase kb) {
+    private InvocationException(final Throwable cause, final NodeStackFrame stackFrame) {
       super(cause);
       this.stackFrame = stackFrame;
-      this.kb = kb;
+    }
+
+    private InvocationException(final String message, final NodeStackFrame stackFrame) {
+      super(message);
+      this.stackFrame = stackFrame;
     }
 
     public Stream<NodeStackFrame> getNodeStackTrace() {
-      final Node callerKey = kb.node(Common.caller), invocationKey = kb.node(Common.invocation),
-          contextKey = kb.node(Common.context);
+      final Node callerKey = node(Common.caller), invocationKey = node(Common.invocation),
+          contextKey = node(Common.context);
 
       return Stream.iterate(stackFrame, s -> {
         final Node caller = s.context.node.properties.get(callerKey);
@@ -473,18 +522,27 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     @Override
     protected Completable onActivate(final Context parentContext) {
+      val maxStackDepthNode = parentContext.node.properties.get(node(Common.maxStackDepth));
+      final int maxStackDepth = maxStackDepthNode == null || !(maxStackDepthNode.getValue() instanceof Integer)
+          ? DEFAULT_MAX_STACK_DEPTH
+          : (int) maxStackDepthNode.getValue();
+      if (maxStackDepth == 0)
+        return Completable.error(new StackDepthExceededException(new NodeStackFrame(this, parentContext)));
+
       final Context childContext = newContext();
       // Hold a ref while we're starting the invocation to avoid pulsing the EAV nodes
       // and making it look like we're transitioning to idle early.
       try (val ref = childContext.new Ref()) {
-        // Link the nodes for causal reinforcement.
-        parentContext.node.then((SynapticNode) childContext.node);
+        if (parentContext instanceof KbContext kbContext) {
+          kbContext.children.add(childContext);
+        }
 
         final Node caller = new SynapticNode();
         setProperty(childContext, caller, node(Common.invocation), this);
         setProperty(childContext, caller, node(Common.context), parentContext.node);
 
         setProperty(childContext, null, node(Common.caller), caller);
+        setProperty(childContext, null, node(Common.maxStackDepth), node(maxStackDepth - 1));
         // Tie the parent activity to the child activity.
         childContext.rxActive().subscribe(new Observer<Boolean>() {
           Context.Ref ref;
@@ -548,7 +606,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         if (exceptionHandler == null) {
           childContext.exceptionHandler = e -> childContext.continuation()
               .completeExceptionally(e instanceof InvocationException ? e
-                  : new InvocationException(e, new NodeStackFrame(this, parentContext), KnowledgeBase.this));
+                  : new InvocationException(e, new NodeStackFrame(this, parentContext)));
         } else {
           childContext.exceptionHandler = e -> {
             final Node exceptionNode = node(new ImmutableException(e));
@@ -593,37 +651,25 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
   }
 
-  /**
-   * Recursively reinforce a context using the causal relations set up by a
-   * {@code KnowledgeBase}.
-   */
-  public CompletableFuture<Void> reinforceRecursively(final Context context, final Optional<Long> time,
-      final Optional<Long> decayPeriod, final float weight) {
-    val future = new CompletableFuture<Void>();
-    val traceContext = newContext();
-    context.node.activate(traceContext);
-    traceContext.rxActive().filter(active -> !active).firstOrError().toCompletable().subscribe(() -> {
-      val awaiting = new AtomicInteger(1);
-      final Runnable maybeSignal = () -> {
-        if (awaiting.decrementAndGet() == 0)
-          future.complete(null);
-      };
-
-      final ImmutableList<Node> snapshot = traceContext.snapshotNodes();
-      for (val node : snapshot) {
-        final Object value = node.getValue();
-        if (value instanceof Context subsequent) {
-          awaiting.incrementAndGet();
-          subsequent.reinforce(time, decayPeriod, weight).thenRun(maybeSignal);
-        }
-      }
-      maybeSignal.run();
-    }, future::completeExceptionally);
-    return future;
+  public static CompletableFuture<Void> reinforceRecursively(final Context context, final Optional<Long> decayPeriod,
+      final float weight) {
+    if (context instanceof KbContext kbContext) {
+      return kbContext.reinforceRecursively(decayPeriod, weight);
+    } else {
+      return context.reinforce(decayPeriod, weight);
+    }
   }
 
-  public CompletableFuture<Void> reinforceRecursively(final Context context, final float weight) {
-    return reinforceRecursively(context, Optional.empty(), Optional.empty(), weight);
+  public static CompletableFuture<Void> reinforceRecursively(final Context context, final float weight) {
+    return reinforceRecursively(context, Optional.empty(), weight);
+  }
+
+  public static void shutDownRecursively(final Context context) {
+    if (context instanceof KbContext kbContext) {
+      kbContext.shutDownRecurisvely();
+    } else {
+      context.getScheduler().shutdown();
+    }
   }
 
   private static void writeIndex(final Map<Object, SynapticNode> index, final ObjectOutputStream stream)

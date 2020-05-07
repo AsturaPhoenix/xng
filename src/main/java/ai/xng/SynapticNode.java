@@ -11,13 +11,7 @@ import lombok.val;
 public class SynapticNode extends Node {
   private static final long serialVersionUID = -4340465118968553513L;
 
-  /**
-   * Maximum allowed activation resulting from an incomplete set of priors from a
-   * conjunction.
-   */
-  public static final float CONJUNCTION_MARGIN = .2f;
-
-  public final Synapse synapse = new Synapse();
+  public final Synapse synapse = new Synapse(this);
 
   public SynapticNode() {
     this(null);
@@ -25,20 +19,19 @@ public class SynapticNode extends Node {
 
   public SynapticNode(final Object value) {
     super(value);
-    init();
-  }
-
-  private void init() {
-    synapse.rxActivate().subscribe(a -> activate(a.context));
   }
 
   private void readObject(final ObjectInputStream stream) throws ClassNotFoundException, IOException {
     stream.defaultReadObject();
-    init();
   }
 
   public void conjunction(final Node... priors) {
-    final float weight = (1 - CONJUNCTION_MARGIN) / (priors.length - 1);
+    final float weight = (Synapse.THRESHOLD - THRESHOLD_MARGIN) / (priors.length - 1);
+    if (weight * priors.length < Synapse.THRESHOLD) {
+      throw new IllegalArgumentException(
+          "Too many priors to guarantee reliable conjunction. Recommend staging the evaluation into a tree.");
+    }
+
     for (val prior : priors) {
       synapse.setCoefficient(prior, weight);
     }

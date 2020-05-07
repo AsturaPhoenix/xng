@@ -309,6 +309,10 @@ public class ContextScheduler extends Scheduler implements Executor {
     }
   }
 
+  /**
+   * Interrupts any ongoing tasks and rejects any new tasks. Does not block; to
+   * block, call {@link #pause()} afterwards.
+   */
   @Override
   public void shutdown() {
     lock.lock();

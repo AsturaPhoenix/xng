@@ -2,6 +2,7 @@ package ai.xng;
 
 import org.junit.jupiter.api.Assertions;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class LearningFixture {
   private final int requiredConsecutiveSuccesses, maxRuns;
+  @Getter
   private int consecutiveSuccesses, runs;
   private String lastFailure;
 

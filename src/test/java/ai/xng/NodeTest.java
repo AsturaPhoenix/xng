@@ -125,6 +125,33 @@ public class NodeTest {
   }
 
   @Test
+  public void test4And() {
+    val a = new Node(), b = new Node(), c = new Node(), d = new Node(), and = new SynapticNode();
+    and.conjunction(a, b, c, d);
+    val monitor = new SynchronousEmissionMonitor<>(and.rxActivate());
+
+    for (int i = 1; i <= 1000; ++i) {
+      {
+        val context = Context.newWithExecutor(threadPool);
+        a.activate(context);
+        b.activate(context);
+        c.activate(context);
+        d.activate(context);
+        context.blockUntilIdle();
+        assertTrue(monitor.didEmit(), String.format("4-conjunction activation failed at iteration %s.", i));
+      }
+      {
+        val context = Context.newWithExecutor(threadPool);
+        a.activate(context);
+        b.activate(context);
+        c.activate(context);
+        context.blockUntilIdle();
+        assertFalse(monitor.didEmit(), String.format("4-conjunction spurious activation at iteration %s.", i));
+      }
+    }
+  }
+
+  @Test
   public void testDisjointContexts() {
     val a = new Node(), b = new Node(), and = new SynapticNode();
     val monitor = new EmissionMonitor<>(and.rxActivate());

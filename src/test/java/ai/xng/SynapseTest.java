@@ -1,6 +1,5 @@
 package ai.xng;
 
-import static ai.xng.TestUtil.threadPool;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,25 +10,24 @@ import lombok.val;
 public class SynapseTest {
   @Test
   public void testActivation() {
-    val s = new Synapse();
+    val outgoing = new SynapticNode();
     val incoming = new Node();
-    val monitor = new EmissionMonitor<>(s.rxActivate());
+    val monitor = new SynchronousEmissionMonitor<>(outgoing.rxActivate());
 
-    s.setCoefficient(incoming, 1);
-    incoming.activate(Context.newWithExecutor(threadPool));
+    incoming.then(outgoing);
+    incoming.activate(Context.newImmediate());
     assertTrue(monitor.didEmit());
   }
 
   @Test
   public void testNoDups() {
-    val s = new Synapse();
-    val a = new Node(), b = new Node();
-    val monitor = new EmissionMonitor<>(s.rxActivate());
-    s.setCoefficient(a, 2);
-    s.setDecayPeriod(a, 1000);
-    s.setCoefficient(b, 2);
-    s.setDecayPeriod(b, 1000);
-    val context = Context.newWithExecutor(threadPool);
+    val a = new Node(), b = new Node(), c = new SynapticNode();
+    val monitor = new SynchronousEmissionMonitor<>(c.rxActivate());
+    c.synapse.setCoefficient(a, 2);
+    c.synapse.setDecayPeriod(a, 1000);
+    c.synapse.setCoefficient(b, 2);
+    c.synapse.setDecayPeriod(b, 1000);
+    val context = Context.newImmediate();
     a.activate(context);
     assertTrue(monitor.didEmit());
     b.activate(context);

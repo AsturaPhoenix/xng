@@ -15,6 +15,7 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -23,7 +24,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import io.reactivex.Observable;
-import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.functions.Consumer;
 import io.reactivex.subjects.BehaviorSubject;
 import io.reactivex.subjects.Subject;
@@ -53,9 +53,6 @@ public class Context implements Serializable {
   private transient Subject<Boolean> rxActive;
   private transient int refCount;
   private transient Object refMutex;
-
-  private transient CompositeDisposable contextDisposable;
-  private transient DisposingWeakReference<Context> weakThis;
 
   private final SerializableSupplier<Executor> executorSupplier;
   @Getter
@@ -116,9 +113,6 @@ public class Context implements Serializable {
 
     refMutex = new Object();
     rxActive = BehaviorSubject.createDefault(false);
-
-    contextDisposable = new CompositeDisposable();
-    weakThis = new DisposingWeakReference<>(this, contextDisposable);
 
     scheduler = new ContextScheduler(executorSupplier.get());
     scheduler.start();
@@ -181,8 +175,17 @@ public class Context implements Serializable {
     rxActive.filter(active -> !active).blockingFirst();
   }
 
-  public void blockUntilIdle(final Duration timeout) {
-    rxActive.filter(active -> !active).timeout(timeout.toMillis(), TimeUnit.MILLISECONDS).blockingFirst();
+  public void blockUntilIdle(final Duration timeout) throws TimeoutException {
+    try {
+      rxActive.filter(active -> !active).timeout(timeout.toMillis(), TimeUnit.MILLISECONDS).blockingFirst();
+    } catch (final RuntimeException e) {
+      val cause = e.getCause();
+      if (cause instanceof TimeoutException timeoutException) {
+        throw timeoutException;
+      } else {
+        throw e;
+      }
+    }
   }
 
   /**
@@ -192,15 +195,7 @@ public class Context implements Serializable {
   public Node.ContextualState nodeState(final Node node) {
     assert scheduler.isOnThread();
 
-    return nodeStates.computeIfAbsent(node, n -> {
-      val link = activations.new Link(n);
-      // local to avoid capturing this (lapsed listener)
-      val weakThis = this.weakThis;
-      val subscription = n.rxActivate().filter(a -> a.context == weakThis.get()).subscribe(a -> link.promote());
-      contextDisposable.add(subscription);
-
-      return n.new ContextualState(this);
-    });
+    return nodeStates.computeIfAbsent(node, n -> n.new ContextualState(this, activations.new Link(n)));
   }
 
   /**
@@ -231,65 +226,42 @@ public class Context implements Serializable {
    * However, at the synaptic level the implications are substantially different
    * than at the systemic level. The system may for example apply positive
    * reinforcement to particular synapses in response to a negative stimulus or
-   * removal or a positive stimulus in order to correct behavior.
+   * removal of a positive stimulus in order to correct behavior.
    */
-  public CompletableFuture<Void> reinforce(final Optional<Long> time, final Optional<Long> decayPeriod,
-      final float weight) {
+  public CompletableFuture<Void> reinforce(final Optional<Long> decayPeriod, final float weight) {
     if (weight == 0)
       return CompletableFuture.completedFuture(null);
 
-    val future = new CompletableFuture<Void>();
+    val async = new AsyncJoiner();
     scheduler.ensureOnThread(() -> {
-      for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(time); window.hasNext();) {
-        hebbianReinforcement(window.next(), time, weight * HEBBIAN_EXPLICIT_WEIGHT_FACTOR);
+      for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(); window.hasNext();) {
+        connectAntecedents(window.next());
       }
 
       // There are definitely more efficient ways to do this.
       for (final Synapse.ContextualState synapseState : synapseStates.values()) {
-        synapseState.reinforce(time, decayPeriod, weight);
+        async.add(synapseState.reinforce(decayPeriod, weight));
       }
 
-      future.complete(null);
+      async.arrive();
     });
 
-    return future;
+    return async.future;
   }
 
   public CompletableFuture<Void> reinforce(final float weight) {
-    return reinforce(Optional.empty(), Optional.empty(), weight);
-  }
-
-  public void hebbianReinforcement(final Node posterior, final float weight) {
-    if (weight == 0)
-      return;
-
-    scheduler.ensureOnThread(() -> {
-      for (final HebbianReinforcementWindow window = new HebbianReinforcementWindow(Optional.empty()); window
-          .hasNext();) {
-        final List<Node> snapshot = window.next();
-        if (snapshot.get(0) == posterior) {
-          hebbianReinforcement(snapshot, Optional.empty(), weight);
-          return;
-        }
-      }
-    });
+    return reinforce(Optional.empty(), weight);
   }
 
   public static long HEBBIAN_MAX_GLOBAL = 15000, HEBBIAN_MAX_LOCAL = 500;
-  public static float HEBBIAN_IMPLICIT_WEIGHT = .1f, HEBBIAN_EXPLICIT_WEIGHT_FACTOR = .1f;
 
   private class HebbianReinforcementWindow implements Iterator<List<Node>> {
-    final Optional<Long> time;
     final Iterator<Node> activations = Context.this.activations.iterator();
     Node next;
     final Queue<Node> deck = new ArrayDeque<>();
 
-    HebbianReinforcementWindow(final Optional<Long> time) {
-      this.time = time;
-      do {
-        draw();
-        // Drain until we reach the effective time.
-      } while (next != null && time.isPresent() && next.getLastActivation(Context.this) > time.get());
+    HebbianReinforcementWindow() {
+      draw();
     }
 
     private void draw() {
@@ -297,10 +269,6 @@ public class Context implements Serializable {
 
       if (activations.hasNext()) {
         next = activations.next();
-        final long lastActivation = next.getLastActivation(Context.this);
-        if (time.isPresent() && lastActivation < time.get() - HEBBIAN_MAX_GLOBAL || lastActivation == 0) {
-          next = null;
-        }
       } else {
         next = null;
       }
@@ -327,43 +295,14 @@ public class Context implements Serializable {
     }
   }
 
-  private void hebbianReinforcement(final List<Node> snapshot, final Optional<Long> time, final float baseWeight) {
+  private void connectAntecedents(final List<Node> snapshot) {
     final Node posterior = snapshot.get(0);
     if (!(posterior instanceof SynapticNode synapticPosterior))
       return;
 
-    final Synapse synapse = synapticPosterior.synapse;
-    if (synapse == null)
-      return;
-
-    final long posteriorTime = posterior.getLastActivation(this);
-    final float posteriorWeight = time.isPresent()
-        ? baseWeight * (1 - (float) (time.get() - posteriorTime) / HEBBIAN_MAX_GLOBAL)
-        : baseWeight;
-
-    final int nPriors = snapshot.size() - 1;
-
     for (final Node prior : snapshot.subList(1, snapshot.size())) {
-      Synapse.Evaluation priorEvaluation = synapse.getPrecedingEvaluation(this, prior, posteriorTime);
-      assert priorEvaluation == null || priorEvaluation.time > 0;
-
-      if (priorEvaluation == null) {
-        // New connection; treat as a prior evaluation of 0.
-        priorEvaluation = new Synapse.Evaluation(prior.getLastActivation(this), 0);
-        // TODO: Also add initial inertia based on node activation history. For now this
-        // is just 1 at 0.
-      }
-
-      final float weight = posteriorWeight * (1 - (float) (posteriorTime - priorEvaluation.time) / HEBBIAN_MAX_LOCAL);
-      final Distribution distribution = synapse.profile(prior).getCoefficient();
-      float margin = Synapse.THRESHOLD - synapse.getValue(this, priorEvaluation.time);
-      if (margin <= 0) {
-        margin = 0;
-      } else {
-        margin /= nPriors;
-      }
-      final float target = Math.min(margin + distribution.getMode(), 1);
-      distribution.add(target, weight);
+      // TODO: prepopulate a 0 evaluation
+      synapticPosterior.synapse.profile(prior);
     }
   }
 

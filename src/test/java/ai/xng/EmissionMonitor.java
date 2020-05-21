@@ -1,38 +1,31 @@
 package ai.xng;
 
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
 
 import io.reactivex.Observable;
-import io.reactivex.schedulers.Schedulers;
+import lombok.val;
 
 public class EmissionMonitor<T> {
-    private static final Object DID_NOT_ACTIVATE = new Object();
-
-    private Observable<T> source;
-    private Observable<T> monitor;
+    private List<T> emissions = new ArrayList<>();
 
     public EmissionMonitor(final Observable<T> source) {
-        reset(source);
-    }
-
-    public void reset(final Observable<T> source) {
-        this.source = source;
-        reset();
+        source.subscribe(e -> emissions.add(e)); // not a tear-off so we can hot swap emissions
     }
 
     public void reset() {
-        monitor = source.replay().autoConnect(0);
-    }
-
-    public Observable<T> emissions() {
-        // Using the computation scheduler for monitoring can lead to deadlocks
-        // when tests artificially block computation threads.
-        return monitor.take(250, TimeUnit.MILLISECONDS, Schedulers.io());
+        emissions.clear();
     }
 
     public boolean didEmit() {
-        boolean didEmit = emissions().cast(Object.class).blockingFirst(DID_NOT_ACTIVATE) != DID_NOT_ACTIVATE;
+        final boolean didEmit = !emissions.isEmpty();
         reset();
         return didEmit;
+    }
+
+    public List<T> emissions() {
+        val oldEmissions = emissions;
+        emissions = new ArrayList<>();
+        return oldEmissions;
     }
 }

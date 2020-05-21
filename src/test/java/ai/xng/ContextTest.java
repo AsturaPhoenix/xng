@@ -55,7 +55,7 @@ public class ContextTest {
   public void testBreakHabit() {
     val a = new Node(), b = new SynapticNode();
     a.then(b);
-    val monitor = new SynchronousEmissionMonitor<>(b.rxActivate());
+    val monitor = new EmissionMonitor<>(b.rxActivate());
 
     val fixture = new LearningFixture(100, 1000);
     do {
@@ -75,7 +75,7 @@ public class ContextTest {
   public void testDifferentialReinforcement() {
     val a = new Node(), b = new Node(), c = new SynapticNode();
     a.then(c);
-    val monitor = new SynchronousEmissionMonitor<>(c.rxActivate());
+    val monitor = new EmissionMonitor<>(c.rxActivate());
 
     val fixture = new LearningFixture(200, 2000);
     do {
@@ -106,7 +106,7 @@ public class ContextTest {
     c.comment = "c";
     d.comment = "d";
     d.conjunction(a, b);
-    val monitor = new SynchronousEmissionMonitor<>(d.rxActivate());
+    val monitor = new EmissionMonitor<>(d.rxActivate());
 
     final float weight = 1;
     val fixture = new LearningFixture(700, 7000);
@@ -229,7 +229,7 @@ public class ContextTest {
     }
 
     // Phase 2: recovery
-    val monitor = new SynchronousEmissionMonitor<>(c2.rxActivate());
+    val monitor = new EmissionMonitor<>(c2.rxActivate());
     val fixture = new LearningFixture(300, 3000);
     do {
       {

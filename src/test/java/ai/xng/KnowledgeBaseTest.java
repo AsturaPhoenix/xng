@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -17,11 +16,14 @@ import java.util.concurrent.TimeoutException;
 
 import org.assertj.core.util.Throwables;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import ai.xng.KnowledgeBase.Bootstrap;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
+import ai.xng.Node.Activation;
 import io.reactivex.Completable;
+import io.reactivex.Single;
 import io.reactivex.subjects.CompletableSubject;
 import lombok.val;
 
@@ -39,17 +41,18 @@ public class KnowledgeBaseTest {
     val context = kb.newContext();
     context.node.properties.put(kb.node(Common.value), kb.node("foo"));
     kb.node(BuiltIn.print).activate(context);
-    assertEquals("foo", monitor.emissions().blockingFirst());
-    // ensure that the context closes
-    context.continuation().get(1, TimeUnit.SECONDS);
+    context.blockUntilIdle();
+    assertThat(monitor.emissions()).containsExactly("foo");
   }
 
   @Test
+  @Timeout(1)
   public void testPrint() throws Exception {
     testPrint(new KnowledgeBase());
   }
 
   @Test
+  @Timeout(1)
   public void testPrintAfterSerialization() throws Exception {
     testPrint(TestUtil.serialize(new KnowledgeBase()));
   }
@@ -103,7 +106,7 @@ public class KnowledgeBaseTest {
           synapse.getRecentEvaluations(context, System.currentTimeMillis() - 500));
       throw t;
     }
-    assertEquals("red", valueMonitor.emissions().blockingFirst());
+    assertThat(valueMonitor.emissions()).containsExactly("red");
   }
 
   @Test
@@ -236,12 +239,12 @@ public class KnowledgeBaseTest {
       invocation.activate(context);
       context.blockUntilIdle();
 
-      val activation = monitor.emissions().blockingFirst();
-      final Node exception = activation.context.node.properties.get(kb.node(Common.exception));
       // TODO(rosswang): If we ever elect to capture the node at finer than invocation
       // granularity, the deepest frame in this case may be BuiltIn.print, followed by
       // the invocation.
-      assertSame(invocation, exception.properties.get(kb.node(Common.source)));
+      assertThat(monitor.emissions())
+          .extracting(activation -> activation.context.node.properties.get(kb.node(Common.exception)))
+          .extracting(exception -> exception.properties.get(kb.node(Common.source))).containsExactly(invocation);
     }
   }
 
@@ -258,6 +261,7 @@ public class KnowledgeBaseTest {
   }
 
   @Test
+  @Timeout(1)
   public void testParentContextInheritsChildActivity() throws Exception {
     try (val kb = new KnowledgeBase()) {
       val sync = CompletableSubject.create();
@@ -275,13 +279,14 @@ public class KnowledgeBaseTest {
 
       val invoke = kb.new InvocationNode(returnToParent);
       val end = new SynapticNode();
-      val monitor = new EmissionMonitor<>(end.rxActivate());
+      final Single<Activation> endMonitor = end.rxActivate().firstOrError().cache();
+      endMonitor.subscribe();
       invoke.then(end);
 
       val context = kb.newContext();
       invoke.activate(context);
-      assertTrue(monitor.didEmit());
-      assertEquals(Arrays.asList(true), context.rxActive().take(500, TimeUnit.MILLISECONDS).toList().blockingGet());
+      endMonitor.blockingGet();
+      assertThat(context.rxActive().take(500, TimeUnit.MILLISECONDS).toList().blockingGet()).containsExactly(true);
       sync.onComplete();
       context.blockUntilIdle(TIMEOUT);
     }
@@ -349,7 +354,7 @@ public class KnowledgeBaseTest {
     try (val kb = new KnowledgeBase()) {
       final Node value = kb.node(Common.value), hi = kb.node("hi"),
           invocation = kb.new InvocationNode(kb.node(Bootstrap.eval)).literal(value, kb.node("print"));
-      val monitor = new SynchronousEmissionMonitor<>(kb.rxOutput());
+      val monitor = new EmissionMonitor<>(kb.rxOutput());
 
       for (int i = 0; i < 100; ++i) {
         val context = kb.newContext();

@@ -12,7 +12,7 @@ public class SynapseTest {
   public void testActivation() {
     val outgoing = new SynapticNode();
     val incoming = new Node();
-    val monitor = new SynchronousEmissionMonitor<>(outgoing.rxActivate());
+    val monitor = new EmissionMonitor<>(outgoing.rxActivate());
 
     incoming.then(outgoing);
     incoming.activate(Context.newImmediate());
@@ -22,7 +22,7 @@ public class SynapseTest {
   @Test
   public void testNoDups() {
     val a = new Node(), b = new Node(), c = new SynapticNode();
-    val monitor = new SynchronousEmissionMonitor<>(c.rxActivate());
+    val monitor = new EmissionMonitor<>(c.rxActivate());
     c.synapse.setCoefficient(a, 2);
     c.synapse.setDecayPeriod(a, 1000);
     c.synapse.setCoefficient(b, 2);

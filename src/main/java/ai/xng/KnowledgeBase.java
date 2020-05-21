@@ -21,7 +21,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -68,7 +67,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    */
   private transient Map<Object, SynapticNode> weakIndex;
 
-  private transient Executor threadPool;
+  private transient ThreadPoolExecutor threadPool;
   private transient Subject<String> rxOutput;
 
   public enum Common {
@@ -724,6 +723,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public void close() {
     eavCleanupThread.interrupt();
     rxOutput.onComplete();
+    threadPool.shutdown();
   }
 
   public Observable<String> rxOutput() {

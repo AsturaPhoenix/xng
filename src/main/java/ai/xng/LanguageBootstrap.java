@@ -95,6 +95,10 @@ public class LanguageBootstrap {
       noValue.then(collect);
     }
 
+    val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+        .literal(kb.node(Common.name), identifier);
+    indexNode(kb, identifier, resetIdentifier, "reset");
+
     val resolvedIdentifier = new SynapticNode();
     indexNode(kb, parse, resolvedIdentifier, "resolvedIdentifier");
     {
@@ -129,6 +133,11 @@ public class LanguageBootstrap {
       returnResolved.synapse.setCoefficient(kb.eavNode(true, false, getResolvedIdentifier, null), -1);
     }
 
+    val consumeResolved = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
+        .literal(kb.node(Common.name), resolvedIdentifier);
+    indexNode(kb, resolvedIdentifier, consumeResolved, "consume");
+    consumeResolved.then(resetIdentifier);
+
     val reference = new SynapticNode();
     indexNode(kb, parse, reference, "reference");
     {
@@ -153,7 +162,7 @@ public class LanguageBootstrap {
 
       val setProperty = kb.new InvocationNode(kb.node(BuiltIn.node)).literal(kb.node(Common.entrypoint),
           kb.node(BuiltIn.setProperty));
-      setProperty.comment = "setProperty";
+      indexNode(kb, assignment, setProperty, "setProperty");
       {
         val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
             .literal(kb.node(Common.name), setProperty).transform(kb.node(Common.value), setProperty);
@@ -166,13 +175,6 @@ public class LanguageBootstrap {
           .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.literal))
           .transform(kb.node(Common.value), literal);
       literal.then(setLiteral);
-      val consumeResolved = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), resolvedIdentifier);
-      {
-        val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), state).literal(kb.node(Common.name), identifier);
-        consumeResolved.then(resetIdentifier);
-      }
       setProperty.then(consumeResolved);
       val setName = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), literal)
           .literal(kb.node(Common.name), kb.node(Common.name)).transform(kb.node(Common.value), consumeResolved);
@@ -227,6 +229,53 @@ public class LanguageBootstrap {
           .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), getAssignment);
       getAssignment.then(returnAssignment);
       returnAssignment.synapse.setCoefficient(kb.eavNode(true, false, getAssignment, null), -1);
+    }
+
+    val call = new SynapticNode();
+    indexNode(kb, parse, call, "call");
+    {
+      val ifOparen = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '('));
+      val startCall = new SynapticNode();
+      indexNode(kb, call, startCall, "start");
+      startCall.conjunction(onNext, ifOparen, kb.eavNode(true, true, state, resolvedIdentifier));
+
+      startCall.then(consumeResolved);
+
+      val invocation = kb.new InvocationNode(kb.node(BuiltIn.node)).transform(kb.node(Common.entrypoint),
+          consumeResolved);
+      indexNode(kb, call, invocation, "invocation");
+      invocation.conjunction(startCall, consumeResolved);
+      {
+        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+            .literal(kb.node(Common.name), invocation).transform(kb.node(Common.value), invocation);
+        invocation.then(publish);
+      }
+
+      val ifCparen = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) ')'));
+      val endCall = new SynapticNode();
+      indexNode(kb, call, endCall, "end");
+      endCall.conjunction(onNext, ifCparen, kb.eavNode(true, true, state, invocation));
+      endCall.synapse.setCoefficient(kb.eavNode(true, false, state, invocation, null), -1);
+
+      val getInvocation = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
+          .literal(kb.node(Common.name), invocation);
+      {
+        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
+            .literal(kb.node(Common.name), call).transform(kb.node(Common.value), getInvocation);
+        getInvocation.then(publish);
+        val resetInvocation = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), state).literal(kb.node(Common.name), invocation);
+        getInvocation.then(resetInvocation);
+      }
+      endCall.then(getInvocation);
+
+      val getCall = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
+          .literal(kb.node(Common.name), call);
+      collectResult.then(getCall);
+      val returnCall = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+          .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), getCall);
+      getCall.then(returnCall);
+      returnCall.synapse.setCoefficient(kb.eavNode(true, false, getCall, null), -1);
     }
   }
 }

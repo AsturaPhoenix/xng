@@ -22,6 +22,7 @@ public final class Console {
 
       repl.rxOutput().buffer(repl.rxOutput().debounce(200, TimeUnit.MILLISECONDS)).map(x -> String.join("", x))
           .subscribe(System.out::print);
+      repl.rxError().subscribe(Throwable::printStackTrace);
 
       val in = new BufferedReader(new InputStreamReader(System.in));
 

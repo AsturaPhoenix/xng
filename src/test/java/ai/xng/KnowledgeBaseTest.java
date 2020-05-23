@@ -328,6 +328,7 @@ public class KnowledgeBaseTest {
       val subscription = repl.rxOutput().subscribe(sb::append);
       try {
         repl.sendInput(input).get();
+        repl.getRootContext().blockUntilIdle();
       } finally {
         subscription.dispose();
       }
@@ -346,6 +347,25 @@ public class KnowledgeBaseTest {
       repl.eval("node");
       repl.eval("value = returnValue");
       assertEquals("null", repl.eval("print"));
+    }
+  }
+
+  @Test
+  public void testNamedArgsConsistency() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+
+      val fixture = new LearningFixture(100, 1000);
+      do {
+        val repl = new TestRepl(kb);
+        try {
+          assertEquals("node", repl.eval("print(value = &node)"),
+              String.format("Failed at iteration %s.", fixture.getRuns()));
+          fixture.pass();
+          KnowledgeBase.reinforceRecursively(repl.repl.getRootContext(), 1);
+        } catch (final Throwable t) {
+          fixture.fail();
+        }
+      } while (fixture.shouldContinue());
     }
   }
 

@@ -15,6 +15,7 @@ public class Repl {
   @Getter
   private final KnowledgeBase kb;
 
+  @Getter
   private final Context rootContext;
 
   private final Subject<Throwable> rxError = PublishSubject.create();

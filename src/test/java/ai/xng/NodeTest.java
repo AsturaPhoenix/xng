@@ -212,8 +212,8 @@ public class NodeTest {
   public void testNearCoincidentInhibition() {
     val up = new Node(), down = new Node(), out = new SynapticNode();
     val monitor = new EmissionMonitor<>(out.rxActivate());
-    out.synapse.setCoefficient(up, 1);
-    out.synapse.setCoefficient(down, -1);
+    out.getSynapse().setCoefficient(up, 1);
+    out.getSynapse().setCoefficient(down, -1);
     val context = Context.newWithExecutor(threadPool);
     down.activate(context);
     up.activate(context);
@@ -229,10 +229,10 @@ public class NodeTest {
     final long beginning = System.currentTimeMillis();
     out.rxActivate().subscribe(a -> activations.add(a.timestamp - beginning));
 
-    out.synapse.setCoefficient(up, 2.1f);
-    out.synapse.setDecayPeriod(up, 1000);
-    out.synapse.setCoefficient(down, -3);
-    out.synapse.setDecayPeriod(down, 500);
+    out.getSynapse().setCoefficient(up, 2.1f);
+    out.getSynapse().setDecayPeriod(up, 1000);
+    out.getSynapse().setCoefficient(down, -3);
+    out.getSynapse().setDecayPeriod(down, 500);
     val context = Context.newWithExecutor(threadPool);
     down.activate(context);
     up.activate(context);

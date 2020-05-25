@@ -302,7 +302,7 @@ public class Context implements Serializable {
 
     for (final Node prior : snapshot.subList(1, snapshot.size())) {
       // TODO: prepopulate a 0 evaluation
-      synapticPosterior.synapse.profile(prior);
+      synapticPosterior.getSynapse().profile(prior);
     }
   }
 

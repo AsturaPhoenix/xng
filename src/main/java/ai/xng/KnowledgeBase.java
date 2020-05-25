@@ -122,7 +122,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final SynapticNode posterior = (SynapticNode) context.require(kb.node(Common.posterior));
         final Node coefficient = context.node.properties.get(kb.node(Common.coefficient));
 
-        posterior.synapse.setCoefficient(prior, coefficient == null ? 1 : (float) coefficient.getValue());
+        posterior.getSynapse().setCoefficient(prior, coefficient == null ? 1 : (float) coefficient.getValue());
         return null;
       }
     },
@@ -1130,7 +1130,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         lookup.then(indexedResult);
 
         final Node absent = kb.eavNode(true, false, lookup, null);
-        indexedResult.synapse.setCoefficient(absent, -1);
+        indexedResult.getSynapse().setCoefficient(absent, -1);
 
         val literalResult = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
             .literal(kb.node(Common.name), kb.node(Common.returnValue))

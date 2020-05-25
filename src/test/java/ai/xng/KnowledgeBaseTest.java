@@ -101,7 +101,7 @@ public class KnowledgeBaseTest {
     try {
       assertTrue(sanity3.didEmit());
     } catch (final Throwable t) {
-      final Synapse synapse = ((SynapticNode) print).synapse;
+      final Synapse synapse = ((SynapticNode) print).getSynapse();
       System.err.printf("Invocation synapse:\n%s\n\nRecent evaluations:\n%s\n\n", synapse,
           synapse.getRecentEvaluations(context, System.currentTimeMillis() - 500));
       throw t;

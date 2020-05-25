@@ -39,13 +39,13 @@ public class ContextTest {
   public void testHebbianLearningOnHyperactivation() throws InterruptedException {
     val context = Context.newImmediate();
     val a = new Node(), b = new Node(), c = new SynapticNode();
-    c.synapse.setCoefficient(a, 2);
-    c.synapse.setDecayPeriod(a, 1000);
+    c.getSynapse().setCoefficient(a, 2);
+    c.getSynapse().setDecayPeriod(a, 1000);
     a.activate(context);
     b.activate(context);
     c.activate(context);
     context.reinforce(1).join();
-    assertThat(c.synapse.getCoefficient(b)).isGreaterThanOrEqualTo(0);
+    assertThat(c.getSynapse().getCoefficient(b)).isGreaterThanOrEqualTo(0);
   }
 
   /**
@@ -64,7 +64,7 @@ public class ContextTest {
       context.blockUntilIdle();
       fixture.reinforce(!monitor.didEmit(), context, 0, -1);
     } while (fixture.shouldContinue());
-    assertThat(b.synapse.getCoefficient(a)).isLessThan(1);
+    assertThat(b.getSynapse().getCoefficient(a)).isLessThan(1);
   }
 
   /**
@@ -188,8 +188,8 @@ public class ContextTest {
       }
     }
 
-    assertThat(c.synapse.getCoefficient(a)).isBetween(-10f, 10f);
-    assertThat(c.synapse.getCoefficient(b)).isBetween(-10f, 10f);
+    assertThat(c.getSynapse().getCoefficient(a)).isBetween(-10f, 10f);
+    assertThat(c.getSynapse().getCoefficient(b)).isBetween(-10f, 10f);
   }
 
   /**

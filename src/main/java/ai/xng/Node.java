@@ -223,7 +223,7 @@ public class Node implements Serializable {
    * @return next
    */
   public Node then(final SynapticNode next) {
-    next.synapse.setCoefficient(this, Synapse.THRESHOLD + THRESHOLD_MARGIN);
+    next.getSynapse().setCoefficient(this, Synapse.THRESHOLD + THRESHOLD_MARGIN);
     return next;
   }
 }

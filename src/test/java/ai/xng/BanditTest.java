@@ -104,7 +104,7 @@ public class BanditTest {
     public void report() {
       for (val banditNode : bandits) {
         System.out.printf("%s (%s)\n", banditNode, banditNode.bandit);
-        for (val line : banditNode.synapse.toString().split("\n")) {
+        for (val line : banditNode.getSynapse().toString().split("\n")) {
           System.out.printf("\t%s\n", line);
         }
       }

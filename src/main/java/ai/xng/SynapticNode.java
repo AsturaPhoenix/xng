@@ -3,15 +3,40 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 
+import lombok.Getter;
 import lombok.val;
 
 /**
- * A node that allows synaptic input.
+ * A node that keeps track of its synapse.
+ * <p>
+ * The intrinsic lock is used during synapse reparenting operations, so client
+ * code that requires related consistency should hold the lock.
  */
 public class SynapticNode extends Node {
   private static final long serialVersionUID = -4340465118968553513L;
 
-  public final Synapse synapse = new Synapse(this);
+  @Getter
+  private Synapse synapse = new Synapse(this);
+
+  /**
+   * Splits this node into a prior and posterior, where {@code this} becomes the
+   * posterior and the prior is returned.
+   */
+  public synchronized SynapticNode split() {
+    synchronized (synapse) {
+      val prior = new SynapticNode();
+      val oldSynapse = synapse;
+
+      synapse = prior.synapse;
+      prior.synapse = oldSynapse;
+
+      synapse.setNode(this);
+      oldSynapse.setNode(prior);
+
+      prior.then(this);
+      return prior;
+    }
+  }
 
   public SynapticNode() {
     this(null);

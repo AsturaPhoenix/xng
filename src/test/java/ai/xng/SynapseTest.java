@@ -23,10 +23,10 @@ public class SynapseTest {
   public void testNoDups() {
     val a = new Node(), b = new Node(), c = new SynapticNode();
     val monitor = new EmissionMonitor<>(c.rxActivate());
-    c.synapse.setCoefficient(a, 2);
-    c.synapse.setDecayPeriod(a, 1000);
-    c.synapse.setCoefficient(b, 2);
-    c.synapse.setDecayPeriod(b, 1000);
+    c.getSynapse().setCoefficient(a, 2);
+    c.getSynapse().setDecayPeriod(a, 1000);
+    c.getSynapse().setCoefficient(b, 2);
+    c.getSynapse().setDecayPeriod(b, 1000);
     val context = Context.newImmediate();
     a.activate(context);
     assertTrue(monitor.didEmit());

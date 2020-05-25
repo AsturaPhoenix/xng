@@ -22,18 +22,20 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.Getter;
-import lombok.Synchronized;
 import lombok.val;
 
 /**
  * Represents the incoming logical junction of input node signals towards a
  * specific output node. This implements a simplified, linear form of leaky
  * integrate and fire.
- * 
+ * <p>
  * Minimal effort is made to preserve activation across serialization boundaries
  * since behavior while the system is down is discontinuous anyway. In the
  * future, it is likely that either we will switch to relative time and fully
  * support serialization or else completely clear activation on deserialization.
+ * <p>
+ * For thread safety, this class uses its intrinsic lock so that
+ * {@link SynapticNode} can hold it while splitting nodes.
  */
 public class Synapse implements Serializable {
   private static final long serialVersionUID = 1779165354354490167L;
@@ -54,14 +56,16 @@ public class Synapse implements Serializable {
     public ContextualState(final Context context) {
       this.context = context;
       rxEvaluations = PublishSubject.create();
-      Observable.switchOnNext(rxEvaluations).subscribe(t -> node.activate(context));
+      Observable.switchOnNext(rxEvaluations).subscribe(t ->
+      // (We should be locking Synchronized.this at this point.)
+      node.activate(context));
     }
 
     public CompletableFuture<Void> reinforce(Optional<Long> decayPeriod, float weight) {
       val future = new CompletableFuture<Void>();
 
       context.getScheduler().ensureOnThread(() -> {
-        synchronized (Synapse.this.$lock) {
+        synchronized (Synapse.this) {
           final long now = context.getScheduler().now(TimeUnit.MILLISECONDS);
 
           for (final Entry<Node, ArrayDeque<Evaluation>> entry : evaluations.entrySet()) {
@@ -88,6 +92,8 @@ public class Synapse implements Serializable {
                   .dropWhile(ta -> ta < t).takeWhile(ta -> ta < t + 2 * profile.decayPeriod).findFirst();
 
               // correlation between prior and posterior
+              // This may be invalid if the synapse was moved to a different node; no effort
+              // is made to invalidate contextual states after such an operation.
               final float correlation = followingActivation.map(ta -> 1 - 2 * (float) (ta - t) / profile.decayPeriod)
                   .orElse(-1f);
 
@@ -148,7 +154,7 @@ public class Synapse implements Serializable {
 
       activation.context.getScheduler().scheduleDirect(() -> {
         final ContextualState state = activation.context.synapseState(Synapse.this);
-        synchronized (Synapse.this.$lock) {
+        synchronized (Synapse.this) {
           final ExtrapolatedEvaluation totalBefore = Synapse.this.getValue(activation.context, activation.timestamp);
           final ExtrapolatedEvaluation localBefore = getValue(activation.context, activation.timestamp);
           final float localAfter = coefficient.generate();
@@ -194,7 +200,8 @@ public class Synapse implements Serializable {
     }
   }
 
-  private final SynapticNode node;
+  @Getter
+  private Node node;
   private transient Map<Node, Profile> inputs;
 
   public Synapse(final SynapticNode node) {
@@ -204,6 +211,19 @@ public class Synapse implements Serializable {
 
   private void init() {
     inputs = new WeakHashMap<>();
+  }
+
+  public synchronized void setNode(final Node node) {
+    if (this.node instanceof SynapticNode oldNode && oldNode.getSynapse() == this) {
+      throw new IllegalStateException(
+          "Cannot move synapse bound to SynapticNode. Call appropriate methods on SynapticNode instead.");
+    }
+    if (node instanceof SynapticNode newNode && newNode.getSynapse() != this) {
+      throw new IllegalArgumentException(
+          "Cannot move synapse to SynapticNode directly. Call appropriate methods on SynapticNode instead.");
+    }
+
+    this.node = node;
   }
 
   public static record Evaluation(long time, float value, ExtrapolatedEvaluation total) {
@@ -241,8 +261,7 @@ public class Synapse implements Serializable {
     }
   }
 
-  @Synchronized
-  public ExtrapolatedEvaluation getValue(final Context context, final long time) {
+  public synchronized ExtrapolatedEvaluation getValue(final Context context, final long time) {
     assert context.getScheduler().isOnThread();
     return inputs.values().stream().map(profile -> profile.getValue(context, time)).reduce(ExtrapolatedEvaluation.ZERO,
         (a, b) -> new ExtrapolatedEvaluation(a.value + b.value, a.weight + b.weight));
@@ -315,8 +334,7 @@ public class Synapse implements Serializable {
     return Long.MAX_VALUE;
   }
 
-  @Synchronized
-  private void writeObject(final ObjectOutputStream o) throws IOException {
+  private synchronized void writeObject(final ObjectOutputStream o) throws IOException {
     o.defaultWriteObject();
     o.writeInt(inputs.size());
     for (final Entry<Node, Profile> entry : inputs.entrySet()) {
@@ -339,8 +357,7 @@ public class Synapse implements Serializable {
     }
   }
 
-  @Synchronized
-  public Profile profile(final Node node) {
+  public synchronized Profile profile(final Node node) {
     return inputs.computeIfAbsent(node, Profile::new);
   }
 
@@ -350,8 +367,7 @@ public class Synapse implements Serializable {
     return this;
   }
 
-  @Synchronized
-  public float getCoefficient(final Node node) {
+  public synchronized float getCoefficient(final Node node) {
     final Profile profile = inputs.get(node);
     return profile == null ? 0 : profile.coefficient.getMode();
   }
@@ -370,14 +386,12 @@ public class Synapse implements Serializable {
     return this;
   }
 
-  @Synchronized
-  public long getDecayPeriod(final Node node) {
+  public synchronized long getDecayPeriod(final Node node) {
     final Profile profile = inputs.get(node);
     return profile == null ? 0 : profile.decayPeriod;
   }
 
-  @Synchronized
-  public void dissociate(final Node node) {
+  public synchronized void dissociate(final Node node) {
     final Profile profile = inputs.remove(node);
     if (profile != null) {
       profile.subscription.dispose();
@@ -388,8 +402,7 @@ public class Synapse implements Serializable {
     return getPrecedingEvaluation(context, incoming, Long.MAX_VALUE);
   }
 
-  @Synchronized
-  public Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {
+  public synchronized Evaluation getPrecedingEvaluation(final Context context, final Node incoming, final long time) {
     final ArrayDeque<Evaluation> evaluations = context.synapseState(this).evaluations.get(incoming);
     if (evaluations == null)
       return null;
@@ -397,8 +410,7 @@ public class Synapse implements Serializable {
     return evaluations.stream().dropWhile(e -> e.time > time).findFirst().orElse(null);
   }
 
-  @Synchronized
-  public Map<Node, List<Evaluation>> getRecentEvaluations(final Context context, final long since) {
+  public synchronized Map<Node, List<Evaluation>> getRecentEvaluations(final Context context, final long since) {
     val evaluations = context.synapseState(this).evaluations;
 
     final Map<Node, List<Evaluation>> recent = new HashMap<>();
@@ -409,9 +421,8 @@ public class Synapse implements Serializable {
     return recent;
   }
 
-  @Synchronized
   @Override
-  public String toString() {
+  public synchronized String toString() {
     return inputs.entrySet().stream()
         .map(entry -> String.format("%s: %s", entry.getKey(), entry.getValue().getCoefficient()))
         .collect(Collectors.joining("\n"));

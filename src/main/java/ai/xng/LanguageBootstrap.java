@@ -48,12 +48,12 @@ public class LanguageBootstrap {
 
       val hasBuffer = kb.eavNode(true, true, state, buffer);
 
-      notStarted.synapse.setCoefficient(onNext, 1);
-      notStarted.synapse.setCoefficient(hasBuffer, -1);
+      notStarted.getSynapse().setCoefficient(onNext, 1);
+      notStarted.getSynapse().setCoefficient(hasBuffer, -1);
 
       val hadBuffer = new SynapticNode();
-      hadBuffer.synapse.setCoefficient(hasBuffer, 1);
-      hadBuffer.synapse.setCoefficient(onNext, -1);
+      hadBuffer.getSynapse().setCoefficient(hasBuffer, 1);
+      hadBuffer.getSynapse().setCoefficient(onNext, -1);
       getBuffer.conjunction(onNext, hadBuffer);
       cacheBuffer.then(inProgress);
 
@@ -90,8 +90,8 @@ public class LanguageBootstrap {
 
       kb.eavNode(true, false, ifIdentifierPart, kb.node(false)).then(collect);
       val noValue = new SynapticNode();
-      noValue.synapse.setCoefficient(inProgress, 1);
-      noValue.synapse.setCoefficient(hasValue, -1);
+      noValue.getSynapse().setCoefficient(inProgress, 1);
+      noValue.getSynapse().setCoefficient(hasValue, -1);
       noValue.then(collect);
     }
 
@@ -107,10 +107,10 @@ public class LanguageBootstrap {
       val unset = kb.eavNode(true, false, state, identifier, null);
       val set = kb.eavNode(true, true, state, identifier);
       val notAlreadySet = new SynapticNode();
-      notAlreadySet.synapse.setCoefficient(set, -1);
-      notAlreadySet.synapse.setCoefficient(onNext, 1);
+      notAlreadySet.getSynapse().setCoefficient(set, -1);
+      notAlreadySet.getSynapse().setCoefficient(onNext, 1);
       getIdentifier.conjunction(notAlreadySet, set);
-      getIdentifier.synapse.setCoefficient(unset, -1);
+      getIdentifier.getSynapse().setCoefficient(unset, -1);
       val resolve = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name), getIdentifier);
       getIdentifier.then(resolve);
       {
@@ -130,7 +130,7 @@ public class LanguageBootstrap {
           .literal(kb.node(Common.name), kb.node(Common.returnValue))
           .transform(kb.node(Common.value), getResolvedIdentifier);
       getResolvedIdentifier.then(returnResolved);
-      returnResolved.synapse.setCoefficient(kb.eavNode(true, false, getResolvedIdentifier, null), -1);
+      returnResolved.getSynapse().setCoefficient(kb.eavNode(true, false, getResolvedIdentifier, null), -1);
     }
 
     val consumeResolved = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
@@ -145,8 +145,8 @@ public class LanguageBootstrap {
       val set = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
           .literal(kb.node(Common.name), reference).literal(kb.node(Common.value), reference);
       set.conjunction(ifAmp, identifier.properties.get(kb.node("notStarted")));
-      set.synapse.setCoefficient(kb.eavNode(true, true, state, identifier), -1);
-      set.synapse.setCoefficient(kb.eavNode(true, true, state, reference), -1);
+      set.getSynapse().setCoefficient(kb.eavNode(true, true, state, identifier), -1);
+      set.getSynapse().setCoefficient(kb.eavNode(true, true, state, reference), -1);
 
       val unset = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
           .literal(kb.node(Common.name), reference);
@@ -182,10 +182,10 @@ public class LanguageBootstrap {
 
       val rhs = new SynapticNode();
       val hadSetProperty = new SynapticNode();
-      hadSetProperty.synapse.setCoefficient(kb.eavNode(true, true, state, setProperty), 1);
-      hadSetProperty.synapse.setCoefficient(onNext, -1);
+      hadSetProperty.getSynapse().setCoefficient(kb.eavNode(true, true, state, setProperty), 1);
+      hadSetProperty.getSynapse().setCoefficient(onNext, -1);
       rhs.conjunction(onNext, hadSetProperty, kb.eavNode(true, true, state, resolvedIdentifier));
-      rhs.synapse.setCoefficient(kb.eavNode(true, false, state, resolvedIdentifier, null), -1);
+      rhs.getSynapse().setCoefficient(kb.eavNode(true, false, state, resolvedIdentifier, null), -1);
       rhs.then(consumeResolved);
 
       val getSetProperty = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
@@ -211,8 +211,8 @@ public class LanguageBootstrap {
       setLiteralValue.conjunction(getLiteral, consumeResolved);
 
       val transform = kb.new InvocationNode(kb.node(BuiltIn.node));
-      transform.synapse.setCoefficient(rhs, 1);
-      transform.synapse.setCoefficient(isRef, -1);
+      transform.getSynapse().setCoefficient(rhs, 1);
+      transform.getSynapse().setCoefficient(isRef, -1);
       val setTransform = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
           .transform(kb.node(Common.object), getSetProperty).literal(kb.node(Common.name), kb.node(Common.transform))
           .transform(kb.node(Common.value), transform);
@@ -228,7 +228,7 @@ public class LanguageBootstrap {
       val returnAssignment = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
           .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), getAssignment);
       getAssignment.then(returnAssignment);
-      returnAssignment.synapse.setCoefficient(kb.eavNode(true, false, getAssignment, null), -1);
+      returnAssignment.getSynapse().setCoefficient(kb.eavNode(true, false, getAssignment, null), -1);
     }
 
     val call = new SynapticNode();
@@ -255,7 +255,7 @@ public class LanguageBootstrap {
       val endCall = new SynapticNode();
       indexNode(kb, call, endCall, "end");
       endCall.conjunction(onNext, ifCparen, kb.eavNode(true, true, state, invocation));
-      endCall.synapse.setCoefficient(kb.eavNode(true, false, state, invocation, null), -1);
+      endCall.getSynapse().setCoefficient(kb.eavNode(true, false, state, invocation, null), -1);
 
       val getInvocation = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
           .literal(kb.node(Common.name), invocation);
@@ -275,7 +275,7 @@ public class LanguageBootstrap {
       val returnCall = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
           .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), getCall);
       getCall.then(returnCall);
-      returnCall.synapse.setCoefficient(kb.eavNode(true, false, getCall, null), -1);
+      returnCall.getSynapse().setCoefficient(kb.eavNode(true, false, getCall, null), -1);
     }
   }
 }

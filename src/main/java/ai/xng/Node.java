@@ -125,9 +125,9 @@ public class Node implements Serializable {
     if (value == null || value instanceof Serializable) {
       stream.writeObject(value);
     } else {
-      System.err.printf(
-          "Warning: attempted to serialize a node with non-serializable value %s. This value will be lost upon deserialization.\n",
-          value);
+      // Just discard non-serializable values. It would be nice to warn here but there
+      // are legitimate ephemeral values we can be storing in contexts at the time of
+      // serialization.
       stream.writeObject(null);
     }
   }

@@ -244,9 +244,11 @@ public class LanguageBootstrap {
     }
 
     val getOrCreate = new SynapticNode();
+    getOrCreate.comment = "getOrCreate";
     {
       val get = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).inherit(kb.node(Common.object))
           .inherit(kb.node(Common.name));
+      indexNode(kb, getOrCreate, get, "get");
       getOrCreate.then(get);
       val absent = kb.eavNode(true, false, get, null);
 
@@ -256,6 +258,7 @@ public class LanguageBootstrap {
       returnGet.getSynapse().setCoefficient(absent, -1);
 
       val create = kb.new InvocationNode(kb.node(BuiltIn.node));
+      indexNode(kb, getOrCreate, create, "create");
       create.conjunction(get, absent);
       val set = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).inherit(kb.node(Common.object))
           .inherit(kb.node(Common.name)).transform(kb.node(Common.value), create);
@@ -326,13 +329,14 @@ public class LanguageBootstrap {
       val setNamedArg = new SynapticNode();
       indexNode(kb, call, setNamedArg, "setNamedArg");
       {
+        val hasNamedArg = kb.eavNode(true, true, state, namedArg);
         val hadNamedArg = new SynapticNode();
-        hadNamedArg.getSynapse().setCoefficient(kb.eavNode(true, true, state, namedArg), 1);
+        hadNamedArg.getSynapse().setCoefficient(hasNamedArg, 1);
         hadNamedArg.getSynapse().setCoefficient(onNext, -1);
         setNamedArg.conjunction(onNext, hadNamedArg, hasResolvedIdentifier);
 
         // Suppress endCall until we've processed the arg.
-        endCall.getSynapse().setCoefficient(hadNamedArg, -1);
+        endCall.getSynapse().setCoefficient(hasNamedArg, -1);
 
         setNamedArg.then(getInvocation);
 

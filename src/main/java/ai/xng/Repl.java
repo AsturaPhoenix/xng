@@ -1,7 +1,6 @@
 package ai.xng;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 import ai.xng.KnowledgeBase.Bootstrap;
 import ai.xng.KnowledgeBase.Common;
@@ -33,7 +32,7 @@ public class Repl {
     return rxError;
   }
 
-  public Future<Void> sendInput(final String input) {
+  public CompletableFuture<Void> sendInput(final String input) {
     val completion = new CompletableFuture<Void>();
     val invocation = kb.new InvocationNode(kb.node(Bootstrap.eval)).literal(kb.node(Common.value), kb.node(input));
     val subscription = invocation.rxActivate().subscribe(__ -> completion.complete(null));

@@ -1063,7 +1063,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * Adds a debug listener that dumps the context when a node is activated.
    */
   public static void debug(final Node node) {
-    node.rxActivate().subscribe(a -> System.err.println(a.context.node.debugDump(SKIP_CALLER)));
+    node.rxActivate()
+        .subscribe(a -> System.err.printf("Watch %s context: %s\n", node, a.context.node.debugDump(SKIP_CALLER)));
   }
 
   // The ordering of the members is significant; later setups can depend on

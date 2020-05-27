@@ -43,7 +43,7 @@ public class Synapse implements Serializable {
   public static final float THRESHOLD = 1;
   public static final float REINFORCEMENT_MARGIN = .2f;
   public static final float AUTOREINFORCEMENT = .2f;
-  public static final long DEFAULT_DECAY = 100;
+  public static final long DEFAULT_DECAY = 1000;
   public static final float HEBBIAN_WEIGHT_FACTOR = .45f;
   // Evaluation history TTL, in ms.
   public static final long EVALUATION_HISTORY = 15000;

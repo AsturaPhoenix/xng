@@ -4,6 +4,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.reactivex.Completable;
+
 /**
  * Cheap void {@link CompletableFuture#allOf(CompletableFuture...)}.
  */
@@ -13,7 +15,15 @@ public class AsyncJoiner {
 
   public void add(final CompletionStage<?> task) {
     register();
-    task.thenRun(this::arrive);
+    task.thenRun(this::arrive).exceptionally(t -> {
+      future.completeExceptionally(t);
+      return null;
+    });
+  }
+
+  public void add(final Completable task) {
+    register();
+    task.subscribe(this::arrive, future::completeExceptionally);
   }
 
   public void register() {

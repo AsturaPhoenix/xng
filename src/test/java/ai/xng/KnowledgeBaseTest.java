@@ -3,6 +3,7 @@ package ai.xng;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,6 +34,45 @@ public class KnowledgeBaseTest {
   @Test
   public void testEmptySerialization() throws Exception {
     assertNotNull(TestUtil.serialize(new KnowledgeBase()));
+  }
+
+  @Test
+  public void testEavBeforeEntrypoint() {
+    try (val kb = new KnowledgeBase()) {
+      val entrypoint = new SynapticNode(), param = new SynapticNode(), eav = kb.eavNode(true, true, param),
+          race = new SynapticNode();
+      race.getSynapse().setCoefficient(eav, -1);
+      race.getSynapse().setCoefficient(entrypoint, 1);
+
+      val invocation = kb.new InvocationNode(entrypoint).literal(param, param);
+      val monitor = new EmissionMonitor<>(race.rxActivate());
+      for (int i = 0; i < 1000; ++i) {
+        val context = kb.newContext();
+        invocation.activate(context);
+        context.blockUntilIdle();
+        assertFalse(monitor.didEmit());
+      }
+    }
+  }
+
+  @Test
+  public void testNestedEavBeforeEntrypoint() {
+    try (val kb = new KnowledgeBase()) {
+      val entrypoint = new SynapticNode(), parent = new SynapticNode(), child = new SynapticNode(),
+          eav = kb.eavNode(true, true, parent, child), race = new SynapticNode();
+      parent.properties.put(child, child);
+      race.getSynapse().setCoefficient(eav, -1);
+      race.getSynapse().setCoefficient(entrypoint, 1);
+
+      val invocation = kb.new InvocationNode(entrypoint).literal(parent, parent);
+      val monitor = new EmissionMonitor<>(race.rxActivate());
+      for (int i = 0; i < 1000; ++i) {
+        val context = kb.newContext();
+        invocation.activate(context);
+        context.blockUntilIdle();
+        assertFalse(monitor.didEmit());
+      }
+    }
   }
 
   private static void testPrint(final KnowledgeBase kb) throws Exception {
@@ -325,12 +365,18 @@ public class KnowledgeBaseTest {
 
     String eval(final String input) throws InterruptedException, ExecutionException {
       val sb = new StringBuilder();
-      val subscription = repl.rxOutput().subscribe(sb::append);
+      val async = new AsyncJoiner();
+      val out = repl.rxOutput().subscribe(sb::append);
+      val err = repl.rxError().subscribe(async.future::completeExceptionally);
+
       try {
-        repl.sendInput(input).get();
-        repl.getRootContext().blockUntilIdle();
+        async.add(repl.sendInput(input));
+        async.add(repl.getRootContext().rxActive().filter(a -> !a).firstElement().ignoreElement());
+        async.arrive();
+        async.future.get();
       } finally {
-        subscription.dispose();
+        out.dispose();
+        err.dispose();
       }
       return sb.toString();
     }
@@ -353,19 +399,11 @@ public class KnowledgeBaseTest {
   @Test
   public void testNamedArgsConsistency() throws Exception {
     try (val kb = new KnowledgeBase()) {
+      val repl = new TestRepl(kb);
 
-      val fixture = new LearningFixture(100, 1000);
-      do {
-        val repl = new TestRepl(kb);
-        try {
-          assertEquals("node", repl.eval("print(value = &node)"),
-              String.format("Failed at iteration %s.", fixture.getRuns()));
-          fixture.pass();
-          KnowledgeBase.reinforceRecursively(repl.repl.getRootContext(), 1);
-        } catch (final Throwable t) {
-          fixture.fail();
-        }
-      } while (fixture.shouldContinue());
+      for (int i = 0; i < 200; ++i) {
+        assertEquals("node", repl.eval("print(value = &node)"), String.format("Failed at iteration %s.", i));
+      }
     }
   }
 

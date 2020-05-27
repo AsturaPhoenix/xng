@@ -1115,13 +1115,27 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * <li>{@link Common#name}: node to resolve
      */
     resolve {
+      private <T extends Enum<T>> SynapticNode compileEnum(final KnowledgeBase kb, final T[] e) {
+        val index = new SynapticNode();
+        for (final T member : e) {
+          index.properties.put(kb.node(member.name()), kb.node(member));
+        }
+        return index;
+      }
+
       @Override
       protected void setUp(final KnowledgeBase kb, final Node resolve) {
         val index = new SynapticNode();
-        for (val member : Iterables.concat(Arrays.asList(Common.values()), Arrays.asList(BuiltIn.values()),
-            Arrays.asList(Bootstrap.values()))) {
-          index.properties.put(kb.node(member.name()), kb.node(member));
+        val common = compileEnum(kb, Common.values()), builtIn = compileEnum(kb, BuiltIn.values()),
+            bootstrap = compileEnum(kb, Bootstrap.values());
+        for (val type : new SynapticNode[] { common, builtIn, bootstrap }) {
+          index.properties.putAll(type.properties);
         }
+        index.properties.put(kb.node("index"), index);
+        index.properties.put(kb.node("Common"), common);
+        index.properties.put(kb.node("BuiltIn"), builtIn);
+        index.properties.put(kb.node("Bootstrap"), bootstrap);
+
         val lookup = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), index)
             .transform(kb.node(Common.name), kb.node(Common.name));
         resolve.then(lookup);

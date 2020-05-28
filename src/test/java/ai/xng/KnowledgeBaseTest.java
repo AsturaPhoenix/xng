@@ -371,7 +371,7 @@ public class KnowledgeBaseTest {
 
       try {
         async.add(repl.sendInput(input));
-        async.add(repl.getRootContext().rxActive().filter(a -> !a).firstElement().ignoreElement());
+        async.add(repl.rootContext.rxActive().filter(a -> !a).firstElement().ignoreElement());
         async.arrive();
         async.future.get();
       } finally {

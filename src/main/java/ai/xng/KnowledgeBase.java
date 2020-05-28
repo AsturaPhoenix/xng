@@ -29,7 +29,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.MapMaker;
 
 import io.reactivex.Completable;
@@ -102,7 +101,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * does not block.
      * 
      * As an alternative, consider chaining off of EAV nodes instead of activating
-     * contextual nodes.
+     * contextual nodes. However, this is useful for function pointers as it can
+     * invoke an entrypoint with indirection.
      */
     activate {
       @Override

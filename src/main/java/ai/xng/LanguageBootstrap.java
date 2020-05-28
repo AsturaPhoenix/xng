@@ -3,6 +3,7 @@ package ai.xng;
 import ai.xng.KnowledgeBase.Bootstrap;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
+import ai.xng.KnowledgeBase.InvocationNode;
 import lombok.val;
 import lombok.experimental.UtilityClass;
 
@@ -177,7 +178,7 @@ public class LanguageBootstrap {
       indexNode(kb, assignment, setProperty, "setProperty");
       {
         val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), setProperty).transform(kb.node(Common.value), setProperty);
+            .literal(kb.node(Common.name), assignment).transform(kb.node(Common.value), setProperty);
         setProperty.then(publish);
       }
       startAssignment.then(setProperty);
@@ -193,53 +194,43 @@ public class LanguageBootstrap {
       setName.conjunction(setLiteral, consumeResolved);
 
       val rhs = new SynapticNode();
-      val hadSetProperty = new SynapticNode();
-      hadSetProperty.getSynapse().setCoefficient(kb.eavNode(true, true, state, setProperty), 1);
-      hadSetProperty.getSynapse().setCoefficient(onNext, -1);
-      rhs.conjunction(onNext, hadSetProperty, kb.eavNode(true, true, state, resolvedIdentifier));
+      val hadAssignment = new SynapticNode();
+      hadAssignment.getSynapse().setCoefficient(kb.eavNode(true, true, state, assignment), 1);
+      hadAssignment.getSynapse().setCoefficient(onNext, -1);
+      rhs.conjunction(onNext, hadAssignment, kb.eavNode(true, true, state, resolvedIdentifier));
       rhs.getSynapse().setCoefficient(kb.eavNode(true, false, state, resolvedIdentifier, null), -1);
       rhs.then(consumeResolved);
 
-      val consumeSetProperty = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-          .transform(kb.node(Common.object), state).literal(kb.node(Common.name), setProperty);
-      {
-        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), assignment).transform(kb.node(Common.value), consumeSetProperty);
-        consumeSetProperty.then(publish);
-        val reset = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), setProperty);
-        consumeSetProperty.then(reset);
-      }
-      rhs.then(consumeSetProperty);
+      val getAssignment = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
+          .literal(kb.node(Common.name), assignment);
+      rhs.then(getAssignment);
 
       val isRef = kb.eavNode(true, false, state, reference, reference);
 
       val getLiteral = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-          .transform(kb.node(Common.object), consumeSetProperty).literal(kb.node(Common.name), kb.node(Common.literal));
+          .transform(kb.node(Common.object), getAssignment).literal(kb.node(Common.name), kb.node(Common.literal));
       val setLiteralValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
           .transform(kb.node(Common.object), getLiteral).literal(kb.node(Common.name), kb.node(Common.value))
           .transform(kb.node(Common.value), consumeResolved);
-      getLiteral.conjunction(consumeSetProperty, isRef);
+      getLiteral.conjunction(rhs, getAssignment, isRef);
       setLiteralValue.conjunction(getLiteral, consumeResolved);
 
       val transform = kb.new InvocationNode(kb.node(BuiltIn.node));
       transform.getSynapse().setCoefficient(rhs, 1);
       transform.getSynapse().setCoefficient(isRef, -1);
       val setTransform = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .transform(kb.node(Common.object), consumeSetProperty)
-          .literal(kb.node(Common.name), kb.node(Common.transform)).transform(kb.node(Common.value), transform);
-      setTransform.conjunction(consumeSetProperty, transform);
+          .transform(kb.node(Common.object), getAssignment).literal(kb.node(Common.name), kb.node(Common.transform))
+          .transform(kb.node(Common.value), transform);
+      setTransform.conjunction(rhs, getAssignment, transform);
       val setTransformValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
           .transform(kb.node(Common.object), transform).literal(kb.node(Common.name), kb.node(Common.value))
           .transform(kb.node(Common.value), consumeResolved);
       setTransformValue.conjunction(setTransform, consumeResolved);
 
-      val getAssignment = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), assignment);
       collectResult.then(getAssignment);
       val returnAssignment = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
           .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), getAssignment);
-      getAssignment.then(returnAssignment);
+      returnAssignment.conjunction(collectResult, getAssignment);
       returnAssignment.getSynapse().setCoefficient(kb.eavNode(true, false, getAssignment, null), -1);
     }
 
@@ -252,8 +243,7 @@ public class LanguageBootstrap {
       getOrCreate.then(get);
       val absent = kb.eavNode(true, false, get, null);
 
-      val returnGet = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), get);
+      val returnGet = ((InvocationNode) parse(kb, "returnValue = ")).transform(kb.node(Common.value), get);
       returnGet.getSynapse().setCoefficient(get, 1);
       returnGet.getSynapse().setCoefficient(absent, -1);
 
@@ -263,8 +253,7 @@ public class LanguageBootstrap {
       val set = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).inherit(kb.node(Common.object))
           .inherit(kb.node(Common.name)).transform(kb.node(Common.value), create);
       create.then(set);
-      val returnCreate = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), create);
+      val returnCreate = ((InvocationNode) parse(kb, "returnValue = ")).transform(kb.node(Common.value), create);
       set.then(returnCreate);
     }
 
@@ -285,28 +274,16 @@ public class LanguageBootstrap {
       invocation.conjunction(startCall, consumeResolved);
       {
         val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), invocation).transform(kb.node(Common.value), invocation);
+            .literal(kb.node(Common.name), call).transform(kb.node(Common.value), invocation);
         invocation.then(publish);
       }
 
-      val hasInvocation = kb.eavNode(true, true, state, invocation);
+      val hasCall = kb.eavNode(true, true, state, call);
       val ifCparen = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) ')'));
       val endCall = new SynapticNode();
       indexNode(kb, call, endCall, "end");
-      endCall.conjunction(onNext, ifCparen, hasInvocation);
+      endCall.conjunction(onNext, ifCparen, hasCall);
       endCall.getSynapse().setCoefficient(kb.eavNode(true, false, state, invocation, null), -1);
-
-      val getInvocation = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), invocation);
-      endCall.then(getInvocation);
-      {
-        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), call).transform(kb.node(Common.value), getInvocation);
-        publish.conjunction(endCall, getInvocation);
-        val resetInvocation = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), state).literal(kb.node(Common.name), invocation);
-        resetInvocation.conjunction(endCall, getInvocation);
-      }
 
       // If we encounter '=', pre-empt assignment and treat as named args instead.
       // Named args behave pretty differently from assignment. Assignment would create
@@ -315,11 +292,11 @@ public class LanguageBootstrap {
       // literal/transform properties of the invocation, which is a non-contextual
       // structural modification we should avoid here.
       val startAssignment = (SynapticNode) assignment.properties.get(kb.node("start"));
-      startAssignment.getSynapse().setCoefficient(hasInvocation, -1);
+      startAssignment.getSynapse().setCoefficient(hasCall, -1);
 
       val namedArg = new SynapticNode();
       indexNode(kb, call, namedArg, "namedArg");
-      namedArg.conjunction(onNext, hasInvocation, kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '=')),
+      namedArg.conjunction(onNext, hasCall, kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '=')),
           hasResolvedIdentifier);
       namedArg.then(consumeResolved);
       val primeNamedArg = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
@@ -338,7 +315,10 @@ public class LanguageBootstrap {
         // Suppress endCall until we've processed the arg.
         endCall.getSynapse().setCoefficient(hasNamedArg, -1);
 
-        setNamedArg.then(getInvocation);
+        val getCall = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
+            .literal(kb.node(Common.name), call);
+
+        setNamedArg.then(getCall);
 
         val consumeNamedArg = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
             .transform(kb.node(Common.object), state).literal(kb.node(Common.name), namedArg);
@@ -358,9 +338,9 @@ public class LanguageBootstrap {
         asTransform.getSynapse().setCoefficient(setNamedArg, 1);
         asTransform.getSynapse().setCoefficient(isRef, -1);
 
-        val getOrCreateArgType = kb.new InvocationNode(getOrCreate).transform(kb.node(Common.object), getInvocation)
+        val getOrCreateArgType = kb.new InvocationNode(getOrCreate).transform(kb.node(Common.object), getCall)
             .transform(kb.node(Common.name), kb.node("argType"));
-        getOrCreateArgType.conjunction(setNamedArg, getInvocation, kb.eavNode(true, true, kb.node("argType")));
+        getOrCreateArgType.conjunction(setNamedArg, getCall, kb.eavNode(true, true, kb.node("argType")));
         val setArg = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
             .transform(kb.node(Common.object), getOrCreateArgType).transform(kb.node(Common.name), consumeNamedArg)
             .transform(kb.node(Common.value), consumeResolved);
@@ -373,8 +353,7 @@ public class LanguageBootstrap {
       val getCall = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
           .literal(kb.node(Common.name), call);
       collectResult.then(getCall);
-      val returnCall = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), getCall);
+      val returnCall = ((InvocationNode) parse(kb, "returnValue = ")).transform(kb.node(Common.value), getCall);
       getCall.then(returnCall);
       returnCall.getSynapse().setCoefficient(kb.eavNode(true, false, getCall, null), -1);
     }

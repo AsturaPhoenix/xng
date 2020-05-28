@@ -7,15 +7,11 @@ import ai.xng.KnowledgeBase.Common;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import lombok.Getter;
 import lombok.val;
 
 public class Repl {
-  @Getter
-  private final KnowledgeBase kb;
-
-  @Getter
-  private final Context rootContext;
+  public final KnowledgeBase kb;
+  public final Context rootContext;
 
   private final Subject<Throwable> rxError = PublishSubject.create();
 

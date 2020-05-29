@@ -181,6 +181,10 @@ public class Node implements Serializable {
     return out.toString();
   }
 
+  public void debugDump() {
+    System.out.println(debugDump(p -> true));
+  }
+
   private static void indent(final int level, final StringBuilder out) {
     for (int i = 0; i < level; ++i) {
       out.append("  ");

@@ -372,6 +372,11 @@ public class Synapse implements Serializable {
     return profile == null ? 0 : profile.coefficient.getMode();
   }
 
+  public synchronized void replacePrior(final Node oldPrior, final Node newPrior) {
+    setCoefficient(newPrior, getCoefficient(oldPrior));
+    dissociate(oldPrior);
+  }
+
   /**
    * @param node      the input node
    * @param decayRate the linear signal decay period, in milliseconds from

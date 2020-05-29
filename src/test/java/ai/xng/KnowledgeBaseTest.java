@@ -387,12 +387,8 @@ public class KnowledgeBaseTest {
     try (val kb = new KnowledgeBase()) {
       val repl = new TestRepl(kb);
 
-      repl.eval("value = &print");
-      assertEquals("print", repl.eval("print"));
-
-      repl.eval("node");
-      repl.eval("value = returnValue");
-      assertEquals("null", repl.eval("print"));
+      assertEquals("BuiltIn.print", repl.eval("print(value: 'print)"));
+      assertEquals("null", repl.eval("print(value: node())"));
     }
   }
 
@@ -402,7 +398,7 @@ public class KnowledgeBaseTest {
       val repl = new TestRepl(kb);
 
       for (int i = 0; i < 200; ++i) {
-        assertEquals("node", repl.eval("print(value = &node)"), String.format("Failed at iteration %s.", i));
+        assertEquals("BuiltIn.node", repl.eval("print(value: 'node)"), String.format("Failed at iteration %s.", i));
       }
     }
   }

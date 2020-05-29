@@ -308,7 +308,7 @@ public class Context implements Serializable {
 
   /**
    * Captures a snapshot of nodes by activation recency. This should be called
-   * from the dispatch thread.
+   * from the dispatch thread or while the context is idle.
    */
   public ImmutableList<Node> snapshotNodes() {
     return ImmutableList.copyOf(activations);

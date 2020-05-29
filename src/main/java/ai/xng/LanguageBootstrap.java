@@ -4,358 +4,632 @@ import ai.xng.KnowledgeBase.Bootstrap;
 import ai.xng.KnowledgeBase.BuiltIn;
 import ai.xng.KnowledgeBase.Common;
 import ai.xng.KnowledgeBase.InvocationNode;
+import ai.xng.KnowledgeBase.Ordinal;
+import lombok.RequiredArgsConstructor;
 import lombok.val;
-import lombok.experimental.UtilityClass;
 
-@UtilityClass
+@RequiredArgsConstructor
 public class LanguageBootstrap {
-  public static void indexNode(final KnowledgeBase kb, final Node index, final Node node, final String name) {
+  private final KnowledgeBase kb;
+
+  public void indexNode(final Node index, final Node node, final String name) {
     node.comment = name;
     index.properties.put(kb.node(name), node);
   }
 
-  public static Node parse(final KnowledgeBase kb, final String string) {
-    val context = kb.newContext();
-    context.fatalOnExceptions();
-    // Although naively we could activate parse directly, the easiest way to extract
-    // a return value from a tail recursed subroutine is through an invocation node.
-    val parse = kb.new InvocationNode(kb.node(Bootstrap.parse)).literal(kb.node(Common.value), kb.node(string));
-    parse.activate(context);
-    context.blockUntilIdle();
-    return context.node.properties.get(parse);
+  public Node parse(final String string) {
+    try {
+      val context = kb.newContext();
+      context.fatalOnExceptions();
+      // Although naively we could activate parse directly, the easiest way to extract
+      // a return value from a tail recursed subroutine is through an invocation node.
+      val parse = kb.new InvocationNode(kb.node(Bootstrap.parse)).literal(kb.node(Common.value), kb.node(string));
+      parse.activate(context);
+      context.blockUntilIdle();
+
+      val rewriter = (DeterministicNGramRewriter) context.node.properties.get(parse).getValue();
+      val result = rewriter.single();
+
+      if (result == null) {
+        throw new NullPointerException(String.format("Parse result was null. %s", rewriter.debug()));
+      }
+
+      return result;
+    } catch (final RuntimeException e) {
+      throw new IllegalArgumentException(String.format("Failed to parse \"%s\"", string), e);
+    }
+  }
+
+  private Node symbol(final int ordinal) {
+    return kb.node(new Ordinal(kb.node(Common.symbol), ordinal));
+  }
+
+  private Node value(final int ordinal) {
+    return kb.node(new Ordinal(kb.node(Common.value), ordinal));
+  }
+
+  private InvocationNode rewrite(final int length) {
+    return kb.new InvocationNode(kb.node(BuiltIn.rewrite)).inherit(kb.node(Common.rewriter))
+        .literal(kb.node(Common.rewriteLength), kb.node(length));
+  }
+
+  private InvocationNode rewrite(final int length, final Node symbol, final Node value) {
+    return rewrite(length).literal(kb.node(Common.symbol), symbol).transform(kb.node(Common.value), value);
   }
 
   /**
    * Expand eval/parse into a self-sustaining language.
    */
-  public static void bootstrap(final KnowledgeBase kb) {
+  public void bootstrap() {
     val parse = kb.node(Bootstrap.parse);
-    val state = parse.properties.get(kb.node("state"));
-    val onNext = parse.properties.get(kb.node("onNext"));
-    val collectResult = parse.properties.get(kb.node("collectResult"));
-
-    val hasValue = kb.eavNode(true, true, kb.node(Common.value));
+    val apply = parse.properties.get(kb.node("apply"));
 
     val identifier = new SynapticNode();
-    indexNode(kb, parse, identifier, "identifier");
+    indexNode(parse, identifier, "identifier");
     {
-      val buffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
-          kb.node(StringBuilder.class));
-      buffer.comment = "buffer";
+      val identifierBuffer = new SynapticNode();
+      indexNode(identifier, identifierBuffer, "buffer");
+
       {
-        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), buffer).transform(kb.node(Common.value), buffer);
-        buffer.then(publish);
+        val identifierStart = new SynapticNode();
+        indexNode(identifier, identifierStart, "start");
+        identifierStart.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
+        identifierStart.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), identifierBuffer), -1);
+
+        val isIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.javaClass), kb.node(Character.class))
+            .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), value(0));
+        identifierStart.then(isIdentifierStart);
+
+        val buffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
+            kb.node(StringBuilder.class));
+        buffer.comment = "buffer";
+        kb.eavNode(true, false, isIdentifierStart, kb.node(true)).then(buffer);
+
+        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
+            .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), value(0));
+        buffer.then(append);
+        append.then(rewrite(1, identifierBuffer, buffer));
       }
-
-      val getBuffer = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), buffer);
-      val cacheBuffer = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).literal(kb.node(Common.name), buffer)
-          .transform(kb.node(Common.value), getBuffer);
-      getBuffer.then(cacheBuffer);
-
-      val notStarted = new SynapticNode(), inProgress = new SynapticNode();
-      indexNode(kb, identifier, notStarted, "notStarted");
-      indexNode(kb, identifier, inProgress, "inProgress");
-
-      val hasBuffer = kb.eavNode(true, true, state, buffer);
-
-      notStarted.getSynapse().setCoefficient(onNext, 1);
-      notStarted.getSynapse().setCoefficient(hasBuffer, -1);
-
-      val hadBuffer = new SynapticNode();
-      hadBuffer.getSynapse().setCoefficient(hasBuffer, 1);
-      hadBuffer.getSynapse().setCoefficient(onNext, -1);
-      getBuffer.conjunction(onNext, hadBuffer);
-      cacheBuffer.then(inProgress);
-
-      // Transcribe identifier character
-      val ifIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
-          .literal(kb.node(Common.javaClass), kb.node(Character.class))
-          .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
-          .transform(kb.arg(1), kb.node(Common.value));
-      ifIdentifierStart.conjunction(notStarted, hasValue);
-      kb.eavNode(true, false, ifIdentifierStart, kb.node(true)).then(buffer);
-
-      val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
-          .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
-          .transform(kb.arg(1), kb.node(Common.value));
-      buffer.then(append);
-
-      val ifIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
-          .literal(kb.node(Common.javaClass), kb.node(Character.class))
-          .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
-          .transform(kb.arg(1), kb.node(Common.value));
-      ifIdentifierPart.conjunction(inProgress, hasValue);
-      kb.eavNode(true, false, ifIdentifierPart, kb.node(true)).then(append);
-
-      val collect = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
-          .literal(kb.node(Common.name), kb.node("toString"));
-      val resetBuffer = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), buffer);
-      collect.then(resetBuffer);
       {
-        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), identifier).transform(kb.node(Common.value), collect);
-        collect.then(publish);
-      }
+        val identifierPart = new SynapticNode();
+        indexNode(identifier, identifierPart, "part");
+        identifierPart.conjunction(apply, kb.eavNode(true, false, symbol(-1), identifierBuffer),
+            kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
 
-      kb.eavNode(true, false, ifIdentifierPart, kb.node(false)).then(collect);
-      val noValue = new SynapticNode();
-      noValue.getSynapse().setCoefficient(inProgress, 1);
-      noValue.getSynapse().setCoefficient(hasValue, -1);
-      noValue.then(collect);
+        val isIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
+            .literal(kb.node(Common.javaClass), kb.node(Character.class))
+            .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), value(0));
+        identifierPart.then(isIdentifierPart);
+
+        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), value(-1))
+            .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), value(0));
+        kb.eavNode(true, false, isIdentifierPart, kb.node(true)).then(append);
+
+        // Simply delete the trailing code point now that we've folded it into the
+        // buffer.
+        append.then(rewrite(1));
+      }
+      {
+        val identifierEnd = new SynapticNode();
+        indexNode(identifier, identifierEnd, "end");
+        identifierEnd.conjunction(apply, kb.eavNode(true, false, symbol(0), identifierBuffer));
+        identifierEnd.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(1), kb.node(Common.codePoint)), -1);
+
+        val toString = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), value(0))
+            .literal(kb.node(Common.name), kb.node("toString"));
+        identifierEnd.then(toString);
+        toString.then(rewrite(1, identifier, toString));
+      }
     }
-
-    val resetIdentifier = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-        .literal(kb.node(Common.name), identifier);
-    indexNode(kb, identifier, resetIdentifier, "reset");
 
     val resolvedIdentifier = new SynapticNode();
-    indexNode(kb, parse, resolvedIdentifier, "resolvedIdentifier");
+    indexNode(parse, resolvedIdentifier, "resolvedIdentifier");
     {
-      val getIdentifier = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), identifier);
-      val unset = kb.eavNode(true, false, state, identifier, null);
-      val set = kb.eavNode(true, true, state, identifier);
-      val notAlreadySet = new SynapticNode();
-      notAlreadySet.getSynapse().setCoefficient(set, -1);
-      notAlreadySet.getSynapse().setCoefficient(onNext, 1);
-      getIdentifier.conjunction(notAlreadySet, set);
-      getIdentifier.getSynapse().setCoefficient(unset, -1);
-      val resolve = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name), getIdentifier);
-      getIdentifier.then(resolve);
-      {
-        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), resolvedIdentifier).transform(kb.node(Common.value), resolve);
-        resolve.then(publish);
-      }
-
-      val remove = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), resolvedIdentifier);
-      remove.conjunction(onNext, unset);
-
-      val getResolvedIdentifier = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-          .transform(kb.node(Common.object), state).literal(kb.node(Common.name), resolvedIdentifier);
-      collectResult.then(getResolvedIdentifier);
-      val returnResolved = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .literal(kb.node(Common.name), kb.node(Common.returnValue))
-          .transform(kb.node(Common.value), getResolvedIdentifier);
-      getResolvedIdentifier.then(returnResolved);
-      returnResolved.getSynapse().setCoefficient(kb.eavNode(true, false, getResolvedIdentifier, null), -1);
+      resolvedIdentifier.conjunction(apply, kb.eavNode(true, false, symbol(0), identifier));
+      val resolve = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name), value(0));
+      resolvedIdentifier.then(resolve);
+      resolve.then(rewrite(1, resolvedIdentifier, resolve));
     }
 
-    val consumeResolved = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-        .literal(kb.node(Common.name), resolvedIdentifier);
-    indexNode(kb, resolvedIdentifier, consumeResolved, "consume");
-    consumeResolved.then(resetIdentifier);
-
-    val reference = new SynapticNode();
-    indexNode(kb, parse, reference, "reference");
+    val whitespace = new SynapticNode();
+    indexNode(parse, whitespace, "whitespace");
     {
-      val ifAmp = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '&'));
-      val set = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), reference).literal(kb.node(Common.value), reference);
-      set.conjunction(ifAmp, identifier.properties.get(kb.node("notStarted")));
-      set.getSynapse().setCoefficient(kb.eavNode(true, true, state, identifier), -1);
-      set.getSynapse().setCoefficient(kb.eavNode(true, true, state, reference), -1);
+      whitespace.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
 
-      val unset = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), reference);
-      unset.conjunction(onNext, kb.eavNode(true, false, state, identifier, null));
+      val isWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
+          .literal(kb.node(Common.javaClass), kb.node(Character.class))
+          .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
+          .transform(kb.arg(1), value(0));
+      whitespace.then(isWhitespace);
+
+      // For now, just drop all whitespace.
+      rewrite(1).conjunction(isWhitespace, kb.eavNode(true, false, isWhitespace, kb.node(true)));
+    }
+
+    // The operator rule being distinct lets us do things like strip whitespace
+    // without collapsing "= =" into operator ==.
+    val operator = new SynapticNode();
+    indexNode(parse, operator, "operator");
+    {
+      // In the future these can be reused once we switch to immutable invocations
+      // with placement.
+
+      val isIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
+          .literal(kb.node(Common.javaClass), kb.node(Character.class))
+          .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
+          .transform(kb.arg(1), value(0));
+
+      val isWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
+          .literal(kb.node(Common.javaClass), kb.node(Character.class))
+          .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
+          .transform(kb.arg(1), value(0));
+
+      val classify = new SynapticNode();
+      classify.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
+      classify.then(isWhitespace);
+      classify.then(isIdentifierPart);
+
+      operator.conjunction(isWhitespace, isIdentifierPart);
+      operator.getSynapse().setCoefficient(kb.eavNode(true, false, isWhitespace, kb.node(true)), -1);
+      operator.getSynapse().setCoefficient(kb.eavNode(true, false, isIdentifierPart, kb.node(true)), -1);
+
+      operator.then(rewrite(1, operator, value(0)));
+    }
+
+    val nodeLiteral = new SynapticNode();
+    indexNode(parse, nodeLiteral, "nodeLiteral");
+    nodeLiteral.conjunction(apply, kb.eavNode(true, false, value(-1), kb.node((int) '\'')),
+        kb.eavNode(true, false, symbol(0), resolvedIdentifier));
+    nodeLiteral.then(rewrite(2, nodeLiteral, value(0)));
+
+    val memberSelect = new SynapticNode();
+    indexNode(parse, memberSelect, "memberSelect");
+    memberSelect.conjunction(apply, kb.eavNode(true, false, value(-1), kb.node((int) '.')),
+        kb.eavNode(true, false, symbol(0), resolvedIdentifier));
+    memberSelect.then(rewrite(2, memberSelect, value(0)));
+
+    val indexer = new SynapticNode();
+    indexNode(parse, indexer, "indexer");
+    {
+      indexer.conjunction(apply, kb.eavNode(true, false, value(-2), kb.node((int) '[')),
+          kb.eavNode(true, false, symbol(0), operator), kb.eavNode(true, false, value(0), kb.node((int) ']')));
+
+      // If the term in the indexer is a literal, rewrite it as a member select.
+      val literalTerm = kb.eavNode(true, false, symbol(-1), nodeLiteral);
+
+      val transformIndexer = new SynapticNode();
+      indexer.then(transformIndexer);
+      transformIndexer.getSynapse().setCoefficient(literalTerm, -1);
+      transformIndexer.then(rewrite(3, indexer, value(-1)));
+
+      val literalIndexer = new SynapticNode();
+      literalIndexer.conjunction(indexer, literalTerm);
+      literalIndexer.then(rewrite(3, memberSelect, value(-1)));
+    }
+
+    // Given an object with an existing entrypoint and a symbol/value pair, if the
+    // symbol is not a literal or identifier and the value has an entrypoint
+    // property, links the value to the existing entrypoint and replaces the
+    // entrypoint with the new entrypoint.
+    val mergeEntrypoint = new SynapticNode();
+    indexNode(parse, mergeEntrypoint, "mergeEntrypoint");
+    {
+      val getObjectEntrypoint = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+          .transform(kb.node(Common.object), kb.node(Common.object))
+          .literal(kb.node(Common.name), kb.node(Common.entrypoint));
+      mergeEntrypoint.then(getObjectEntrypoint);
+
+      val getValueEntrypoint = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
+          .transform(kb.node(Common.object), kb.node(Common.value))
+          .literal(kb.node(Common.name), kb.node(Common.entrypoint));
+      mergeEntrypoint.then(getValueEntrypoint);
+
+      val associateTail = kb.new InvocationNode(kb.node(BuiltIn.associate))
+          .transform(kb.node(Common.prior), kb.node(Common.value))
+          .transform(kb.node(Common.posterior), getObjectEntrypoint);
+      associateTail.conjunction(getObjectEntrypoint, getValueEntrypoint);
+      associateTail.getSynapse().setCoefficient(kb.eavNode(true, false, getValueEntrypoint, null), -1);
+      associateTail.getSynapse().setCoefficient(kb.eavNode(true, false, kb.node(Common.symbol), nodeLiteral), -1);
+      associateTail.getSynapse().setCoefficient(kb.eavNode(true, false, kb.node(Common.symbol), resolvedIdentifier),
+          -1);
+      val updateEntrypoint = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).inherit(kb.node(Common.object))
+          .literal(kb.node(Common.name), kb.node(Common.entrypoint))
+          .transform(kb.node(Common.value), getValueEntrypoint);
+      associateTail.then(updateEntrypoint);
+    }
+
+    // These nodes can be hyperactivated by their antecedents to enter a refractory
+    // period that ensures they are only called once per context.
+    val createLiteral = kb.new InvocationNode(kb.node(BuiltIn.node)),
+        createTransform = kb.new InvocationNode(kb.node(BuiltIn.node));
+    indexNode(parse, createLiteral, "createLiteral");
+    indexNode(parse, createTransform, "createTransform");
+
+    // Indicates that term 0 will no longer evolve due to itself or upcoming
+    // symbols.
+    val forwardStable = new SynapticNode();
+    indexNode(parse, forwardStable, "forwardStable");
+    {
+      val lookaheadOk = new SynapticNode();
+      indexNode(forwardStable, lookaheadOk, "lookaheadOk");
+
+      val lookaheadAbsent = new SynapticNode();
+      apply.then(lookaheadAbsent);
+      lookaheadAbsent.getSynapse().setCoefficient(kb.eavNode(true, true, symbol(1)), -1);
+      lookaheadAbsent.then(lookaheadOk);
+
+      forwardStable.conjunction(apply, lookaheadOk);
+      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)), -1);
+      forwardStable.getSynapse()
+          .setCoefficient(kb.eavNode(true, false, symbol(0), identifier.properties.get(kb.node("buffer"))), -1);
+      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), identifier), -1);
+      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), memberSelect), -1);
+      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), indexer), -1);
     }
 
     val assignment = new SynapticNode();
-    indexNode(kb, parse, assignment, "assignment");
+    indexNode(parse, assignment, "assignment");
     {
-      val ifEq = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '='));
-      val startAssignment = new SynapticNode();
-      indexNode(kb, assignment, startAssignment, "start");
-      startAssignment.conjunction(onNext, ifEq, kb.eavNode(true, true, state, resolvedIdentifier));
+      assignment.conjunction(forwardStable, kb.eavNode(true, false, value(-1), kb.node((int) '=')));
 
       val setProperty = kb.new InvocationNode(kb.node(BuiltIn.node)).literal(kb.node(Common.entrypoint),
           kb.node(BuiltIn.setProperty));
-      indexNode(kb, assignment, setProperty, "setProperty");
-      {
-        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), assignment).transform(kb.node(Common.value), setProperty);
-        setProperty.then(publish);
-      }
-      startAssignment.then(setProperty);
-      val literal = kb.new InvocationNode(kb.node(BuiltIn.node));
-      setProperty.then(literal);
+      indexNode(assignment, setProperty, "setProperty");
+      assignment.then(setProperty);
+
       val setLiteral = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
           .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.literal))
-          .transform(kb.node(Common.value), literal);
-      literal.then(setLiteral);
-      setProperty.then(consumeResolved);
-      val setName = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), literal)
-          .literal(kb.node(Common.name), kb.node(Common.name)).transform(kb.node(Common.value), consumeResolved);
-      setName.conjunction(setLiteral, consumeResolved);
+          .transform(kb.node(Common.value), createLiteral);
+      setLiteral.conjunction(setProperty, createLiteral);
 
-      val rhs = new SynapticNode();
-      val hadAssignment = new SynapticNode();
-      hadAssignment.getSynapse().setCoefficient(kb.eavNode(true, true, state, assignment), 1);
-      hadAssignment.getSynapse().setCoefficient(onNext, -1);
-      rhs.conjunction(onNext, hadAssignment, kb.eavNode(true, true, state, resolvedIdentifier));
-      rhs.getSynapse().setCoefficient(kb.eavNode(true, false, state, resolvedIdentifier, null), -1);
-      rhs.then(consumeResolved);
-
-      val getAssignment = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), assignment);
-      rhs.then(getAssignment);
-
-      val isRef = kb.eavNode(true, false, state, reference, reference);
-
-      val getLiteral = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-          .transform(kb.node(Common.object), getAssignment).literal(kb.node(Common.name), kb.node(Common.literal));
-      val setLiteralValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .transform(kb.node(Common.object), getLiteral).literal(kb.node(Common.name), kb.node(Common.value))
-          .transform(kb.node(Common.value), consumeResolved);
-      getLiteral.conjunction(rhs, getAssignment, isRef);
-      setLiteralValue.conjunction(getLiteral, consumeResolved);
-
-      val transform = kb.new InvocationNode(kb.node(BuiltIn.node));
-      transform.getSynapse().setCoefficient(rhs, 1);
-      transform.getSynapse().setCoefficient(isRef, -1);
       val setTransform = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .transform(kb.node(Common.object), getAssignment).literal(kb.node(Common.name), kb.node(Common.transform))
-          .transform(kb.node(Common.value), transform);
-      setTransform.conjunction(rhs, getAssignment, transform);
-      val setTransformValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .transform(kb.node(Common.object), transform).literal(kb.node(Common.name), kb.node(Common.value))
-          .transform(kb.node(Common.value), consumeResolved);
-      setTransformValue.conjunction(setTransform, consumeResolved);
+          .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.transform))
+          .transform(kb.node(Common.value), createTransform);
+      setTransform.conjunction(setProperty, createTransform);
 
-      collectResult.then(getAssignment);
-      val returnAssignment = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-          .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), getAssignment);
-      returnAssignment.conjunction(collectResult, getAssignment);
-      returnAssignment.getSynapse().setCoefficient(kb.eavNode(true, false, getAssignment, null), -1);
+      val lhsMemberSelect = kb.eavNode(true, false, symbol(-2), memberSelect);
+      val lhsIndexer = kb.eavNode(true, false, symbol(-2), indexer);
+
+      val lhsHasObject = new SynapticNode();
+      {
+        val lhsCanHaveObject = new SynapticNode();
+        lhsMemberSelect.then(lhsCanHaveObject);
+        lhsIndexer.then(lhsCanHaveObject);
+        lhsHasObject.conjunction(lhsCanHaveObject, kb.eavNode(true, true, symbol(-3)));
+        lhsHasObject.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-3), operator), -1);
+
+        val lhsLiteralObject = new SynapticNode();
+        {
+          lhsLiteralObject.conjunction(assignment, lhsHasObject, kb.eavNode(true, false, symbol(-3), nodeLiteral));
+          lhsLiteralObject.then(createLiteral);
+          val setObject = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+              .transform(kb.node(Common.object), createLiteral).literal(kb.node(Common.name), kb.node(Common.object))
+              .transform(kb.node(Common.value), value(-3));
+          setObject.conjunction(createLiteral, lhsLiteralObject);
+        }
+
+        val lhsTransformObject = new SynapticNode();
+        {
+          lhsTransformObject.conjunction(assignment, lhsHasObject);
+          lhsTransformObject.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-3), nodeLiteral), -1);
+          lhsTransformObject.then(createTransform);
+          val setObject = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+              .transform(kb.node(Common.object), createTransform).literal(kb.node(Common.name), kb.node(Common.object))
+              .transform(kb.node(Common.value), value(-3));
+          setObject.conjunction(createTransform, lhsTransformObject);
+        }
+      }
+
+      val lhsLiteralName = new SynapticNode();
+      {
+        val lhsLiteralNameSymbol = new SynapticNode();
+        kb.eavNode(true, false, symbol(-2), resolvedIdentifier).then(lhsLiteralNameSymbol);
+        lhsMemberSelect.then(lhsLiteralNameSymbol);
+
+        lhsLiteralName.conjunction(assignment, lhsLiteralNameSymbol);
+        lhsLiteralName.then(createLiteral);
+        val setName = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), createLiteral).literal(kb.node(Common.name), kb.node(Common.name))
+            .transform(kb.node(Common.value), value(-2));
+        setName.conjunction(createLiteral, lhsLiteralName);
+      }
+
+      val lhsTransformName = new SynapticNode();
+      {
+        lhsTransformName.conjunction(assignment, lhsIndexer);
+        lhsTransformName.then(createTransform);
+        val setName = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), createTransform).literal(kb.node(Common.name), kb.node(Common.name))
+            .transform(kb.node(Common.value), value(-2));
+        setName.conjunction(createTransform, lhsTransformName);
+      }
+
+      val rhsIsLiteral = kb.eavNode(true, false, symbol(0), nodeLiteral);
+
+      val rhsLiteral = new SynapticNode();
+      {
+        rhsLiteral.conjunction(assignment, rhsIsLiteral);
+        rhsLiteral.then(createLiteral);
+        val setValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), createLiteral).literal(kb.node(Common.name), kb.node(Common.value))
+            .transform(kb.node(Common.value), value(0));
+        setValue.conjunction(createLiteral, rhsLiteral);
+      }
+
+      val rhsTransform = new SynapticNode();
+      {
+        assignment.then(rhsTransform);
+        rhsTransform.getSynapse().setCoefficient(rhsIsLiteral, -1);
+        rhsTransform.then(createTransform);
+        val setValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+            .transform(kb.node(Common.object), createTransform).literal(kb.node(Common.name), kb.node(Common.value))
+            .transform(kb.node(Common.value), value(0));
+        setValue.conjunction(createTransform, rhsTransform);
+      }
+
+      val initEntrypoint = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
+          .transform(kb.node(Common.object), setProperty).literal(kb.node(Common.name), kb.node(Common.entrypoint))
+          .transform(kb.node(Common.value), setProperty);
+      setProperty.then(initEntrypoint);
+
+      val mergeValueEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), setProperty)
+          .transform(kb.node(Common.symbol), symbol(0)).transform(kb.node(Common.value), value(0));
+      initEntrypoint.then(mergeValueEntrypoint);
+      val mergeNameEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), setProperty)
+          .transform(kb.node(Common.symbol), symbol(-2)).transform(kb.node(Common.value), value(-2));
+      mergeValueEntrypoint.then(mergeNameEntrypoint);
+      val mergeObjectEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), setProperty)
+          .transform(kb.node(Common.symbol), symbol(-4)).transform(kb.node(Common.value), value(-4));
+      mergeObjectEntrypoint.conjunction(mergeNameEntrypoint, lhsHasObject);
+
+      val rewrite3 = rewrite(3, assignment, setProperty);
+      setProperty.then(rewrite3);
+      rewrite3.getSynapse().setCoefficient(lhsHasObject, -1);
+
+      rewrite(4, assignment, setProperty).conjunction(setProperty, lhsHasObject);
+    }
+
+    final Node index = parse("index");
+    // Temporarily use _ to denote local resolution bindings until we can do
+    // parse-time baking.
+    index.properties.put(kb.node("_createLiteral"), createLiteral);
+    index.properties.put(kb.node("_createTransform"), createTransform);
+    index.properties.put(kb.node("_v0"), value(0));
+    index.properties.put(kb.node("_vn1"), value(-1));
+    index.properties.put(kb.node("_vn3"), value(-3));
+
+    val rvalueMember = new SynapticNode();
+    indexNode(parse, rvalueMember, "rvalueMember");
+    {
+      val isMemberSelect = kb.eavNode(true, false, symbol(0), memberSelect);
+      val isIndexer = kb.eavNode(true, false, symbol(0), indexer);
+      val isMemberSelectOrIndexer = new SynapticNode();
+      isMemberSelect.then(isMemberSelectOrIndexer);
+      isIndexer.then(isMemberSelectOrIndexer);
+
+      val isLookaheadCodePoint = kb.eavNode(true, false, symbol(1), kb.node(Common.codePoint));
+
+      val isLookaheadWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
+          .literal(kb.node(Common.javaClass), kb.node(Character.class))
+          .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
+          .transform(kb.arg(1), value(1));
+      isLookaheadWhitespace.conjunction(apply, isMemberSelectOrIndexer, isLookaheadCodePoint);
+
+      val isNotLookaheadCodePoint = new SynapticNode();
+      apply.then(isNotLookaheadCodePoint);
+      isNotLookaheadCodePoint.getSynapse().setCoefficient(isLookaheadCodePoint, -1);
+
+      val lookaheadOk = new SynapticNode();
+      indexNode(rvalueMember, lookaheadOk, "lookaheadOk");
+      isNotLookaheadCodePoint.then(lookaheadOk);
+      lookaheadOk.getSynapse().setCoefficient(kb.eavNode(true, false, value(1), kb.node((int) '=')), -1);
+      isLookaheadWhitespace.then(lookaheadOk);
+      lookaheadOk.getSynapse().setCoefficient(kb.eavNode(true, false, isLookaheadWhitespace, kb.node(true)), -1);
+
+      rvalueMember.conjunction(apply, isMemberSelectOrIndexer, lookaheadOk);
+
+      val getProperty = kb.new InvocationNode(kb.node(BuiltIn.node)).literal(kb.node(Common.entrypoint),
+          kb.node(BuiltIn.getProperty));
+      indexNode(rvalueMember, getProperty, "getProperty");
+      index.properties.put(kb.node("_getProperty"), getProperty);
+      rvalueMember.then(getProperty);
+
+      ((SynapticNode) parse("_getProperty.literal = _createLiteral")).conjunction(getProperty, createLiteral);
+      ((SynapticNode) parse("_getProperty.transform = _createTransform")).conjunction(getProperty, createTransform);
+
+      val hasLhs = new SynapticNode();
+      hasLhs.conjunction(rvalueMember, kb.eavNode(true, true, symbol(-1)));
+      hasLhs.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), operator), -1);
+
+      val isLhsLiteral = kb.eavNode(true, false, symbol(-1), nodeLiteral);
+
+      val lhsLiteral = new SynapticNode();
+      {
+        lhsLiteral.conjunction(rvalueMember, isLhsLiteral);
+        lhsLiteral.then(createLiteral);
+        ((SynapticNode) parse("_createLiteral.object = _vn1")).conjunction(createLiteral, lhsLiteral);
+      }
+
+      val lhsTransform = new SynapticNode();
+      {
+        hasLhs.then(lhsTransform);
+        lhsTransform.getSynapse().setCoefficient(isLhsLiteral, -1);
+
+        lhsTransform.then(createTransform);
+        ((SynapticNode) parse("_createTransform.object = _vn1")).conjunction(createTransform, lhsTransform);
+      }
+
+      val rhsLiteral = new SynapticNode();
+      {
+        rhsLiteral.conjunction(rvalueMember, isMemberSelect);
+        rhsLiteral.then(createLiteral);
+        ((SynapticNode) parse("_createLiteral.name = _v0")).conjunction(createLiteral, rhsLiteral);
+      }
+
+      val rhsTransform = new SynapticNode();
+      {
+        rhsTransform.conjunction(rvalueMember, isIndexer);
+        rhsTransform.then(createTransform);
+        ((SynapticNode) parse("_createTransform.name = _v0")).conjunction(createTransform, rhsTransform);
+      }
+
+      val initEntrypoint = ((SynapticNode) parse("_getProperty.entrypoint = _getProperty"));
+      getProperty.then(initEntrypoint);
+
+      val mergeNameEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), getProperty)
+          .transform(kb.node(Common.symbol), symbol(0)).transform(kb.node(Common.value), value(0));
+      initEntrypoint.then(mergeNameEntrypoint);
+      val mergeObjectEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), getProperty)
+          .transform(kb.node(Common.symbol), symbol(-1)).transform(kb.node(Common.value), value(-1));
+      mergeNameEntrypoint.then(mergeObjectEntrypoint);
+
+      rewrite(2, rvalueMember, getProperty).conjunction(getProperty, hasLhs);
+
+      val rewriteSoloIndexer = rewrite(1, rvalueMember, getProperty);
+      rewriteSoloIndexer.conjunction(getProperty, rhsTransform);
+      rewriteSoloIndexer.getSynapse().setCoefficient(hasLhs, -1);
+
+      val rewriteSoloMember = rewrite(1, resolvedIdentifier, value(0));
+      rhsLiteral.then(rewriteSoloMember);
+      rewriteSoloMember.getSynapse().setCoefficient(hasLhs, -1);
+    }
+
+    // Baking uses `backticks` to evaluate an expression at parse time and bake the
+    // result in as a resolved node.
+    val bake = new SynapticNode();
+    indexNode(parse, bake, "bake");
+    {
+      bake.conjunction(apply, kb.eavNode(true, false, value(-2), kb.node((int) '`')),
+          kb.eavNode(true, false, symbol(0), operator), kb.eavNode(true, false, value(0), kb.node((int) '`')));
+
+      val getEntrypoint = (SynapticNode) parse("_vn1.entrypoint");
+      bake.then(getEntrypoint);
+      val getResult = parse("[_vn1]");
+      val linkResult = kb.new InvocationNode(kb.node(BuiltIn.associate)).transform(kb.node(Common.prior), value(-1))
+          .literal(kb.node(Common.posterior), getResult);
+      getEntrypoint.then(linkResult);
+      val noEntrypoint = kb.eavNode(true, false, getEntrypoint, null);
+      linkResult.getSynapse().setCoefficient(noEntrypoint, -1);
+
+      val activate = kb.new InvocationNode(kb.node(BuiltIn.activate)).transform(kb.node(Common.value), getEntrypoint);
+      linkResult.then(activate);
+      getResult.then(rewrite(3, resolvedIdentifier, getResult));
+
+      // no-execution case
+      rewrite(3, resolvedIdentifier, value(-1)).conjunction(getEntrypoint, noEntrypoint);
+    }
+
+    // Now we can start removing the resolution hack, at least for members.
+    resolvedIdentifier.getSynapse().setCoefficient(kb.eavNode(true, false, value(-1), kb.node((int) '.')), -1);
+    // Go ahead and keep resolvedIdentifier as a prior to simplify `backtick`
+    // handling.
+    memberSelect.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), identifier),
+        memberSelect.getSynapse().getCoefficient(kb.eavNode(true, false, symbol(0), resolvedIdentifier)));
+
+    val statement = new SynapticNode();
+    indexNode(parse, statement, "statement");
+    {
+      kb.eavNode(true, false, value(1), kb.node((int) ';'))
+          .then((SynapticNode) forwardStable.properties.get(kb.node("lookaheadOk")));
+
+      val hasPrevious = kb.eavNode(true, true, symbol(-1));
+
+      statement.conjunction(apply, kb.eavNode(true, false, symbol(0), operator),
+          kb.eavNode(true, false, value(0), kb.node((int) ';')));
+      val rewrite2 = rewrite(2, statement, value(-1));
+      rewrite2.conjunction(statement, hasPrevious);
+
+      // Delete extraneous leading semicolons.
+      val rewrite1 = rewrite(1);
+      statement.then(rewrite1);
+      rewrite1.getSynapse().setCoefficient(hasPrevious, -1);
+    }
+
+    val statementSequence = new SynapticNode();
+    {
+      statementSequence.conjunction(forwardStable, kb.eavNode(true, false, symbol(-1), statement));
+      statementSequence.then(kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), value(0))
+          .transform(kb.node(Common.value), value(-1))).then(rewrite(2, statementSequence, value(0)));
     }
 
     val getOrCreate = new SynapticNode();
-    getOrCreate.comment = "getOrCreate";
+    indexNode(parse, getOrCreate, "getOrCreate");
     {
-      val get = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).inherit(kb.node(Common.object))
-          .inherit(kb.node(Common.name));
-      indexNode(kb, getOrCreate, get, "get");
+      val get = (SynapticNode) parse("object[name]");
+      indexNode(getOrCreate, get, "get");
       getOrCreate.then(get);
       val absent = kb.eavNode(true, false, get, null);
 
-      val returnGet = ((InvocationNode) parse(kb, "returnValue = ")).transform(kb.node(Common.value), get);
-      returnGet.getSynapse().setCoefficient(get, 1);
+      val returnGet = (SynapticNode) parse("returnValue = `'parse.getOrCreate.get`");
+      get.then(returnGet);
       returnGet.getSynapse().setCoefficient(absent, -1);
 
-      val create = kb.new InvocationNode(kb.node(BuiltIn.node));
-      indexNode(kb, getOrCreate, create, "create");
+      val create = kb.new InvocationNode(kb.node(BuiltIn.node)).inherit(kb.node(Common.entrypoint));
+      indexNode(getOrCreate, create, "create");
       create.conjunction(get, absent);
-      val set = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).inherit(kb.node(Common.object))
-          .inherit(kb.node(Common.name)).transform(kb.node(Common.value), create);
-      create.then(set);
-      val returnCreate = ((InvocationNode) parse(kb, "returnValue = ")).transform(kb.node(Common.value), create);
-      set.then(returnCreate);
+      create.then((SynapticNode) parse("""
+          object[name] = `'parse.getOrCreate.create`;
+          returnValue = `'parse.getOrCreate.create`;
+          """).properties.get(kb.node(Common.entrypoint)));
     }
 
     val call = new SynapticNode();
-    indexNode(kb, parse, call, "call");
+    indexNode(parse, call, "call");
     {
-      val ifOparen = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '('));
       val startCall = new SynapticNode();
-      indexNode(kb, call, startCall, "start");
-      val hasResolvedIdentifier = kb.eavNode(true, true, state, resolvedIdentifier);
-      startCall.conjunction(onNext, ifOparen, hasResolvedIdentifier);
+      indexNode(call, startCall, "start");
+      startCall.conjunction(apply, kb.eavNode(true, false, symbol(-1), resolvedIdentifier),
+          kb.eavNode(true, false, symbol(0), operator), kb.eavNode(true, false, value(0), kb.node((int) '(')));
 
-      startCall.then(consumeResolved);
+      val invocation = kb.new InvocationNode(kb.node(BuiltIn.node)).transform(kb.node(Common.entrypoint), value(-1));
+      indexNode(call, invocation, "invocation");
+      startCall.then(invocation);
+      invocation.then((SynapticNode) parse("`'parse.call.invocation`.`'entrypoint` = `'parse.call.invocation`"));
 
-      val invocation = kb.new InvocationNode(kb.node(BuiltIn.node)).transform(kb.node(Common.entrypoint),
-          consumeResolved);
-      indexNode(kb, call, invocation, "invocation");
-      invocation.conjunction(startCall, consumeResolved);
-      {
-        val publish = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), call).transform(kb.node(Common.value), invocation);
-        invocation.then(publish);
-      }
+      invocation.then(rewrite(2, invocation, invocation));
 
-      val hasCall = kb.eavNode(true, true, state, call);
-      val ifCparen = kb.eavNode(true, false, kb.node(Common.value), kb.node((int) ')'));
-      val endCall = new SynapticNode();
-      indexNode(kb, call, endCall, "end");
-      endCall.conjunction(onNext, ifCparen, hasCall);
-      endCall.getSynapse().setCoefficient(kb.eavNode(true, false, state, invocation, null), -1);
+      val cParen = kb.eavNode(true, false, value(0), kb.node((int) ')')),
+          comma = kb.eavNode(true, false, value(0), kb.node((int) ','));
 
-      // If we encounter '=', pre-empt assignment and treat as named args instead.
-      // Named args behave pretty differently from assignment. Assignment would create
-      // a setProperty invocation that sets the named property, but named args can't
-      // do that since the only thing it could set properties on are the
-      // literal/transform properties of the invocation, which is a non-contextual
-      // structural modification we should avoid here.
-      val startAssignment = (SynapticNode) assignment.properties.get(kb.node("start"));
-      startAssignment.getSynapse().setCoefficient(hasCall, -1);
+      val noArgs = new SynapticNode();
+      noArgs.conjunction(apply, kb.eavNode(true, false, symbol(-1), invocation),
+          kb.eavNode(true, false, symbol(0), operator), cParen);
+      noArgs.then(rewrite(2, call, value(-1)));
+
+      val argDelimiter = new SynapticNode();
+      comma.then(argDelimiter);
+      cParen.then(argDelimiter);
 
       val namedArg = new SynapticNode();
-      indexNode(kb, call, namedArg, "namedArg");
-      namedArg.conjunction(onNext, hasCall, kb.eavNode(true, false, kb.node(Common.value), kb.node((int) '=')),
-          hasResolvedIdentifier);
-      namedArg.then(consumeResolved);
-      val primeNamedArg = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), namedArg).transform(kb.node(Common.value), consumeResolved);
-      primeNamedArg.conjunction(namedArg, consumeResolved);
+      indexNode(call, namedArg, "namedArg");
+      namedArg.conjunction(kb.eavNode(true, false, symbol(-4), invocation),
+          kb.eavNode(true, false, value(-2), kb.node((int) ':')), kb.eavNode(true, false, symbol(0), operator),
+          argDelimiter);
+      namedArg.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), invocation), -1);
 
-      val setNamedArg = new SynapticNode();
-      indexNode(kb, call, setNamedArg, "setNamedArg");
-      {
-        val hasNamedArg = kb.eavNode(true, true, state, namedArg);
-        val hadNamedArg = new SynapticNode();
-        hadNamedArg.getSynapse().setCoefficient(hasNamedArg, 1);
-        hadNamedArg.getSynapse().setCoefficient(onNext, -1);
-        setNamedArg.conjunction(onNext, hadNamedArg, hasResolvedIdentifier);
+      val literalValue = kb.eavNode(true, false, symbol(-1), nodeLiteral);
+      ((SynapticNode) parse("argType = 'literal")).conjunction(namedArg, literalValue);
+      val asTransform = (SynapticNode) parse("argType = 'transform");
+      namedArg.then(asTransform);
+      asTransform.getSynapse().setCoefficient(literalValue, -1);
 
-        // Suppress endCall until we've processed the arg.
-        endCall.getSynapse().setCoefficient(hasNamedArg, -1);
+      val getOrCreateArgType = kb.new InvocationNode(getOrCreate).transform(kb.node(Common.object), value(-4))
+          .transform(kb.node(Common.name), kb.node("argType"));
+      indexNode(call, getOrCreateArgType, "getOrCreateArgType");
+      getOrCreateArgType.conjunction(namedArg, kb.eavNode(true, true, kb.node("argType")));
+      getOrCreateArgType.then((SynapticNode) parse("`'parse.call.getOrCreateArgType`[_vn3] = _vn1"));
 
-        val getCall = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-            .literal(kb.node(Common.name), call);
+      val mergeArgEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), value(-4))
+          .transform(kb.node(Common.value), value(-1));
+      namedArg.then(mergeArgEntrypoint);
 
-        setNamedArg.then(getCall);
-
-        val consumeNamedArg = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-            .transform(kb.node(Common.object), state).literal(kb.node(Common.name), namedArg);
-        setNamedArg.then(consumeNamedArg);
-        {
-          val reset = kb.new InvocationNode(kb.node(BuiltIn.setProperty)).transform(kb.node(Common.object), state)
-              .literal(kb.node(Common.name), namedArg);
-          consumeNamedArg.then(reset);
-        }
-
-        setNamedArg.then(consumeResolved);
-
-        val isRef = kb.eavNode(true, false, state, reference, reference);
-        val asLiteral = (SynapticNode) parse(kb, "argType = &literal"),
-            asTransform = (SynapticNode) parse(kb, "argType = &transform");
-        asLiteral.conjunction(setNamedArg, isRef);
-        asTransform.getSynapse().setCoefficient(setNamedArg, 1);
-        asTransform.getSynapse().setCoefficient(isRef, -1);
-
-        val getOrCreateArgType = kb.new InvocationNode(getOrCreate).transform(kb.node(Common.object), getCall)
-            .transform(kb.node(Common.name), kb.node("argType"));
-        getOrCreateArgType.conjunction(setNamedArg, getCall, kb.eavNode(true, true, kb.node("argType")));
-        val setArg = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .transform(kb.node(Common.object), getOrCreateArgType).transform(kb.node(Common.name), consumeNamedArg)
-            .transform(kb.node(Common.value), consumeResolved);
-        setArg.conjunction(getOrCreateArgType, consumeNamedArg, consumeResolved);
-
-        // Undo suppression from above.
-        endCall.getSynapse().setCoefficient(setArg, 1);
-      }
-
-      val getCall = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).transform(kb.node(Common.object), state)
-          .literal(kb.node(Common.name), call);
-      collectResult.then(getCall);
-      val returnCall = ((InvocationNode) parse(kb, "returnValue = ")).transform(kb.node(Common.value), getCall);
-      getCall.then(returnCall);
-      returnCall.getSynapse().setCoefficient(kb.eavNode(true, false, getCall, null), -1);
+      rewrite(5, invocation, value(-4)).conjunction(namedArg, comma);
+      rewrite(5, call, value(-4)).conjunction(namedArg, cParen);
     }
   }
 }

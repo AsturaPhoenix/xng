@@ -1,6 +1,5 @@
 package ai.xng;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -12,7 +11,6 @@ import com.google.common.collect.Lists;
 
 import lombok.Getter;
 import lombok.val;
-import lombok.experimental.Accessors;
 
 /**
  * A utility that supports deterministically rewriting node-space n-grams.
@@ -23,8 +21,13 @@ import lombok.experimental.Accessors;
  * <li>Limited lookahead and backtracking.
  * </ul>
  */
-public class DeterministicNGramRewriter implements Serializable {
-  private static final long serialVersionUID = -3557530679569047568L;
+public class DeterministicNGramRewriter {
+  public static record SymbolPair(Node symbol, Node value) {
+    @Override
+    public String toString() {
+      return String.format("SymbolPair(%s, %s)", symbol, value);
+    }
+  }
 
   private final List<SymbolPair> symbolPairs;
   @Getter
@@ -40,20 +43,6 @@ public class DeterministicNGramRewriter implements Serializable {
 
   public DeterministicNGramRewriter(final Stream<SymbolPair> symbolPairs) {
     this.symbolPairs = symbolPairs.collect(Collectors.toCollection(ArrayList::new));
-    values = Lists.transform(this.symbolPairs, SymbolPair::value);
-  }
-
-  @Getter
-  @Accessors(fluent = true)
-  private final List<Node> values;
-
-  public static record SymbolPair(Node symbol, Node value) implements Serializable {
-    private static final long serialVersionUID = -7982501031086198580L;
-
-    @Override
-    public String toString() {
-      return String.format("SymbolPair(%s, %s)", symbol, value);
-    }
   }
 
   /**
@@ -102,7 +91,7 @@ public class DeterministicNGramRewriter implements Serializable {
 
     if (isDirty()) {
       throw new IllegalStateException(
-          "Multiple rewrites proposed in a single frame. Window must be refreshed before further rewrites.");
+          String.format("Multiple rewrites proposed in a single frame. Window must be refreshed before further rewrites.\nState: %s", this));
     }
 
     final int newDirty = position - length;

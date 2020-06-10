@@ -3,8 +3,6 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.io.PrintStream;
-import java.io.PrintWriter;
 import java.io.Serializable;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
@@ -24,6 +22,7 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
@@ -523,6 +522,26 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       }
       return sb.toString();
     }
+
+    public Stream<NodeStackFrame> trace(final KnowledgeBase kb) {
+      final Node callerKey = kb.node(Common.caller), invocationKey = kb.node(Common.invocation),
+          contextKey = kb.node(Common.context);
+
+      return Stream.iterate(this, s -> {
+        final Node caller = s.context.node.properties.get(callerKey);
+        if (caller == null)
+          return null;
+
+        final Node invocation = caller.properties.get(invocationKey), contextNode = caller.properties.get(contextKey);
+        final Object context = contextNode == null ? null : contextNode.getValue();
+
+        return invocation instanceof InvocationNode i && context instanceof Context c ? new NodeStackFrame(i, c) : null;
+      }).takeWhile(s -> s != null);
+    }
+
+    public String traceAsString(final KnowledgeBase kb) {
+      return trace(kb).map(Object::toString).collect(Collectors.joining("\n"));
+    }
   }
 
   /**
@@ -541,44 +560,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public class InvocationException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
-    private final NodeStackFrame stackFrame;
+    public final NodeStackFrame stackFrame;
 
     private InvocationException(final Throwable cause, final NodeStackFrame stackFrame) {
-      super(cause);
+      super(stackFrame.traceAsString(KnowledgeBase.this), cause);
       this.stackFrame = stackFrame;
     }
 
     private InvocationException(final String message, final NodeStackFrame stackFrame) {
-      super(message);
+      super(String.format("%s\n%s", message, stackFrame.traceAsString(KnowledgeBase.this)));
       this.stackFrame = stackFrame;
-    }
-
-    public Stream<NodeStackFrame> getNodeStackTrace() {
-      final Node callerKey = node(Common.caller), invocationKey = node(Common.invocation),
-          contextKey = node(Common.context);
-
-      return Stream.iterate(stackFrame, s -> {
-        final Node caller = s.context.node.properties.get(callerKey);
-        if (caller == null)
-          return null;
-
-        final Node invocation = caller.properties.get(invocationKey), contextNode = caller.properties.get(contextKey);
-        final Object context = contextNode == null ? null : contextNode.getValue();
-
-        return invocation instanceof InvocationNode i && context instanceof Context c ? new NodeStackFrame(i, c) : null;
-      }).takeWhile(s -> s != null);
-    }
-
-    @Override
-    public void printStackTrace(final PrintWriter s) {
-      super.printStackTrace(s);
-      getNodeStackTrace().forEach(nsf -> s.println(nsf));
-    }
-
-    @Override
-    public void printStackTrace(PrintStream s) {
-      super.printStackTrace(s);
-      getNodeStackTrace().forEach(nsf -> s.println(nsf));
     }
   }
 
@@ -1344,7 +1335,5 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     for (val bootstrap : Bootstrap.values()) {
       bootstrap.setUp(this, node(bootstrap));
     }
-
-    new LanguageBootstrap(this).bootstrap();
   }
 }

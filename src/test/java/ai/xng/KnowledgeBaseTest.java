@@ -385,6 +385,7 @@ public class KnowledgeBaseTest {
   @Test
   public void testEval() throws Exception {
     try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
       val repl = new TestRepl(kb);
 
       assertEquals("BuiltIn.print", repl.eval("print(value: 'print)"));
@@ -395,6 +396,7 @@ public class KnowledgeBaseTest {
   @Test
   public void testNamedArgsConsistency() throws Exception {
     try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
       val repl = new TestRepl(kb);
 
       for (int i = 0; i < 200; ++i) {
@@ -406,16 +408,17 @@ public class KnowledgeBaseTest {
   @Test
   public void testEvalReinforcementStability() throws Exception {
     try (val kb = new KnowledgeBase()) {
-      final Node value = kb.node(Common.value), hi = kb.node("hi"),
-          invocation = kb.new InvocationNode(kb.node(Bootstrap.eval)).literal(value, kb.node("print"));
+      new LanguageBootstrap(kb).bootstrap();
+
+      final Node invocation = kb.new InvocationNode(kb.node(Bootstrap.eval)).literal(kb.node(Common.value),
+          kb.node("print(value: 'node)"));
       val monitor = new EmissionMonitor<>(kb.rxOutput());
 
-      for (int i = 0; i < 100; ++i) {
+      for (int i = 0; i < 10; ++i) {
         val context = kb.newContext();
-        context.node.properties.put(value, hi);
         invocation.activate(context);
         context.blockUntilIdle();
-        assertThat(monitor.emissions()).as("iteration %s", i).containsExactly("hi");
+        assertThat(monitor.emissions()).as("iteration %s", i).containsExactly("BuiltIn.node");
         KnowledgeBase.reinforceRecursively(context, 1).join();
       }
     }

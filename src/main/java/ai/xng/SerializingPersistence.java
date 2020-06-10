@@ -24,7 +24,9 @@ public class SerializingPersistence {
       return kb;
     } catch (final FileNotFoundException e) {
       System.out.printf("Persistence not found at %s; creating new persistence.\n", file.getAbsolutePath());
-      return new KnowledgeBase();
+      val kb = new KnowledgeBase();
+      new LanguageBootstrap(kb).bootstrap();
+      return kb;
     } catch (final ObjectStreamException e) {
       System.out.printf("Persistence not compatible at %s. If this is expected, delete the file.\n",
           file.getAbsolutePath());

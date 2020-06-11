@@ -56,6 +56,29 @@ public class KnowledgeBaseTest {
   }
 
   @Test
+  public void testEavBeforeContinuation() {
+    try (val kb = new KnowledgeBase()) {
+      val language = new LanguageBootstrap(kb);
+      language.bootstrap();
+      val setReturn = language.parse("returnValue = 'node");
+      val invocation = kb.new InvocationNode(setReturn),
+          eav = kb.eavNode(true, false, invocation, kb.node(BuiltIn.node));
+
+      val race = new SynapticNode();
+      invocation.then(race);
+      race.getSynapse().setCoefficient(eav, -1);
+
+      val monitor = new EmissionMonitor<>(race.rxActivate());
+      for (int i = 0; i < 1000; ++i) {
+        val context = kb.newContext();
+        invocation.activate(context);
+        context.blockUntilIdle();
+        assertFalse(monitor.didEmit(), String.format("Failed on iteration %s.", i));
+      }
+    }
+  }
+
+  @Test
   public void testNestedEavBeforeEntrypoint() {
     try (val kb = new KnowledgeBase()) {
       val entrypoint = new SynapticNode(), parent = new SynapticNode(), child = new SynapticNode(),
@@ -420,6 +443,15 @@ public class KnowledgeBaseTest {
         context.blockUntilIdle();
         assertThat(monitor.emissions()).as("iteration %s", i).containsExactly("BuiltIn.node");
         KnowledgeBase.reinforceRecursively(context, 1).join();
+      }
+    }
+  }
+
+  @Test
+  public void testBootstrapReliability() {
+    for (int i = 0; i < 100; ++i) {
+      try (val kb = new KnowledgeBase()) {
+        new LanguageBootstrap(kb).bootstrap();
       }
     }
   }

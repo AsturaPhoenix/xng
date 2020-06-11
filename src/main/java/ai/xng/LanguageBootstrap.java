@@ -163,11 +163,13 @@ public class LanguageBootstrap {
           .literal(kb.node(Common.javaClass), kb.node(Character.class))
           .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
           .transform(kb.arg(1), value(0));
+      indexNode(operator, isIdentifierPart, "isIdentifierPart");
 
       val isWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
           .literal(kb.node(Common.javaClass), kb.node(Character.class))
           .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
           .transform(kb.arg(1), value(0));
+      indexNode(operator, isWhitespace, "isWhitespace");
 
       val classify = new SynapticNode();
       classify.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));

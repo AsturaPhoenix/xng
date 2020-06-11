@@ -90,8 +90,9 @@ public class DeterministicNGramRewriter {
   public void rewrite(final int length, final ImmutableList<SymbolPair> replacement) {
 
     if (isDirty()) {
-      throw new IllegalStateException(
-          String.format("Multiple rewrites proposed in a single frame. Window must be refreshed before further rewrites.\nState: %s", this));
+      throw new IllegalStateException(String.format(
+          "Multiple rewrites proposed in a single frame. Window must be refreshed before further rewrites.\nState: %s",
+          this));
     }
 
     final int newDirty = position - length;
@@ -117,7 +118,39 @@ public class DeterministicNGramRewriter {
 
   @Override
   public String toString() {
-    return symbolPairs.toString();
+    val parts = new ArrayList<String>();
+    val sb = new StringBuilder();
+
+    for (val symbolPair : symbolPairs) {
+      if (symbolPair.symbol() != null && symbolPair.value() != null
+          && symbolPair.symbol().getValue() == KnowledgeBase.Common.codePoint
+          && symbolPair.value().getValue() instanceof Integer) {
+        if (sb.length() == 0) {
+          sb.append('"');
+        }
+        sb.appendCodePoint((int) symbolPair.value().getValue());
+      } else {
+        if (sb.length() > 0) {
+          sb.append('"');
+          parts.add(sb.toString());
+          sb.setLength(0);
+        }
+
+        sb.append('(').append(symbolPair.symbol()).append(", ").append(symbolPair.value());
+        if (symbolPair.value() != null && symbolPair.value().getValue() instanceof Integer
+            && !Character.isISOControl((int) symbolPair.value().getValue())) {
+          sb.append("/'").appendCodePoint((int) symbolPair.value().getValue()).append("'");
+        }
+        sb.append(')');
+        parts.add(sb.toString());
+        sb.setLength(0);
+      }
+    }
+    if (sb.length() > 0) {
+      sb.append('"');
+      parts.add(sb.toString());
+    }
+    return parts.toString();
   }
 
   public String debug() {

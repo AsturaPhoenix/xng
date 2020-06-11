@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Map.Entry;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.google.common.collect.Iterables;
@@ -27,6 +28,18 @@ import lombok.RequiredArgsConstructor;
 import lombok.val;
 
 public class NodeTest {
+  @RequiredArgsConstructor
+  private static class TestNode extends SynapticNode {
+    private static final long serialVersionUID = 1L;
+
+    final Supplier<Completable> onActivate;
+
+    @Override
+    protected Completable onActivate(Context context) {
+      return onActivate.get();
+    }
+  }
+
   @Test
   public void testEmptySerialization() throws Exception {
     assertNotNull(TestUtil.serialize(new Node()));
@@ -214,11 +227,34 @@ public class NodeTest {
     val monitor = new EmissionMonitor<>(out.rxActivate());
     out.getSynapse().setCoefficient(up, 1);
     out.getSynapse().setCoefficient(down, -1);
-    val context = Context.newWithExecutor(threadPool);
-    down.activate(context);
-    up.activate(context);
-    context.blockUntilIdle();
-    assertFalse(monitor.didEmit());
+
+    for (int i = 0; i < 10000; ++i) {
+      val context = Context.newWithExecutor(threadPool);
+      down.activate(context);
+      up.activate(context);
+      context.blockUntilIdle();
+      assertFalse(monitor.didEmit());
+    }
+  }
+
+  @Test
+  public void testNearCoincidentInhibitionWithDelayedContinuation() {
+    val upCompleter = new AtomicReference<Completable>();
+    val up = new TestNode(upCompleter::get), down = new Node(), out = new SynapticNode();
+    val monitor = new EmissionMonitor<>(out.rxActivate());
+    out.getSynapse().setCoefficient(up, 1);
+    out.getSynapse().setCoefficient(down, -1);
+
+    for (int i = 0; i < 10000; ++i) {
+      val context = Context.newWithExecutor(threadPool);
+      val completer = CompletableSubject.create();
+      upCompleter.set(completer);
+      up.activate(context);
+      down.activate(context);
+      completer.onComplete();
+      context.blockUntilIdle();
+      assertFalse(monitor.didEmit(), String.format("Failed on iteration %s.", i));
+    }
   }
 
   @Test
@@ -240,18 +276,6 @@ public class NodeTest {
 
     assertEquals(1, activations.size(), activations.toString());
     assertThat(activations.get(0)).isGreaterThan(400);
-  }
-
-  @RequiredArgsConstructor
-  private static class TestNode extends SynapticNode {
-    private static final long serialVersionUID = 1L;
-
-    final Supplier<Completable> onActivate;
-
-    @Override
-    protected Completable onActivate(Context context) {
-      return onActivate.get();
-    }
   }
 
   @Test

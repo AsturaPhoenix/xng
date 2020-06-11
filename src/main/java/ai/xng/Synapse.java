@@ -143,7 +143,7 @@ public class Synapse implements Serializable {
       val ref = activation.context.new Ref();
 
       // Although we should already be on the context thread by now, defer evaluation
-      // until peer node activation timestamps have had a chacne to catch up.
+      // until peer node activation timestamps have had a chance to catch up.
       //
       // Notably we defer here rather than on the Node side because, for example,
       // rxActivate also drives reinforcement, which requires consistency. e.g. there

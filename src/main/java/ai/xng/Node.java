@@ -79,22 +79,35 @@ public class Node implements Serializable {
         activationListener.promote();
 
         // If onActivate doesn't take us off the dispatch thread, prefer to update
-        // timestamps immediately. Note that synapses will defer further propagation
+        // timestamps immediately. This allows us to do things like guarantee that EAV
+        // nodes register before their enclosing invocation does. Note that synapses
+        // will defer further propagation
         // themselves regardless.
-        onActivate(context).observeOn(context.getScheduler().preferImmediate())
-            // It's important to note that this holds onto the ref through the error
-            // handler. Were we to release the ref before catch, we could close the context
-            // prematurely when it's about to complete exceptionally.
-            .doFinally(ref::close).subscribe(() -> {
-              // continuation: Synapse.Profile::onActivate
-              rxOutput.onNext(new Activation(context, context.getScheduler().now(TimeUnit.MILLISECONDS)));
-            },
-                // Caution, this may behave strangely if invocations happen against contexts
-                // that have been deserialized since contexts are intended to be ephemeral and
-                // overridden exception handlers will be lost.
-                // TODO(rosswang): Maybe preserve the node that was actually activated.
-                // TODO(rosswang): Do not allow activation against deserialized contexts.
-                context.exceptionHandler);
+        Completable completion = onActivate(context);
+        // Use null with a completed completable to indicate immediate scheduling rather
+        // than trying to use a preferImmediate contextual scheduler because in certain
+        // race conditions where an invocation node that activates EAV nodes produces a
+        // completed completable, the latter could result in EAV nodes being activated
+        // after an enclosing invocation.
+        if (completion != null) {
+          completion = completion.observeOn(context.getScheduler());
+        } else {
+          completion = Completable.complete();
+        }
+
+        // It's important to note that this holds onto the ref through the error
+        // handler. Were we to release the ref before catch, we could close the context
+        // prematurely when it's about to complete exceptionally.
+        completion.doFinally(ref::close).subscribe(() -> {
+          // continuation: Synapse.Profile::onActivate
+          rxOutput.onNext(new Activation(context, context.getScheduler().now(TimeUnit.MILLISECONDS)));
+        },
+            // Caution, this may behave strangely if invocations happen against contexts
+            // that have been deserialized since contexts are intended to be ephemeral and
+            // overridden exception handlers will be lost.
+            // TODO(rosswang): Maybe preserve the node that was actually activated.
+            // TODO(rosswang): Do not allow activation against deserialized contexts.
+            context.exceptionHandler);
       });
     }
   }
@@ -154,9 +167,11 @@ public class Node implements Serializable {
 
   /**
    * An optional handler that can block activation until a task has completed.
+   * Null results in immediate completion, whereas {@link Completable#complete()}
+   * will enqueue a task.
    */
   protected Completable onActivate(final Context context) {
-    return Completable.complete();
+    return null;
   }
 
   public Observable<Activation> rxActivate() {

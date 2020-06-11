@@ -66,7 +66,7 @@ public class BanditTest {
         context.reinforce(reinforcement).join();
         newPulls.add(bandit);
 
-        return Completable.complete();
+        return null;
       }
     }
 

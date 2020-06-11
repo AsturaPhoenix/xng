@@ -641,4 +641,34 @@ public class ContextSchedulerTest {
         .subscribe(() -> thread.complete(Thread.currentThread()));
     assertNotEquals(Thread.currentThread(), thread.get());
   }
+
+  @Test
+  public void testColdOrdering() throws Exception {
+    val scheduler = new ContextScheduler(threadPool);
+    scheduler.start();
+
+    val flag = new boolean[] { false };
+    for (int i = 0; i < 100000; ++i) {
+      val flagResult = new CompletableFuture<Boolean>();
+      scheduler.scheduleDirect(() -> flag[0] = true);
+      scheduler.scheduleDirect(() -> flagResult.complete(flag[0]));
+      assertTrue(flagResult.get());
+      flag[0] = false;
+    }
+  }
+
+  @Test
+  public void testColdOrderingWithPreferImmediate() throws Exception {
+    val scheduler = new ContextScheduler(threadPool);
+    scheduler.start();
+
+    val flag = new boolean[] { false };
+    for (int i = 0; i < 100000; ++i) {
+      val flagResult = new CompletableFuture<Boolean>();
+      scheduler.scheduleDirect(() -> flag[0] = true);
+      scheduler.preferImmediate().scheduleDirect(() -> flagResult.complete(flag[0]));
+      assertTrue(flagResult.get());
+      flag[0] = false;
+    }
+  }
 }

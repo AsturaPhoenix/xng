@@ -33,6 +33,7 @@ public class Node implements Serializable {
    * or disjunctive edges.
    */
   public static final float THRESHOLD_MARGIN = .2f;
+  public static final float DEFAULT_COEFFICIENT = Synapse.THRESHOLD + THRESHOLD_MARGIN;
 
   /**
    * Activation history TTL, in ms.
@@ -242,7 +243,7 @@ public class Node implements Serializable {
    * @return next
    */
   public Node then(final SynapticNode next) {
-    next.getSynapse().setCoefficient(this, Synapse.THRESHOLD + THRESHOLD_MARGIN);
+    next.getSynapse().setCoefficient(this, DEFAULT_COEFFICIENT);
     return next;
   }
 }

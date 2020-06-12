@@ -50,7 +50,7 @@ import lombok.val;
 public class KnowledgeBase implements Serializable, AutoCloseable {
   private static final long serialVersionUID = 5249665334141533302L;
 
-  public static final int DEFAULT_MAX_STACK_DEPTH = 512, DEFAULT_LOOKBEHIND = 5, DEFAULT_LOOKAHEAD = 2;
+  public static final int DEFAULT_MAX_STACK_DEPTH = 1024, DEFAULT_LOOKBEHIND = 5, DEFAULT_LOOKAHEAD = 2;
 
   /**
    * Map that keeps its nodes alive. Note that the {@code weakKeys} configuration
@@ -83,12 +83,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     caller, invocation, context, maxStackDepth,
 
     // ordinals
-    argument, parameter,
+    type, ordinal,
 
     // parsing
     rewriter, symbol, codePoint, lookahead, lookbehind, rewriteLength,
 
-    javaClass, object, name, exception, source, value, entrypoint, relative,
+    javaClass, argument, parameter, object, name, exception, source, value, entrypoint, relative,
 
     // association
     prior, posterior, coefficient,
@@ -135,7 +135,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final SynapticNode posterior = (SynapticNode) context.require(kb.node(Common.posterior));
         final Node coefficient = context.node.properties.get(kb.node(Common.coefficient));
 
-        posterior.getSynapse().setCoefficient(prior, coefficient == null ? 1 : (float) coefficient.getValue());
+        posterior.getSynapse().setCoefficient(prior,
+            coefficient == null ? Node.DEFAULT_COEFFICIENT : (float) coefficient.getValue());
         return null;
       }
     },
@@ -334,10 +335,50 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         return method.getReturnType() == null ? null : kb.node(ret);
       }
     },
+    ordinal {
+      @Override
+      protected Node impl(final KnowledgeBase kb, final Context context) throws Exception {
+        return kb.node(new Ordinal(context.require(kb.node(Common.type)),
+            (int) context.require(kb.node(Common.ordinal)).getValue()));
+      }
+    },
     findClass {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws ClassNotFoundException {
-        return kb.node(Class.forName((String) context.require(kb.node(Common.name)).getValue()));
+        final Class<?> clazz;
+        val name = (String) context.require(kb.node(Common.name)).getValue();
+        switch (name) {
+          case "void":
+            clazz = void.class;
+            break;
+          case "boolean":
+            clazz = boolean.class;
+            break;
+          case "byte":
+            clazz = byte.class;
+            break;
+          case "char":
+            clazz = char.class;
+            break;
+          case "short":
+            clazz = short.class;
+            break;
+          case "int":
+            clazz = int.class;
+            break;
+          case "long":
+            clazz = long.class;
+            break;
+          case "float":
+            clazz = float.class;
+            break;
+          case "double":
+            clazz = double.class;
+            break;
+          default:
+            clazz = Class.forName(name);
+        }
+        return kb.node(clazz);
       }
     },
     /**

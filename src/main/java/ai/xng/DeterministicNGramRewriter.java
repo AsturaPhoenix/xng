@@ -100,6 +100,8 @@ public class DeterministicNGramRewriter {
       throw new IllegalArgumentException(String.format("Cannot rewrite length %s from position %s.", length, position));
     }
 
+    // Stringizing lazily could be misleading if nodes contain mutable state, but on
+    // the other hand stringizing eagerly can be pretty expensive.
     history.add(ImmutableList.copyOf(symbolPairs));
 
     val tail = window(length, 0);
@@ -116,8 +118,7 @@ public class DeterministicNGramRewriter {
     return symbolPairs.get(0).value;
   }
 
-  @Override
-  public String toString() {
+  private static String toString(final Iterable<SymbolPair> symbolPairs) {
     val parts = new ArrayList<String>();
     val sb = new StringBuilder();
 
@@ -153,8 +154,13 @@ public class DeterministicNGramRewriter {
     return parts.toString();
   }
 
+  @Override
+  public String toString() {
+    return toString(symbolPairs);
+  }
+
   public String debug() {
-    return String.format("%s\n    History: %s", symbolPairs,
-        Lists.reverse(history).stream().map(Object::toString).collect(Collectors.joining("\n")));
+    return String.format("%s\n    History: %s", this,
+        Lists.reverse(history).stream().map(DeterministicNGramRewriter::toString).collect(Collectors.joining("\n")));
   }
 }

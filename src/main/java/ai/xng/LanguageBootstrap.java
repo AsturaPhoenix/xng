@@ -64,65 +64,74 @@ public class LanguageBootstrap {
     val parse = kb.node(Bootstrap.parse);
     val apply = parse.properties.get(kb.node("apply"));
 
+    val isCodePoint = new SynapticNode();
+    isCodePoint.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
+
     val identifier = new SynapticNode();
     indexNode(parse, identifier, "identifier");
     {
-      val identifierBuffer = new SynapticNode();
-      indexNode(identifier, identifierBuffer, "buffer");
+      val buffer = new SynapticNode();
+      indexNode(identifier, buffer, "buffer");
 
+      val hasBuffer = kb.eavNode(true, false, symbol(-1), buffer);
+
+      val start = new SynapticNode();
+      indexNode(identifier, start, "start");
       {
-        val identifierStart = new SynapticNode();
-        indexNode(identifier, identifierStart, "start");
-        identifierStart.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
-        identifierStart.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), identifierBuffer), -1);
-
         val isIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
             .literal(kb.node(Common.javaClass), kb.node(Character.class))
             .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), value(0));
-        identifierStart.then(isIdentifierStart);
+        isCodePoint.then(isIdentifierStart);
+        isIdentifierStart.getSynapse().setCoefficient(hasBuffer, -1);
 
-        val buffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
+        start.conjunction(isCodePoint, kb.eavNode(true, false, isIdentifierStart, kb.node(true)));
+
+        val newBuffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
             kb.node(StringBuilder.class));
-        buffer.comment = "buffer";
-        kb.eavNode(true, false, isIdentifierStart, kb.node(true)).then(buffer);
+        newBuffer.comment = "newBuffer";
+        start.then(newBuffer);
 
-        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), buffer)
+        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), newBuffer)
             .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), value(0));
-        buffer.then(append);
-        append.then(rewrite(1, identifierBuffer, buffer));
+        newBuffer.then(append);
+        append.then(rewrite(1, buffer, newBuffer));
       }
-      {
-        val identifierPart = new SynapticNode();
-        indexNode(identifier, identifierPart, "part");
-        identifierPart.conjunction(apply, kb.eavNode(true, false, symbol(-1), identifierBuffer),
-            kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
 
+      val part = new SynapticNode();
+      indexNode(identifier, part, "part");
+      {
         val isIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
             .literal(kb.node(Common.javaClass), kb.node(Character.class))
             .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), value(0));
-        identifierPart.then(isIdentifierPart);
+        isIdentifierPart.conjunction(isCodePoint, hasBuffer);
+
+        part.conjunction(isCodePoint, kb.eavNode(true, false, isIdentifierPart, kb.node(true)));
 
         val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), value(-1))
             .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
             .transform(kb.arg(1), value(0));
-        kb.eavNode(true, false, isIdentifierPart, kb.node(true)).then(append);
+        part.then(append);
 
         // Simply delete the trailing code point now that we've folded it into the
         // buffer.
-        append.then(rewrite(1));
+        part.then(rewrite(1));
       }
+
+      val end = new SynapticNode();
+      indexNode(identifier, end, "end");
       {
-        val identifierEnd = new SynapticNode();
-        indexNode(identifier, identifierEnd, "end");
-        identifierEnd.conjunction(apply, kb.eavNode(true, false, symbol(0), identifierBuffer));
-        identifierEnd.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(1), kb.node(Common.codePoint)), -1);
+        end.conjunction(apply, kb.eavNode(true, false, symbol(0), buffer));
+        // We can get away with this simple inhibition because any non-identifier
+        // character coming up will be consumed as whitespace or an operator, after
+        // which we'll backtrack to here.
+        end.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(1), kb.node(Common.codePoint)), -1);
 
         val toString = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), value(0))
             .literal(kb.node(Common.name), kb.node("toString"));
-        identifierEnd.then(toString);
+        end.then(toString);
         toString.then(rewrite(1, identifier, toString));
       }
     }
@@ -139,16 +148,16 @@ public class LanguageBootstrap {
     val whitespace = new SynapticNode();
     indexNode(parse, whitespace, "whitespace");
     {
-      whitespace.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
-
       val isWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
           .literal(kb.node(Common.javaClass), kb.node(Character.class))
           .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
           .transform(kb.arg(1), value(0));
-      whitespace.then(isWhitespace);
+      isCodePoint.then(isWhitespace);
+
+      whitespace.conjunction(isCodePoint, kb.eavNode(true, false, isWhitespace, kb.node(true)));
 
       // For now, just drop all whitespace.
-      rewrite(1).conjunction(isWhitespace, kb.eavNode(true, false, isWhitespace, kb.node(true)));
+      whitespace.then(rewrite(1));
     }
 
     // The operator rule being distinct lets us do things like strip whitespace
@@ -157,7 +166,7 @@ public class LanguageBootstrap {
     indexNode(parse, operator, "operator");
     {
       // In the future these can be reused once we switch to immutable invocations
-      // with placement.
+      // with placement. Perhaps TODO: disjunction (coefficient memberwise max)
 
       val isIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
           .literal(kb.node(Common.javaClass), kb.node(Character.class))
@@ -171,12 +180,10 @@ public class LanguageBootstrap {
           .transform(kb.arg(1), value(0));
       indexNode(operator, isWhitespace, "isWhitespace");
 
-      val classify = new SynapticNode();
-      classify.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
-      classify.then(isWhitespace);
-      classify.then(isIdentifierPart);
+      isCodePoint.then(isWhitespace);
+      isCodePoint.then(isIdentifierPart);
 
-      operator.conjunction(isWhitespace, isIdentifierPart);
+      operator.conjunction(isCodePoint, isWhitespace, isIdentifierPart);
       operator.getSynapse().setCoefficient(kb.eavNode(true, false, isWhitespace, kb.node(true)), -1);
       operator.getSynapse().setCoefficient(kb.eavNode(true, false, isIdentifierPart, kb.node(true)), -1);
 
@@ -404,6 +411,8 @@ public class LanguageBootstrap {
     index.properties.put(kb.node("_v0"), value(0));
     index.properties.put(kb.node("_vn1"), value(-1));
     index.properties.put(kb.node("_vn3"), value(-3));
+    index.properties.put(kb.node("_param1"), kb.param(1));
+    index.properties.put(kb.node("_arg1"), kb.arg(1));
 
     val rvalueMember = new SynapticNode();
     indexNode(parse, rvalueMember, "rvalueMember");
@@ -555,8 +564,10 @@ public class LanguageBootstrap {
     val statementSequence = new SynapticNode();
     {
       statementSequence.conjunction(forwardStable, kb.eavNode(true, false, symbol(-1), statement));
-      statementSequence.then(kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), value(0))
-          .transform(kb.node(Common.value), value(-1))).then(rewrite(2, statementSequence, value(0)));
+      statementSequence
+          .then(kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), value(0))
+              .transform(kb.node(Common.symbol), symbol(-1)).transform(kb.node(Common.value), value(-1)))
+          .then(rewrite(2, statementSequence, value(0)));
     }
 
     val getOrCreate = new SynapticNode();
@@ -627,11 +638,154 @@ public class LanguageBootstrap {
       getOrCreateArgType.then((SynapticNode) parse("`'parse.call.getOrCreateArgType`[_vn3] = _vn1"));
 
       val mergeArgEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), value(-4))
-          .transform(kb.node(Common.value), value(-1));
+          .transform(kb.node(Common.symbol), symbol(-1)).transform(kb.node(Common.value), value(-1));
       namedArg.then(mergeArgEntrypoint);
 
       rewrite(5, invocation, value(-4)).conjunction(namedArg, comma);
       rewrite(5, call, value(-4)).conjunction(namedArg, cParen);
+    }
+
+    val stringLiteral = new SynapticNode();
+    indexNode(parse, stringLiteral, "stringLiteral");
+    {
+      val buffer = new SynapticNode();
+      indexNode(stringLiteral, buffer, "buffer");
+
+      val start = new SynapticNode();
+      indexNode(stringLiteral, start, "start");
+      {
+        start.conjunction(apply, kb.eavNode(true, false, symbol(0), operator),
+            kb.eavNode(true, false, value(0), kb.node((int) '"')));
+        start.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), buffer), -1);
+
+        val newBuffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
+            kb.node(StringBuilder.class));
+        newBuffer.comment = "newBuffer";
+        start.then(newBuffer);
+        newBuffer.then(rewrite(1, buffer, newBuffer));
+      }
+
+      // Suspend other parse rules while a string literal is being parsed.
+      val followsBuffer = kb.eavNode(true, false, symbol(-1), buffer);
+      operator.getSynapse().setCoefficient(followsBuffer, -1);
+      whitespace.getSynapse().setCoefficient(followsBuffer, -1);
+      ((SynapticNode) parse("`'parse.identifier.start`")).getSynapse().setCoefficient(followsBuffer, -1);
+
+      val part = new SynapticNode();
+      indexNode(stringLiteral, part, "part");
+      {
+        part.conjunction(isCodePoint, kb.eavNode(true, false, symbol(-1), buffer));
+        part.getSynapse().setCoefficient(kb.eavNode(true, false, value(0), kb.node((int) '"')), -1);
+
+        val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), value(-1))
+            .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
+            .transform(kb.arg(1), value(0));
+        part.then(append);
+
+        // Simply delete the trailing code point now that we've folded it into the
+        // buffer.
+        part.then(rewrite(1));
+      }
+
+      val end = new SynapticNode();
+      indexNode(stringLiteral, end, "end");
+      {
+        end.conjunction(apply, kb.eavNode(true, false, symbol(-1), buffer),
+            kb.eavNode(true, false, value(0), kb.node((int) '"')));
+
+        val toString = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), value(-1))
+            .literal(kb.node(Common.name), kb.node("toString"));
+        end.then(toString);
+        toString.then(rewrite(2, nodeLiteral, toString));
+      }
+    }
+
+    val intLiteral = new SynapticNode();
+    indexNode(parse, intLiteral, "intLiteral");
+    {
+      val builder = new SynapticNode();
+      indexNode(intLiteral, builder, "builder");
+
+      val preCheck = new SynapticNode();
+      indexNode(intLiteral, preCheck, "preCheck");
+      isCodePoint.then(preCheck);
+      preCheck.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("'parse.identifier.buffer")), -1);
+      preCheck.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("'parse.stringLiteral.buffer")),
+          -1);
+
+      val isDigit = (SynapticNode) parse("""
+          method(
+            javaClass: '`findClass(name: "java.lang.Character")`,
+            name: "isDigit",
+            _param1: '`findClass(name: "int")`,
+            _arg1: _v0
+          )
+          """);
+      preCheck.then(isDigit);
+
+      val isReallyDigit = new SynapticNode();
+      isReallyDigit.conjunction(preCheck, kb.eavNode(true, false, isDigit, kb.node(true)));
+
+      val followsBuilder = kb.eavNode(true, false, symbol(-1), builder);
+
+      val start = new SynapticNode();
+      indexNode(intLiteral, start, "start");
+      {
+        isReallyDigit.then(start);
+        start.getSynapse().setCoefficient(followsBuilder, -1);
+        start.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("`'parse.identifier.buffer`")), -1);
+        start.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("`'parse.stringLiteral.buffer`")),
+            -1);
+
+        val newBuilder = (SynapticNode) parse("newInstance(javaClass: '`findClass(name: \"ai.xng.IntBuilder\")`)");
+        indexNode(start, newBuilder, "newBuilder");
+        start.then(newBuilder);
+        val append = (SynapticNode) parse("""
+            method(
+              object: `'parse.intLiteral.start.newBuilder`,
+              name: "append",
+              _param1: '`findClass(name: "int")`,
+              _arg1: _v0
+            )
+            """);
+        append.conjunction(start, newBuilder);
+        rewrite(1, builder, newBuilder).conjunction(start, newBuilder);
+      }
+
+      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), builder), -1);
+
+      val part = new SynapticNode();
+      indexNode(intLiteral, part, "part");
+      {
+        part.conjunction(isReallyDigit, followsBuilder);
+
+        val append = (SynapticNode) parse("""
+            method(
+              object: _vn1,
+              name: "append",
+              _param1: '`findClass(name: "int")`,
+              _arg1: _v0
+            )
+            """);
+        part.then(append);
+        // Simply delete the trailing code point now that we've folded it into the
+        // builder.
+        part.then(rewrite(1));
+      }
+
+      val end = new SynapticNode();
+      indexNode(intLiteral, end, "end");
+      {
+        end.conjunction(apply, kb.eavNode(true, false, symbol(0), builder));
+        // We can get away with this simple inhibition because any non-digit character
+        // coming up will be consumed as an identifier start, whitespace, or an
+        // operator, after which we'll backtrack to here.
+        end.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(1), kb.node(Common.codePoint)), -1);
+
+        val get = (SynapticNode) parse("method(object: _v0, name: \"get\")");
+        end.then(get);
+        get.then(rewrite(1, nodeLiteral, get));
+      }
     }
   }
 }

@@ -406,17 +406,6 @@ public class KnowledgeBaseTest {
   }
 
   @Test
-  public void testEval() throws Exception {
-    try (val kb = new KnowledgeBase()) {
-      new LanguageBootstrap(kb).bootstrap();
-      val repl = new TestRepl(kb);
-
-      assertEquals("BuiltIn.print", repl.eval("print(value: 'print)"));
-      assertEquals("null", repl.eval("print(value: node())"));
-    }
-  }
-
-  @Test
   public void testNamedArgsConsistency() throws Exception {
     try (val kb = new KnowledgeBase()) {
       new LanguageBootstrap(kb).bootstrap();
@@ -434,14 +423,14 @@ public class KnowledgeBaseTest {
       new LanguageBootstrap(kb).bootstrap();
 
       final Node invocation = kb.new InvocationNode(kb.node(Bootstrap.eval)).literal(kb.node(Common.value),
-          kb.node("print(value: 'node)"));
+          kb.node("print(value: \"Hello, world!\")"));
       val monitor = new EmissionMonitor<>(kb.rxOutput());
 
       for (int i = 0; i < 10; ++i) {
         val context = kb.newContext();
         invocation.activate(context);
         context.blockUntilIdle();
-        assertThat(monitor.emissions()).as("iteration %s", i).containsExactly("BuiltIn.node");
+        assertThat(monitor.emissions()).as("iteration %s", i).containsExactly("Hello, world!");
         KnowledgeBase.reinforceRecursively(context, 1).join();
       }
     }
@@ -449,7 +438,7 @@ public class KnowledgeBaseTest {
 
   @Test
   public void testBootstrapReliability() {
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 5; ++i) {
       try (val kb = new KnowledgeBase()) {
         new LanguageBootstrap(kb).bootstrap();
       }
@@ -532,6 +521,38 @@ public class KnowledgeBaseTest {
           fixture.fail(String.format("result = %s", result));
         }
       } while (fixture.shouldContinue());
+    }
+  }
+
+  @Test
+  public void testLiteral() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+      assertEquals("BuiltIn.print", new TestRepl(kb).eval("print(value: 'print)"));
+    }
+  }
+
+  @Test
+  public void testChainInvocation() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+      assertEquals("null", new TestRepl(kb).eval("print(value: node())"));
+    }
+  }
+
+  @Test
+  public void testInt() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+      assertEquals("42", new TestRepl(kb).eval("print(value: 42)"));
+    }
+  }
+
+  @Test
+  public void testString() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+      assertEquals("Hello, world! 42", new TestRepl(kb).eval("print(value: \"Hello, world! 42\")"));
     }
   }
 }

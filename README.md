@@ -1,6 +1,6 @@
 # Executable Neural Graph
 
-A prototype graph-based general purpose intelligence.
+A general purpose intelligence prototype exploring a fully extensible scripting language built into a simplified spiking neural network.
 
 ## Overview
 

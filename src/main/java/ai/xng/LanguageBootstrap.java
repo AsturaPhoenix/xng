@@ -40,6 +40,27 @@ public class LanguageBootstrap {
     }
   }
 
+  /**
+   * This differs from {@link Bootstrap#eval} in that it can capture the
+   * evaluation result. This is not straightforward in {@code Bootstrap.eval}
+   * because evaluation occurs in a foreign (parent) context.
+   */
+  public Node eval(final String string) {
+    try {
+      val parsed = parse(string);
+
+      val context = kb.newContext();
+      context.fatalOnExceptions();
+
+      parsed.properties.get(kb.node(Common.entrypoint)).activate(context);
+      context.blockUntilIdle();
+
+      return context.node.properties.get(parsed);
+    } catch (final RuntimeException e) {
+      throw new IllegalArgumentException(String.format("Failed to evaluate \"%s\"", string), e);
+    }
+  }
+
   private Node symbol(final int ordinal) {
     return kb.node(new Ordinal(kb.node(Common.symbol), ordinal));
   }
@@ -391,6 +412,8 @@ public class LanguageBootstrap {
     }
 
     final Node index = parse("index");
+    index.properties.put(kb.node("true"), kb.node(true));
+    index.properties.put(kb.node("false"), kb.node(false));
     // Temporarily use _ to denote local resolution bindings until we can do
     // parse-time baking.
     index.properties.put(kb.node("_createLiteral"), createLiteral);
@@ -656,7 +679,7 @@ public class LanguageBootstrap {
       val followsBuffer = kb.eavNode(true, false, symbol(-1), buffer);
       operator.getSynapse().setCoefficient(followsBuffer, -1);
       whitespace.getSynapse().setCoefficient(followsBuffer, -1);
-      ((SynapticNode) parse("`'parse.identifier.start`")).getSynapse().setCoefficient(followsBuffer, -1);
+      ((SynapticNode) eval("'parse.identifier.start")).getSynapse().setCoefficient(followsBuffer, -1);
 
       val part = new SynapticNode();
       indexNode(stringLiteral, part, "part");
@@ -698,14 +721,14 @@ public class LanguageBootstrap {
             name: "length"
           )
           """);
-      val rewriter = parse("`'parse.rewriter`");
+      val rewriter = eval("'parse.rewriter");
       rewriter.then((SynapticNode) initLength.properties.get(kb.node(Common.entrypoint)));
-      val advance = (SynapticNode) parse("`'parse.advance`");
+      val advance = (SynapticNode) eval("'parse.advance");
       initLength.then(advance);
       advance.getSynapse().dissociate(rewriter);
 
-      val invokeApply = parse("`'parse.invokeApply`");
-      val recurse = (InvocationNode) parse("`'parse.recurse`");
+      val invokeApply = eval("'parse.invokeApply");
+      val recurse = (InvocationNode) eval("'parse.recurse");
       recurse.inherit(kb.node("maxStackDepthOnReset"));
       // Temporarily remove the stack depth limit on parse
       recurse.literal(kb.node(Common.maxStackDepth), kb.node(KnowledgeBase.DEFAULT_MAX_STACK_DEPTH));
@@ -739,36 +762,28 @@ public class LanguageBootstrap {
       val builder = new SynapticNode();
       indexNode(intLiteral, builder, "builder");
 
-      val preCheck = new SynapticNode();
-      indexNode(intLiteral, preCheck, "preCheck");
-      isCodePoint.then(preCheck);
-      preCheck.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("'parse.identifier.buffer")), -1);
-      preCheck.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("'parse.stringLiteral.buffer")),
-          -1);
-
-      val isDigit = (SynapticNode) parse("""
+      val isDigitCall = (SynapticNode) parse("""
           method(
-            javaClass: '`findClass(name: "java.lang.Character")`,
-            name: "isDigit",
-            _param1: '`findClass(name: "int")`,
-            _arg1: _v0
-          )
-          """);
-      preCheck.then(isDigit);
+              javaClass: '`findClass(name: "java.lang.Character")`,
+              name: "isDigit",
+              _param1: '`findClass(name: "int")`,
+              _arg1: _v0
+            )""");
+      indexNode(parse, isDigitCall, "isDigit");
+      isCodePoint.then(isDigitCall);
 
-      val isReallyDigit = new SynapticNode();
-      isReallyDigit.conjunction(preCheck, kb.eavNode(true, false, isDigit, kb.node(true)));
+      val isDigit = new SynapticNode();
+      isDigit.conjunction(isCodePoint, kb.eavNode(true, false, isDigitCall, kb.node(true)));
 
       val followsBuilder = kb.eavNode(true, false, symbol(-1), builder);
 
       val start = new SynapticNode();
       indexNode(intLiteral, start, "start");
       {
-        isReallyDigit.then(start);
+        isDigit.then(start);
         start.getSynapse().setCoefficient(followsBuilder, -1);
-        start.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("`'parse.identifier.buffer`")), -1);
-        start.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), parse("`'parse.stringLiteral.buffer`")),
-            -1);
+        start.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), eval("'parse.identifier.buffer")), -1);
+        start.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(-1), eval("'parse.stringLiteral.buffer")), -1);
 
         val newBuilder = (SynapticNode) parse("newInstance(javaClass: '`findClass(name: \"ai.xng.IntBuilder\")`)");
         indexNode(start, newBuilder, "newBuilder");
@@ -790,7 +805,7 @@ public class LanguageBootstrap {
       val part = new SynapticNode();
       indexNode(intLiteral, part, "part");
       {
-        part.conjunction(isReallyDigit, followsBuilder);
+        part.conjunction(isDigit, followsBuilder);
 
         val append = (SynapticNode) parse("""
             method(

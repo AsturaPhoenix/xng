@@ -39,6 +39,7 @@ public class DeterministicNGramRewriter {
     return dirtyPosition >= 0;
   }
 
+  public static final int MAX_HISTORY = 10;
   private List<ImmutableList<SymbolPair>> history = new ArrayList<>();
 
   public DeterministicNGramRewriter(final Stream<SymbolPair> symbolPairs) {
@@ -100,6 +101,9 @@ public class DeterministicNGramRewriter {
       throw new IllegalArgumentException(String.format("Cannot rewrite length %s from position %s.", length, position));
     }
 
+    if (history.size() == MAX_HISTORY) {
+      history.remove(0);
+    }
     // Stringizing lazily could be misleading if nodes contain mutable state, but on
     // the other hand stringizing eagerly can be pretty expensive.
     history.add(ImmutableList.copyOf(symbolPairs));

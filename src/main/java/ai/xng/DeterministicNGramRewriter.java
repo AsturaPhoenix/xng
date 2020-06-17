@@ -115,6 +115,10 @@ public class DeterministicNGramRewriter {
     dirtyPosition = newDirty;
   }
 
+  public int length() {
+    return symbolPairs.size();
+  }
+
   public Node single() {
     if (symbolPairs.size() != 1) {
       throw new IllegalStateException(String.format("size != 1: %s", debug()));

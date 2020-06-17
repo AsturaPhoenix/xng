@@ -687,6 +687,52 @@ public class LanguageBootstrap {
       }
     }
 
+    // As the language gets more capable, we can start parsing longer and longer
+    // strings so we'll want to reset the recursion limit while progress is being
+    // made.
+    {
+      parse.then((SynapticNode) parse("maxStackDepthOnReset = maxStackDepth"));
+      val initLength = parse("""
+          `'parse.rewriter`.shortestLength = method(
+            object: `'parse.rewriter`,
+            name: "length"
+          )
+          """);
+      val rewriter = parse("`'parse.rewriter`");
+      rewriter.then((SynapticNode) initLength.properties.get(kb.node(Common.entrypoint)));
+      val advance = (SynapticNode) parse("`'parse.advance`");
+      initLength.then(advance);
+      advance.getSynapse().dissociate(rewriter);
+
+      val invokeApply = parse("`'parse.invokeApply`");
+      val recurse = (InvocationNode) parse("`'parse.recurse`");
+      recurse.inherit(kb.node("maxStackDepthOnReset"));
+      // Temporarily remove the stack depth limit on parse
+      recurse.literal(kb.node(Common.maxStackDepth), kb.node(KnowledgeBase.DEFAULT_MAX_STACK_DEPTH));
+
+      val compareLengths = parse("""
+          method(
+            object: method(
+              object: `'parse.rewriter`,
+              name: "length"
+            ),
+            name: "compareTo",
+            _param1: '`findClass(name: "java.lang.Integer")`,
+            _arg1: `'parse.rewriter`.shortestLength
+          )
+          """);
+      recurse.literal(kb.node(Common.maxStackDepth), null);
+
+      invokeApply.then((SynapticNode) compareLengths.properties.get(kb.node(Common.entrypoint)));
+      val shorter = kb.eavNode(true, false, compareLengths, kb.node(-1));
+
+      // If the length got shorter, first reset the max stack depth.
+      shorter.then((SynapticNode) parse("maxStackDepth = maxStackDepthOnReset")).then(recurse);
+      compareLengths.then(recurse);
+      recurse.getSynapse().setCoefficient(shorter, -1);
+      recurse.getSynapse().dissociate(invokeApply);
+    }
+
     val intLiteral = new SynapticNode();
     indexNode(parse, intLiteral, "intLiteral");
     {

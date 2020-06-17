@@ -50,7 +50,7 @@ import lombok.val;
 public class KnowledgeBase implements Serializable, AutoCloseable {
   private static final long serialVersionUID = 5249665334141533302L;
 
-  public static final int DEFAULT_MAX_STACK_DEPTH = 1024, DEFAULT_LOOKBEHIND = 5, DEFAULT_LOOKAHEAD = 2;
+  public static final int DEFAULT_MAX_STACK_DEPTH = 512, DEFAULT_LOOKBEHIND = 5, DEFAULT_LOOKAHEAD = 2;
 
   /**
    * Map that keeps its nodes alive. Note that the {@code weakKeys} configuration
@@ -762,12 +762,30 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
 
     public InvocationNode literal(final Node key, final Node value) {
-      properties.computeIfAbsent(node(Common.literal), k -> new SynapticNode()).properties.put(key, value);
+      if (key == null) {
+        throw new NullPointerException("Key cannot be null.");
+      }
+
+      val literals = properties.computeIfAbsent(node(Common.literal), k -> new SynapticNode()).properties;
+      if (value == null) {
+        literals.remove(key);
+      } else {
+        literals.put(key, value);
+      }
       return this;
     }
 
     public InvocationNode transform(final Node key, final Node value) {
-      properties.computeIfAbsent(node(Common.transform), k -> new SynapticNode()).properties.put(key, value);
+      if (key == null) {
+        throw new NullPointerException("Key cannot be null.");
+      }
+
+      val transforms = properties.computeIfAbsent(node(Common.transform), k -> new SynapticNode()).properties;
+      if (value == null) {
+        transforms.remove(key);
+      } else {
+        transforms.put(key, value);
+      }
       return this;
     }
 
@@ -1298,15 +1316,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
         val rewriter = kb.new InvocationNode(kb.node(BuiltIn.deterministicNGramRewriter))
             .inherit(kb.node(Common.value));
+        lb.indexNode(parse, rewriter, "rewriter");
         parse.then(rewriter);
 
         val advance = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), rewriter)
             .literal(kb.node(Common.name), kb.node("advance"));
+        lb.indexNode(parse, advance, "advance");
         rewriter.then(advance);
 
         val dispatch = kb.new InvocationNode(kb.node(BuiltIn.dispatchNGrams)).inherit(kb.node(Common.rewriter));
 
         val invokeApply = kb.new InvocationNode(dispatch).transform(kb.node(Common.rewriter), rewriter);
+        lb.indexNode(parse, invokeApply, "invokeApply");
         invokeApply.conjunction(advance, kb.eavNode(true, false, advance, kb.node(true)));
 
         // The meat of apply is in LanguageBootstrap.bootstrap.
@@ -1315,6 +1336,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         dispatch.then(apply);
 
         val recurse = kb.new InvocationNode(advance).inherit(kb.node(Common.caller)).inherit(rewriter);
+        lb.indexNode(parse, recurse, "recurse");
         invokeApply.then(recurse);
 
         val eol = kb.eavNode(true, false, advance, kb.node(false));

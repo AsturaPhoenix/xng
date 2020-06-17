@@ -65,7 +65,29 @@ public class LanguageBootstrap {
     val apply = parse.properties.get(kb.node("apply"));
 
     val isCodePoint = new SynapticNode();
+    indexNode(parse, isCodePoint, "isCodePoint");
     isCodePoint.conjunction(apply, kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)));
+
+    val isIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
+        .literal(kb.node(Common.javaClass), kb.node(Character.class))
+        .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
+        .transform(kb.arg(1), value(0));
+    indexNode(parse, isIdentifierStart, "isIdentifierStart");
+    isCodePoint.then(isIdentifierStart);
+
+    val isIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
+        .literal(kb.node(Common.javaClass), kb.node(Character.class))
+        .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
+        .transform(kb.arg(1), value(0));
+    indexNode(parse, isIdentifierPart, "isIdentifierPart");
+    isCodePoint.then(isIdentifierPart);
+
+    val isWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
+        .literal(kb.node(Common.javaClass), kb.node(Character.class))
+        .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
+        .transform(kb.arg(1), value(0));
+    indexNode(parse, isWhitespace, "isWhitespace");
+    isCodePoint.then(isWhitespace);
 
     val identifier = new SynapticNode();
     indexNode(parse, identifier, "identifier");
@@ -78,14 +100,9 @@ public class LanguageBootstrap {
       val start = new SynapticNode();
       indexNode(identifier, start, "start");
       {
-        val isIdentifierStart = kb.new InvocationNode(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.javaClass), kb.node(Character.class))
-            .literal(kb.node(Common.name), kb.node("isJavaIdentifierStart")).literal(kb.param(1), kb.node(int.class))
-            .transform(kb.arg(1), value(0));
-        isCodePoint.then(isIdentifierStart);
         isIdentifierStart.getSynapse().setCoefficient(hasBuffer, -1);
 
-        start.conjunction(isCodePoint, kb.eavNode(true, false, isIdentifierStart, kb.node(true)));
+        kb.eavNode(true, false, isIdentifierStart, kb.node(true)).then(start);
 
         val newBuffer = kb.new InvocationNode(kb.node(Bootstrap.newInstance)).literal(kb.node(Common.javaClass),
             kb.node(StringBuilder.class));
@@ -102,13 +119,7 @@ public class LanguageBootstrap {
       val part = new SynapticNode();
       indexNode(identifier, part, "part");
       {
-        val isIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
-            .literal(kb.node(Common.javaClass), kb.node(Character.class))
-            .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
-            .transform(kb.arg(1), value(0));
-        isIdentifierPart.conjunction(isCodePoint, hasBuffer);
-
-        part.conjunction(isCodePoint, kb.eavNode(true, false, isIdentifierPart, kb.node(true)));
+        part.conjunction(hasBuffer, kb.eavNode(true, false, isIdentifierPart, kb.node(true)));
 
         val append = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), value(-1))
             .literal(kb.node(Common.name), kb.node("appendCodePoint")).literal(kb.param(1), kb.node(int.class))
@@ -148,13 +159,7 @@ public class LanguageBootstrap {
     val whitespace = new SynapticNode();
     indexNode(parse, whitespace, "whitespace");
     {
-      val isWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
-          .literal(kb.node(Common.javaClass), kb.node(Character.class))
-          .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
-          .transform(kb.arg(1), value(0));
-      isCodePoint.then(isWhitespace);
-
-      whitespace.conjunction(isCodePoint, kb.eavNode(true, false, isWhitespace, kb.node(true)));
+      kb.eavNode(true, false, isWhitespace, kb.node(true)).then(whitespace);
 
       // For now, just drop all whitespace.
       whitespace.then(rewrite(1));
@@ -165,24 +170,6 @@ public class LanguageBootstrap {
     val operator = new SynapticNode();
     indexNode(parse, operator, "operator");
     {
-      // In the future these can be reused once we switch to immutable invocations
-      // with placement. Perhaps TODO: disjunction (coefficient memberwise max)
-
-      val isIdentifierPart = kb.new InvocationNode(kb.node(BuiltIn.method))
-          .literal(kb.node(Common.javaClass), kb.node(Character.class))
-          .literal(kb.node(Common.name), kb.node("isJavaIdentifierPart")).literal(kb.param(1), kb.node(int.class))
-          .transform(kb.arg(1), value(0));
-      indexNode(operator, isIdentifierPart, "isIdentifierPart");
-
-      val isWhitespace = kb.new InvocationNode(kb.node(BuiltIn.method))
-          .literal(kb.node(Common.javaClass), kb.node(Character.class))
-          .literal(kb.node(Common.name), kb.node("isWhitespace")).literal(kb.param(1), kb.node(int.class))
-          .transform(kb.arg(1), value(0));
-      indexNode(operator, isWhitespace, "isWhitespace");
-
-      isCodePoint.then(isWhitespace);
-      isCodePoint.then(isIdentifierPart);
-
       operator.conjunction(isCodePoint, isWhitespace, isIdentifierPart);
       operator.getSynapse().setCoefficient(kb.eavNode(true, false, isWhitespace, kb.node(true)), -1);
       operator.getSynapse().setCoefficient(kb.eavNode(true, false, isIdentifierPart, kb.node(true)), -1);
@@ -748,8 +735,8 @@ public class LanguageBootstrap {
               _arg1: _v0
             )
             """);
-        append.conjunction(start, newBuilder);
-        rewrite(1, builder, newBuilder).conjunction(start, newBuilder);
+        newBuilder.then(append);
+        newBuilder.then(rewrite(1, builder, newBuilder));
       }
 
       forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), builder), -1);

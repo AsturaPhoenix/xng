@@ -78,12 +78,23 @@ public class LanguageBootstrap {
     return rewrite(length).literal(kb.node(Common.symbol), symbol).transform(kb.node(Common.value), value);
   }
 
+  private void markIntermediate(final Node symbol) {
+    val intermediate = kb.node(Bootstrap.parse).properties.get(kb.node("intermediate"));
+    symbol.properties.put(intermediate, intermediate);
+  }
+
   /**
    * Expand eval/parse into a self-sustaining language.
    */
   public void bootstrap() {
     val parse = kb.node(Bootstrap.parse);
     val apply = parse.properties.get(kb.node("apply"));
+
+    // Flag property on a symbol that indicates that it is not itself a meaningful
+    // parse result.
+    val intermediate = new SynapticNode();
+    indexNode(parse, intermediate, "intermediate");
+    markIntermediate(kb.node(Common.codePoint));
 
     val isCodePoint = new SynapticNode();
     indexNode(parse, isCodePoint, "isCodePoint");
@@ -115,6 +126,7 @@ public class LanguageBootstrap {
     {
       val buffer = new SynapticNode();
       indexNode(identifier, buffer, "buffer");
+      markIntermediate(buffer);
 
       val hasBuffer = kb.eavNode(true, false, symbol(-1), buffer);
 
@@ -172,6 +184,8 @@ public class LanguageBootstrap {
     indexNode(parse, resolvedIdentifier, "resolvedIdentifier");
     {
       resolvedIdentifier.conjunction(apply, kb.eavNode(true, false, symbol(0), identifier));
+      // Right now, all identifiers go through resolution.
+      markIntermediate(identifier);
       val resolve = kb.new InvocationNode(kb.node(Bootstrap.resolve)).transform(kb.node(Common.name), value(0));
       resolvedIdentifier.then(resolve);
       resolve.then(rewrite(1, resolvedIdentifier, resolve));
@@ -191,6 +205,10 @@ public class LanguageBootstrap {
     val operator = new SynapticNode();
     indexNode(parse, operator, "operator");
     {
+      // Although not strictly intermediate, an operator should have no meaning on its
+      // own.
+      markIntermediate(operator);
+
       operator.conjunction(isCodePoint, isWhitespace, isIdentifierPart);
       operator.getSynapse().setCoefficient(kb.eavNode(true, false, isWhitespace, kb.node(true)), -1);
       operator.getSynapse().setCoefficient(kb.eavNode(true, false, isIdentifierPart, kb.node(true)), -1);
@@ -228,6 +246,10 @@ public class LanguageBootstrap {
       literalIndexer.conjunction(indexer, literalTerm);
       literalIndexer.then(rewrite(3, memberSelect, value(-1)));
     }
+
+    // memberSelects and indexers become specialized as either lvalues or rvalues
+    markIntermediate(memberSelect);
+    markIntermediate(indexer);
 
     // Given an object with an existing entrypoint and a symbol/value pair, if the
     // symbol is not a literal or identifier and the value has an entrypoint
@@ -281,12 +303,7 @@ public class LanguageBootstrap {
       lookaheadAbsent.then(lookaheadOk);
 
       forwardStable.conjunction(apply, lookaheadOk);
-      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), kb.node(Common.codePoint)), -1);
-      forwardStable.getSynapse()
-          .setCoefficient(kb.eavNode(true, false, symbol(0), identifier.properties.get(kb.node("buffer"))), -1);
-      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), identifier), -1);
-      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), memberSelect), -1);
-      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), indexer), -1);
+      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, true, symbol(0), intermediate), -1);
     }
 
     val assignment = new SynapticNode();
@@ -611,6 +628,7 @@ public class LanguageBootstrap {
 
       val invocation = kb.new InvocationNode(kb.node(BuiltIn.node)).transform(kb.node(Common.entrypoint), value(-1));
       indexNode(call, invocation, "invocation");
+      markIntermediate(invocation);
       startCall.then(invocation);
       invocation.then((SynapticNode) parse("`'parse.call.invocation`.`'entrypoint` = `'parse.call.invocation`"));
 
@@ -660,6 +678,7 @@ public class LanguageBootstrap {
     {
       val buffer = new SynapticNode();
       indexNode(stringLiteral, buffer, "buffer");
+      markIntermediate(buffer);
 
       val start = new SynapticNode();
       indexNode(stringLiteral, start, "start");
@@ -761,6 +780,7 @@ public class LanguageBootstrap {
     {
       val builder = new SynapticNode();
       indexNode(intLiteral, builder, "builder");
+      markIntermediate(builder);
 
       val isDigitCall = (SynapticNode) parse("""
           method(
@@ -799,8 +819,6 @@ public class LanguageBootstrap {
         newBuilder.then(append);
         newBuilder.then(rewrite(1, builder, newBuilder));
       }
-
-      forwardStable.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(0), builder), -1);
 
       val part = new SynapticNode();
       indexNode(intLiteral, part, "part");

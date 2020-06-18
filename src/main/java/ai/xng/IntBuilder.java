@@ -13,4 +13,8 @@ public class IntBuilder {
   public int get() {
     return n;
   }
+
+  public int getNegative() {
+    return -n;
+  }
 }

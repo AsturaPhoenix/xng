@@ -544,6 +544,7 @@ public class LanguageBootstrap {
     {
       bake.conjunction(apply, kb.eavNode(true, false, value(-2), kb.node((int) '`')),
           kb.eavNode(true, false, symbol(0), operator), kb.eavNode(true, false, value(0), kb.node((int) '`')));
+      bake.getSynapse().setCoefficient(kb.eavNode(true, true, symbol(-1), intermediate), -1);
 
       val getEntrypoint = (SynapticNode) parse("_vn1.entrypoint");
       bake.then(getEntrypoint);
@@ -874,9 +875,31 @@ public class LanguageBootstrap {
         // operator, after which we'll backtrack to here.
         end.getSynapse().setCoefficient(kb.eavNode(true, false, symbol(1), kb.node(Common.codePoint)), -1);
 
+        val minus = kb.eavNode(true, false, value(-1), kb.node((int) '-'));
+
+        val positive = new SynapticNode();
+        end.then(positive);
+        positive.getSynapse().setCoefficient(minus, -1);
+
         val get = (SynapticNode) parse("method(object: _v0, name: \"get\")");
-        end.then(get);
+        positive.then(get);
         get.then(rewrite(1, nodeLiteral, get));
+
+        val negative = new SynapticNode();
+        negative.conjunction(end, minus);
+        // Let's take the positive path out for a spin.
+        negative.then((SynapticNode) parse("""
+            rewrite(
+              rewriter: rewriter,
+              rewriteLength: 2,
+              symbol: '`'parse.nodeLiteral`,
+              value: method(
+                object: ``'BuiltIn.ordinal`(
+                  type: 'value,
+                  `'Common.ordinal`: 0)`,
+                name: "getNegative")
+            )
+            """).properties.get(kb.node(Common.entrypoint)));
       }
     }
   }

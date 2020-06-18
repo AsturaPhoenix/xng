@@ -549,10 +549,26 @@ public class KnowledgeBaseTest {
   }
 
   @Test
+  public void testNegative() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+      assertEquals("-56", new TestRepl(kb).eval("print(value: -56)"));
+    }
+  }
+
+  @Test
   public void testString() throws Exception {
     try (val kb = new KnowledgeBase()) {
       new LanguageBootstrap(kb).bootstrap();
       assertEquals("Hello, world! 42", new TestRepl(kb).eval("print(value: \"Hello, world! 42\")"));
+    }
+  }
+
+  @Test
+  public void testOrdinal() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+      new TestRepl(kb).eval("`'BuiltIn.ordinal`(type: 'symbol, `'Common.ordinal`: 0)");
     }
   }
 }

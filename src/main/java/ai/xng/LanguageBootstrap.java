@@ -218,8 +218,8 @@ public class LanguageBootstrap {
 
     val nodeLiteral = new SynapticNode();
     indexNode(parse, nodeLiteral, "nodeLiteral");
-    nodeLiteral.conjunction(apply, kb.eavNode(true, false, value(-1), kb.node((int) '\'')),
-        kb.eavNode(true, false, symbol(0), resolvedIdentifier));
+    nodeLiteral.conjunction(apply, kb.eavNode(true, false, value(-1), kb.node((int) '\'')));
+    nodeLiteral.getSynapse().setCoefficient(kb.eavNode(true, true, symbol(0), intermediate), -1);
     nodeLiteral.then(rewrite(2, nodeLiteral, value(0)));
 
     val memberSelect = new SynapticNode();
@@ -773,6 +773,32 @@ public class LanguageBootstrap {
       compareLengths.then(recurse);
       recurse.getSynapse().setCoefficient(shorter, -1);
       recurse.getSynapse().dissociate(invokeApply);
+    }
+
+    val parenExpr = new SynapticNode();
+    indexNode(parse, parenExpr, "parenExpr");
+    {
+      kb.eavNode(true, false, value(1), kb.node((int) ')'))
+          .then((SynapticNode) parse("`'parse.forwardStable.lookaheadOk`"));
+
+      // This does not conflict with assignment since that will eagerly consume the
+      // opening parenthesis.
+      parenExpr.conjunction(kb.eavNode(true, false, value(-2), kb.node((int) '(')),
+          kb.eavNode(true, false, symbol(0), operator), kb.eavNode(true, false, value(0), kb.node((int) ')')));
+      parenExpr.then(rewrite(3, parenExpr, value(-1)));
+    }
+
+    val braceExpr = new SynapticNode();
+    indexNode(parse, braceExpr, "braceExpr");
+    {
+      kb.eavNode(true, false, value(1), kb.node((int) '}'))
+          .then((SynapticNode) parse("`'parse.forwardStable.lookaheadOk`"));
+
+      // This does not conflict with assignment since that will eagerly consume the
+      // opening parenthesis.
+      braceExpr.conjunction(kb.eavNode(true, false, value(-2), kb.node((int) '{')),
+          kb.eavNode(true, false, symbol(0), operator), kb.eavNode(true, false, value(0), kb.node((int) '}')));
+      braceExpr.then(rewrite(3, braceExpr, value(-1)));
     }
 
     val intLiteral = new SynapticNode();

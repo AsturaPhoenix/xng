@@ -808,18 +808,18 @@ public class LanguageBootstrap {
       indexNode(intLiteral, builder, "builder");
       markIntermediate(builder);
 
-      val isDigitCall = (SynapticNode) parse("""
-          method(
-              javaClass: '`findClass(name: "java.lang.Character")`,
-              name: "isDigit",
-              _param1: '`findClass(name: "int")`,
-              _arg1: _v0
-            )""");
-      indexNode(parse, isDigitCall, "isDigit");
-      isCodePoint.then(isDigitCall);
+      eval("""
+          'parse.isDigit = '(method(
+            javaClass: '`findClass(name: "java.lang.Character")`,
+            name: "isDigit",
+            _param1: '`findClass(name: "int")`,
+            _arg1: _v0
+          ));
+          associate(prior: 'parse.isCodePoint, posterior: 'parse.isDigit);
+          """);
 
       val isDigit = new SynapticNode();
-      isDigit.conjunction(isCodePoint, kb.eavNode(true, false, isDigitCall, kb.node(true)));
+      isDigit.conjunction(isCodePoint, eval("eavNode(name: 'parse.isDigit, value: 'true)"));
 
       val followsBuilder = kb.eavNode(true, false, symbol(-1), builder);
 

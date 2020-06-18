@@ -206,7 +206,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * retrieve the EAV node for the clearing of a property, pass
      * {@link Common#eavUnset}.
      */
-    eavTuple {
+    eavNode {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
         final Node object = context.node.properties.get(kb.node(Common.object));

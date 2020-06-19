@@ -418,7 +418,7 @@ public class LanguageBootstrap {
           .transform(kb.node(Common.symbol), symbol(-2)).transform(kb.node(Common.value), value(-2));
       mergeValueEntrypoint.then(mergeNameEntrypoint);
       val mergeObjectEntrypoint = kb.new InvocationNode(mergeEntrypoint).transform(kb.node(Common.object), setProperty)
-          .transform(kb.node(Common.symbol), symbol(-4)).transform(kb.node(Common.value), value(-4));
+          .transform(kb.node(Common.symbol), symbol(-3)).transform(kb.node(Common.value), value(-3));
       mergeObjectEntrypoint.conjunction(mergeNameEntrypoint, lhsHasObject);
 
       val rewrite3 = rewrite(3, assignment, setProperty);

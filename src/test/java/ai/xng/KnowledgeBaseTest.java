@@ -571,4 +571,28 @@ public class KnowledgeBaseTest {
       new TestRepl(kb).eval("`'BuiltIn.ordinal`(type: 'symbol, `'Common.ordinal`: 0)");
     }
   }
+
+  @Test
+  public void testPropertySet() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+      assertEquals("baz", new TestRepl(kb).eval("""
+          'foo.bar = "baz";
+          print(value: 'foo.bar);
+          """));
+    }
+  }
+
+  @Test
+  public void testNestedPropertySet() throws Exception {
+    try (val kb = new KnowledgeBase()) {
+      new LanguageBootstrap(kb).bootstrap();
+
+      assertEquals("42", new TestRepl(kb).eval("""
+          'foo.bar = node();
+          'foo.bar.baz = 42;
+          print(value: 'foo.bar.baz);
+          """));
+    }
+  }
 }

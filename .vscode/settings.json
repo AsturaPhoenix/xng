@@ -1,0 +1,7 @@
+{
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.format.settings.url": "fluent.xml",
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "editor.tabSize": 2
+}

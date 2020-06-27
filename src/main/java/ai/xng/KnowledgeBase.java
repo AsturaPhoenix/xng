@@ -68,7 +68,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   private transient Subject<String> rxOutput;
 
   private static String toQualifiedString(final Enum<?> e) {
-    return String.format("%s.%s", e.getDeclaringClass().getSimpleName(), e.name());
+    return String.format("%s.%s", e.getDeclaringClass()
+        .getSimpleName(), e.name());
   }
 
   public enum Common {
@@ -124,7 +125,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         if (activationContext == null)
           activationContext = propertyDescent(context.node, kb.node(Common.caller), kb.node(Common.context));
 
-        context.require(kb.node(Common.value)).activate((Context) activationContext.getValue());
+        context.require(kb.node(Common.value))
+            .activate((Context) activationContext.getValue());
         return null;
       }
     },
@@ -135,16 +137,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final SynapticNode posterior = (SynapticNode) context.require(kb.node(Common.posterior));
         final Node coefficient = context.node.properties.get(kb.node(Common.coefficient));
 
-        posterior.getSynapse().setCoefficient(prior,
-            coefficient == null ? Node.DEFAULT_COEFFICIENT : (float) coefficient.getValue());
+        posterior.getSynapse()
+            .setCoefficient(prior, coefficient == null ? Node.DEFAULT_COEFFICIENT : (float) coefficient.getValue());
         return null;
       }
     },
     deterministicNGramRewriter {
       @Override
       protected Node impl(final KnowledgeBase kb, final Context context) throws Exception {
-        final String value = (String) context.require(kb.node(Common.value)).getValue();
-        return kb.node(new DeterministicNGramRewriter(value.codePoints().boxed()
+        final String value = (String) context.require(kb.node(Common.value))
+            .getValue();
+        return kb.node(new DeterministicNGramRewriter(value.codePoints()
+            .boxed()
             .map(codePoint -> new SymbolPair(kb.node(Common.codePoint), kb.node(codePoint)))));
       }
     },
@@ -171,7 +175,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           activationContextNode = propertyDescent(context.node, kb.node(Common.caller), kb.node(Common.context));
         val activationContext = (Context) activationContextNode.getValue();
 
-        val rewriter = (DeterministicNGramRewriter) context.require(kb.node(Common.rewriter)).getValue();
+        val rewriter = (DeterministicNGramRewriter) context.require(kb.node(Common.rewriter))
+            .getValue();
         final Node lookbehindNode = context.node.properties.get(kb.node(Common.lookbehind)),
             lookaheadNode = context.node.properties.get(kb.node(Common.lookahead));
 
@@ -338,45 +343,46 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     ordinal {
       @Override
       protected Node impl(final KnowledgeBase kb, final Context context) throws Exception {
-        return kb.node(new Ordinal(context.require(kb.node(Common.type)),
-            (int) context.require(kb.node(Common.ordinal)).getValue()));
+        return kb.node(new Ordinal(context.require(kb.node(Common.type)), (int) context.require(kb.node(Common.ordinal))
+            .getValue()));
       }
     },
     findClass {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws ClassNotFoundException {
         final Class<?> clazz;
-        val name = (String) context.require(kb.node(Common.name)).getValue();
+        val name = (String) context.require(kb.node(Common.name))
+            .getValue();
         switch (name) {
-          case "void":
-            clazz = void.class;
-            break;
-          case "boolean":
-            clazz = boolean.class;
-            break;
-          case "byte":
-            clazz = byte.class;
-            break;
-          case "char":
-            clazz = char.class;
-            break;
-          case "short":
-            clazz = short.class;
-            break;
-          case "int":
-            clazz = int.class;
-            break;
-          case "long":
-            clazz = long.class;
-            break;
-          case "float":
-            clazz = float.class;
-            break;
-          case "double":
-            clazz = double.class;
-            break;
-          default:
-            clazz = Class.forName(name);
+        case "void":
+          clazz = void.class;
+          break;
+        case "boolean":
+          clazz = boolean.class;
+          break;
+        case "byte":
+          clazz = byte.class;
+          break;
+        case "char":
+          clazz = char.class;
+          break;
+        case "short":
+          clazz = short.class;
+          break;
+        case "int":
+          clazz = int.class;
+          break;
+        case "long":
+          clazz = long.class;
+          break;
+        case "float":
+          clazz = float.class;
+          break;
+        case "double":
+          clazz = double.class;
+          break;
+        default:
+          clazz = Class.forName(name);
         }
         return kb.node(clazz);
       }
@@ -395,15 +401,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     print {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
-        kb.rxOutput.onNext(Objects.toString(context.require(kb.node(Common.value)).getValue()));
+        kb.rxOutput.onNext(Objects.toString(context.require(kb.node(Common.value))
+            .getValue()));
         return null;
       }
     },
     rewrite {
       @Override
       protected Node impl(final KnowledgeBase kb, final Context context) {
-        val rewriter = (DeterministicNGramRewriter) context.require(kb.node(Common.rewriter)).getValue();
-        val rewriteLength = (int) context.require(kb.node(Common.rewriteLength)).getValue();
+        val rewriter = (DeterministicNGramRewriter) context.require(kb.node(Common.rewriter))
+            .getValue();
+        val rewriteLength = (int) context.require(kb.node(Common.rewriteLength))
+            .getValue();
 
         final Node singleSymbol = context.node.properties.get(kb.node(Common.symbol)),
             singleValue = context.node.properties.get(kb.node(Common.value));
@@ -476,14 +485,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   }
 
   private void preInit() {
-    strongIndex = new MapMaker().weakKeys().makeMap();
-    weakIndex = new MapMaker().weakKeys().weakValues().makeMap();
+    strongIndex = new MapMaker().weakKeys()
+        .makeMap();
+    weakIndex = new MapMaker().weakKeys()
+        .weakValues()
+        .makeMap();
 
     preInitEav();
 
     rxOutput = PublishSubject.create();
 
-    final int corePoolSize = Runtime.getRuntime().availableProcessors();
+    final int corePoolSize = Runtime.getRuntime()
+        .availableProcessors();
     threadPool = new ThreadPoolExecutor(corePoolSize, 4 * corePoolSize, 60, TimeUnit.SECONDS, new SynchronousQueue<>());
   }
 
@@ -559,7 +572,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     public String toString() {
       val sb = new StringBuilder("from ").append(invocation.debugDump(SKIP_CALLER));
       for (val traceElement : invocation.trace) {
-        sb.append("\n        at ").append(traceElement);
+        sb.append("\n        at ")
+            .append(traceElement);
       }
       return sb.toString();
     }
@@ -577,11 +591,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final Object context = contextNode == null ? null : contextNode.getValue();
 
         return invocation instanceof InvocationNode i && context instanceof Context c ? new NodeStackFrame(i, c) : null;
-      }).takeWhile(s -> s != null);
+      })
+          .takeWhile(s -> s != null);
     }
 
     public String traceAsString(final KnowledgeBase kb) {
-      return trace(kb).map(Object::toString).collect(Collectors.joining("\n"));
+      return trace(kb).map(Object::toString)
+          .collect(Collectors.joining("\n"));
     }
   }
 
@@ -636,17 +652,24 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     public InvocationNode(final Node invoke) {
       super(invoke);
-      val fullTrace = Arrays.asList(Thread.currentThread().getStackTrace());
+      val fullTrace = Arrays.asList(Thread.currentThread()
+          .getStackTrace());
       trace = ImmutableList.copyOf(fullTrace.subList(2, fullTrace.size()));
+    }
+
+    public InvocationNode(final Serializable invoke) {
+      this(node(invoke));
     }
 
     @Override
     public String toString() {
       val sb = new StringBuilder(Integer.toHexString(hashCode()));
       if (comment != null) {
-        sb.append(": ").append(comment);
+        sb.append(": ")
+            .append(comment);
       }
-      sb.append(" = Invocation of ").append(getValue());
+      sb.append(" = Invocation of ")
+          .append(getValue());
       return sb.toString();
     }
 
@@ -674,37 +697,38 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         setProperty(childContext, null, node(Common.caller), caller);
         setProperty(childContext, null, node(Common.maxStackDepth), node(maxStackDepth - 1));
         // Tie the parent activity to the child activity.
-        childContext.rxActive().subscribe(new Observer<Boolean>() {
-          Context.Ref ref;
+        childContext.rxActive()
+            .subscribe(new Observer<Boolean>() {
+              Context.Ref ref;
 
-          @Override
-          public void onNext(Boolean active) {
-            if (active) {
-              assert ref == null;
-              ref = parentContext.new Ref();
-            } else if (!active && ref != null) {
-              ref.close();
-              ref = null;
-            }
-          }
+              @Override
+              public void onNext(Boolean active) {
+                if (active) {
+                  assert ref == null;
+                  ref = parentContext.new Ref();
+                } else if (!active && ref != null) {
+                  ref.close();
+                  ref = null;
+                }
+              }
 
-          @Override
-          public void onSubscribe(Disposable d) {
-          }
+              @Override
+              public void onSubscribe(Disposable d) {
+              }
 
-          @Override
-          public void onError(Throwable e) {
-            e.printStackTrace();
-            if (ref != null)
-              ref.close();
-          }
+              @Override
+              public void onError(Throwable e) {
+                e.printStackTrace();
+                if (ref != null)
+                  ref.close();
+              }
 
-          @Override
-          public void onComplete() {
-            if (ref != null)
-              ref.close();
-          }
-        });
+              @Override
+              public void onComplete() {
+                if (ref != null)
+                  ref.close();
+              }
+            });
 
         final Node literal = properties.get(node(Common.literal));
         if (literal != null) {
@@ -754,10 +778,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       }
 
       val completable = CompletableSubject.create();
-      childContext.continuation().thenRun(completable::onComplete).exceptionally(t -> {
-        completable.onError(t instanceof CompletionException ? t.getCause() : t);
-        return null;
-      });
+      childContext.continuation()
+          .thenRun(completable::onComplete)
+          .exceptionally(t -> {
+            completable.onError(t instanceof CompletionException ? t.getCause() : t);
+            return null;
+          });
       return completable;
     }
 
@@ -775,6 +801,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       return this;
     }
 
+    public InvocationNode literal(final Serializable key, final Node value) {
+      return literal(node(key), value);
+    }
+
+    public InvocationNode literal(final Node key, final Serializable value) {
+      return literal(key, node(value));
+    }
+
+    public InvocationNode literal(final Serializable key, final Serializable value) {
+      return literal(node(key), node(value));
+    }
+
     public InvocationNode transform(final Node key, final Node value) {
       if (key == null) {
         throw new NullPointerException("Key cannot be null.");
@@ -789,8 +827,24 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       return this;
     }
 
+    public InvocationNode transform(final Serializable key, final Node value) {
+      return transform(node(key), value);
+    }
+
+    public InvocationNode transform(final Node key, final Serializable value) {
+      return transform(key, node(value));
+    }
+
+    public InvocationNode transform(final Serializable key, final Serializable value) {
+      return transform(node(key), node(value));
+    }
+
     public InvocationNode inherit(final Node key) {
       return transform(key, key);
+    }
+
+    public InvocationNode inherit(final Serializable key) {
+      return inherit(node(key));
     }
 
     public InvocationNode exceptionHandler(final Node exceptionHandler) {
@@ -816,7 +870,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     if (context instanceof KbContext kbContext) {
       kbContext.shutDownRecurisvely();
     } else {
-      context.getScheduler().shutdown();
+      context.getScheduler()
+          .shutdown();
     }
   }
 
@@ -853,7 +908,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     readIndex(strongIndex, stream);
     readIndex(weakIndex, stream);
 
-    val it = eavNodes.entrySet().iterator();
+    val it = eavNodes.entrySet()
+        .iterator();
     while (it.hasNext()) {
       val entry = it.next();
 
@@ -862,7 +918,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       if (entry.getKey().tuple == null) {
         it.remove();
       } else {
-        entry.getKey().makeCanonical();
+        entry.getKey()
+            .makeCanonical();
       }
     }
     postInit();
@@ -1140,7 +1197,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         if (invocation != null) {
           setProperty(getParent(context), null, invocation, value);
         }
-        context.continuation().complete(null);
+        context.continuation()
+            .complete(null);
       }
     } else {
       if (value == null) {
@@ -1202,7 +1260,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * A predicate for {@link Node#debugDump(Predicate)} that skips caller records,
    * which can bloat rapidly.
    */
-  public static final Predicate<Map.Entry<Node, Node>> SKIP_CALLER = e -> e.getKey().getValue() != Common.caller;
+  public static final Predicate<Map.Entry<Node, Node>> SKIP_CALLER = e -> e.getKey()
+      .getValue() != Common.caller;
 
   /**
    * Adds a debug listener that dumps the context when a node is activated.
@@ -1222,12 +1281,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     newInstance {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node newInstance) {
-        val call = kb.new InvocationNode(kb.node(BuiltIn.method)).literal(kb.node(Common.name), kb.node("newInstance"))
-            .transform(kb.node(Common.object), kb.node(Common.javaClass));
-        val setProperty = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), call);
+        val call = kb.new InvocationNode(BuiltIn.method)
+            .literal(Common.name, "newInstance")
+            .transform(Common.object, Common.javaClass);
+        val setProperty = kb.new InvocationNode(BuiltIn.setProperty)
+            .literal(Common.name, Common.returnValue)
+            .transform(Common.value, call);
 
-        newInstance.then(call).then(setProperty);
+        newInstance.then(call)
+            .then(setProperty);
       }
     },
     /**
@@ -1236,29 +1298,34 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     markImmutable {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node markImmutable) {
-        val newMap = kb.new InvocationNode(kb.node(newInstance)).literal(kb.node(Common.javaClass),
-            kb.node(ConcurrentHashMap.class));
+        val newMap = kb.new InvocationNode(newInstance).literal(Common.javaClass, ConcurrentHashMap.class);
 
-        val setValue = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.value))
-            .transform(kb.node(Common.object), kb.node(Common.javaClass)).transform(kb.node(Common.value), newMap);
+        val setValue = kb.new InvocationNode(BuiltIn.setProperty)
+            .literal(Common.name, Common.value)
+            .transform(Common.object, Common.javaClass)
+            .transform(Common.value, newMap);
 
-        markImmutable.then(newMap).then(setValue);
+        markImmutable.then(newMap)
+            .then(setValue);
 
         // Mark some more common types immutable.
         for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class, Character.class, Integer.class,
             Long.class, Float.class, Double.class }) {
           val context = kb.newContext();
-          kb.new InvocationNode(markImmutable).literal(kb.node(Common.javaClass), kb.node(type)).activate(context);
+          kb.new InvocationNode(markImmutable)
+              .literal(Common.javaClass, type)
+              .activate(context);
           context.blockUntilIdle();
         }
       }
     },
     /**
-     * Resolves a string into a common/built-in/bootstrap node or the string node
-     * itself.
+     * Resolves a string against a context and its parents, or into a
+     * common/built-in/bootstrap node if not present.
      * 
      * <li>{@link Common#name}: node to resolve
+     * <li>{@link Common#context}: context against which to resolve. Defaults to
+     * parent.
      */
     resolve {
       private <T extends Enum<T>> SynapticNode compileEnum(final KnowledgeBase kb, final T[] e) {
@@ -1282,21 +1349,70 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         index.properties.put(kb.node("BuiltIn"), builtIn);
         index.properties.put(kb.node("Bootstrap"), bootstrap);
 
-        val lookup = kb.new InvocationNode(kb.node(BuiltIn.getProperty)).literal(kb.node(Common.object), index)
-            .inherit(kb.node(Common.name));
-        resolve.then(lookup);
+        val hasContext = kb.eavNode(true, true, kb.node(Common.context));
 
-        val indexedResult = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), lookup);
-        lookup.then(indexedResult);
+        {
+          val defaultContext = new SynapticNode();
+          resolve.then(defaultContext)
+              .inhibitor(hasContext);
 
-        final Node absent = kb.eavNode(true, false, lookup, null);
-        indexedResult.getSynapse().setCoefficient(absent, -1);
+          val getParent = kb.new InvocationNode(BuiltIn.getProperty)
+              .transform(Common.object, Common.caller)
+              .literal(Common.name, Common.context);
+          defaultContext.then(getParent);
+          val callWithDefault = kb.new InvocationNode(resolve)
+              .inherit(Common.caller)
+              .inherit(Common.name)
+              .transform(Common.context, getParent);
+          callWithDefault.conjunction(defaultContext, getParent);
+        }
 
-        val literalResult = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue))
-            .transform(kb.node(Common.value), kb.node(Common.name));
-        absent.then(literalResult);
+        val getInContext = kb.new InvocationNode(BuiltIn.getProperty)
+            .transform(Common.object, Common.context)
+            .inherit(Common.name);
+        getInContext.conjunction(resolve, hasContext);
+
+        val absentInContext = kb.eavNode(true, false, getInContext, null);
+
+        val returnContextual = kb.new InvocationNode(BuiltIn.setProperty)
+            .literal(Common.name, Common.returnValue)
+            .transform(Common.value, getInContext);
+        getInContext.then(returnContextual)
+            .inhibitor(absentInContext);
+
+        // If it's not present in the context, check if there's a parent. Note that this
+        // is the parent of the specified context, not of the current context.
+        val getContextCaller = kb.new InvocationNode(BuiltIn.getProperty)
+            .transform(Common.object, Common.context)
+            .literal(Common.name, Common.caller);
+        absentInContext.then(getContextCaller);
+
+        val noContextCaller = kb.eavNode(true, false, getContextCaller, null);
+
+        val getContextParent = kb.new InvocationNode(BuiltIn.getProperty)
+            .transform(Common.object, getContextCaller)
+            .literal(Common.name, Common.context);
+        getContextCaller.then(getContextParent)
+            .inhibitor(noContextCaller);
+
+        val noContextParent = kb.eavNode(true, false, getContextParent, null);
+
+        val resolveInParent = kb.new InvocationNode(resolve)
+            .inherit(Common.caller)
+            .inherit(kb.node(Common.name))
+            .transform(kb.node(Common.context), getContextParent);
+        getContextParent.then(resolveInParent)
+            .inhibitor(noContextParent);
+
+        // If there's no parent, use the index.
+        val getInIndex = kb.new InvocationNode(BuiltIn.getProperty)
+            .literal(Common.object, index)
+            .inherit(Common.name)
+            .disjunction(noContextCaller, noContextParent);
+
+        getInIndex.then(kb.new InvocationNode(BuiltIn.setProperty)
+            .literal(Common.name, Common.returnValue)
+            .transform(Common.value, getInIndex));
       }
     },
     /**
@@ -1314,19 +1430,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       protected void setUp(final KnowledgeBase kb, final Node parse) {
         val lb = new LanguageBootstrap(kb);
 
-        val rewriter = kb.new InvocationNode(kb.node(BuiltIn.deterministicNGramRewriter))
-            .inherit(kb.node(Common.value));
+        val rewriter = kb.new InvocationNode(BuiltIn.deterministicNGramRewriter).inherit(Common.value);
         lb.indexNode(parse, rewriter, "rewriter");
         parse.then(rewriter);
 
-        val advance = kb.new InvocationNode(kb.node(BuiltIn.method)).transform(kb.node(Common.object), rewriter)
-            .literal(kb.node(Common.name), kb.node("advance"));
+        val advance = kb.new InvocationNode(BuiltIn.method)
+            .transform(Common.object, rewriter)
+            .literal(Common.name, "advance");
         lb.indexNode(parse, advance, "advance");
         rewriter.then(advance);
 
-        val dispatch = kb.new InvocationNode(kb.node(BuiltIn.dispatchNGrams)).inherit(kb.node(Common.rewriter));
+        val dispatch = kb.new InvocationNode(BuiltIn.dispatchNGrams).inherit(Common.rewriter);
 
-        val invokeApply = kb.new InvocationNode(dispatch).transform(kb.node(Common.rewriter), rewriter);
+        val invokeApply = kb.new InvocationNode(dispatch).transform(Common.rewriter, rewriter);
         lb.indexNode(parse, invokeApply, "invokeApply");
         invokeApply.conjunction(advance, kb.eavNode(true, false, advance, kb.node(true)));
 
@@ -1335,15 +1451,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         lb.indexNode(parse, apply, "apply");
         dispatch.then(apply);
 
-        val recurse = kb.new InvocationNode(advance).inherit(kb.node(Common.caller)).inherit(rewriter);
+        val recurse = kb.new InvocationNode(advance)
+            .inherit(Common.caller)
+            .inherit(rewriter);
         lb.indexNode(parse, recurse, "recurse");
         invokeApply.then(recurse);
 
         val eol = kb.eavNode(true, false, advance, kb.node(false));
         lb.indexNode(parse, eol, "eol");
 
-        val returnRewriter = kb.new InvocationNode(kb.node(BuiltIn.setProperty))
-            .literal(kb.node(Common.name), kb.node(Common.returnValue)).transform(kb.node(Common.value), rewriter);
+        val returnRewriter = kb.new InvocationNode(BuiltIn.setProperty)
+            .literal(Common.name, Common.returnValue)
+            .transform(Common.value, rewriter);
         lb.indexNode(parse, returnRewriter, "returnRewriter");
         returnRewriter.conjunction(advance, eol);
       }
@@ -1354,25 +1473,25 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     eval {
       @Override
       protected void setUp(final KnowledgeBase kb, final Node eval) {
-        val parse = kb.new InvocationNode(kb.node(Bootstrap.parse)).inherit(kb.node(Common.value));
+        val parse = kb.new InvocationNode(Bootstrap.parse).inherit(Common.value);
         eval.then(parse);
 
-        val parentContext = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-            .transform(kb.node(Common.object), kb.node(Common.caller))
-            .literal(kb.node(Common.name), kb.node(Common.context));
+        val parentContext = kb.new InvocationNode(BuiltIn.getProperty)
+            .transform(Common.object, Common.caller)
+            .literal(Common.name, Common.context);
         parse.then(parentContext);
 
-        val dispatchResult = kb.new InvocationNode(kb.node(BuiltIn.dispatchNGrams)).transform(kb.node(Common.rewriter),
-            parse);
+        val dispatchResult = kb.new InvocationNode(BuiltIn.dispatchNGrams).transform(Common.rewriter, parse);
         parse.then(dispatchResult);
 
-        val getEntrypoint = kb.new InvocationNode(kb.node(BuiltIn.getProperty))
-            .transform(kb.node(Common.object), kb.node(new Ordinal(kb.node(Common.value), 0)))
-            .literal(kb.node(Common.name), kb.node(Common.entrypoint));
+        val getEntrypoint = kb.new InvocationNode(BuiltIn.getProperty)
+            .transform(Common.object, new Ordinal(kb.node(Common.value), 0))
+            .literal(Common.name, Common.entrypoint);
         dispatchResult.then(getEntrypoint);
 
-        val activate = kb.new InvocationNode(kb.node(BuiltIn.activate)).transform(kb.node(Common.value), getEntrypoint)
-            .transform(kb.node(Common.context), parentContext);
+        val activate = kb.new InvocationNode(BuiltIn.activate)
+            .transform(Common.value, getEntrypoint)
+            .transform(Common.context, parentContext);
         activate.conjunction(getEntrypoint, parentContext);
       }
     };

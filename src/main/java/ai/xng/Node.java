@@ -60,7 +60,8 @@ public class Node implements Serializable {
       rxInput.subscribe(ref -> {
         // This isn't critical here, but this establishes a frame of reference to aid
         // readability.
-        assert context.getScheduler().isOnThread();
+        assert context.getScheduler()
+            .isOnThread();
 
         // Update the activation timestamp early on as reinforcement calculations use it
         // for correlation. Accordingly, update the recency queue. However, note that
@@ -68,7 +69,8 @@ public class Node implements Serializable {
         // onActivate. This should be fine because although still reflected in the
         // recency queue, the actual evaluations used for reinforcement calculations are
         // in the posterior synapse.
-        final long now = context.getScheduler().now(TimeUnit.MILLISECONDS);
+        final long now = context.getScheduler()
+            .now(TimeUnit.MILLISECONDS);
         final long oldestAllowed = now - ACTIVATION_HISTORY;
         while (!activations.isEmpty() && activations.getLast() < oldestAllowed) {
           activations.removeLast();
@@ -99,16 +101,18 @@ public class Node implements Serializable {
         // It's important to note that this holds onto the ref through the error
         // handler. Were we to release the ref before catch, we could close the context
         // prematurely when it's about to complete exceptionally.
-        completion.doFinally(ref::close).subscribe(() -> {
-          // continuation: Synapse.Profile::onActivate
-          rxOutput.onNext(new Activation(context, context.getScheduler().now(TimeUnit.MILLISECONDS)));
-        },
-            // Caution, this may behave strangely if invocations happen against contexts
-            // that have been deserialized since contexts are intended to be ephemeral and
-            // overridden exception handlers will be lost.
-            // TODO(rosswang): Maybe preserve the node that was actually activated.
-            // TODO(rosswang): Do not allow activation against deserialized contexts.
-            context.exceptionHandler);
+        completion.doFinally(ref::close)
+            .subscribe(() -> {
+              // continuation: Synapse.Profile::onActivate
+              rxOutput.onNext(new Activation(context, context.getScheduler()
+                  .now(TimeUnit.MILLISECONDS)));
+            },
+                // Caution, this may behave strangely if invocations happen against contexts
+                // that have been deserialized since contexts are intended to be ephemeral and
+                // overridden exception handlers will be lost.
+                // TODO(rosswang): Maybe preserve the node that was actually activated.
+                // TODO(rosswang): Do not allow activation against deserialized contexts.
+                context.exceptionHandler);
       });
     }
   }
@@ -158,12 +162,14 @@ public class Node implements Serializable {
   }
 
   public long getLastActivation(final Context context) {
-    return getRecentActivations(context, false).findFirst().orElse(0L);
+    return getRecentActivations(context, false).findFirst()
+        .orElse(0L);
   }
 
   public void activate(final Context context) {
     val ref = context.new Ref();
-    context.getScheduler().ensureOnThread(() -> context.nodeState(this).rxInput.onNext(ref));
+    context.getScheduler()
+        .ensureOnThread(() -> context.nodeState(this).rxInput.onNext(ref));
   }
 
   /**
@@ -183,10 +189,12 @@ public class Node implements Serializable {
   public String toString() {
     val sb = new StringBuilder(Integer.toHexString(hashCode()));
     if (comment != null) {
-      sb.append(": ").append(comment);
+      sb.append(": ")
+          .append(comment);
     }
     if (value != null) {
-      sb.append(" = ").append(value);
+      sb.append(" = ")
+          .append(value);
     }
     return sb.toString();
   }
@@ -212,7 +220,10 @@ public class Node implements Serializable {
     out.append(this);
 
     synchronized (properties) {
-      val it = properties.entrySet().stream().filter(propertyFilter).iterator();
+      val it = properties.entrySet()
+          .stream()
+          .filter(propertyFilter)
+          .iterator();
       if (it.hasNext()) {
         if (visited.contains(this)) {
           out.append(" { ... }");
@@ -225,7 +236,8 @@ public class Node implements Serializable {
             indent(childIndent, out);
             out.append(property.getKey());
             out.append(" => ");
-            property.getValue().debugDump(childIndent, visited, out, propertyFilter);
+            property.getValue()
+                .debugDump(childIndent, visited, out, propertyFilter);
             if (it.hasNext()) {
               out.append(",\n");
             } else {
@@ -242,8 +254,9 @@ public class Node implements Serializable {
   /**
    * @return next
    */
-  public Node then(final SynapticNode next) {
-    next.getSynapse().setCoefficient(this, DEFAULT_COEFFICIENT);
+  public SynapticNode then(final SynapticNode next) {
+    next.getSynapse()
+        .setCoefficient(this, DEFAULT_COEFFICIENT);
     return next;
   }
 }

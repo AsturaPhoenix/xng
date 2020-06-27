@@ -50,9 +50,9 @@ public class SynapticNode extends Node {
     stream.defaultReadObject();
   }
 
-  public void conjunction(final Node... priors) {
+  public SynapticNode conjunction(final Node... priors) {
     final float weight = (Synapse.THRESHOLD - THRESHOLD_MARGIN) / (priors.length - 1);
-    if (weight * priors.length < Synapse.THRESHOLD) {
+    if (weight * priors.length < Synapse.THRESHOLD + THRESHOLD_MARGIN) {
       throw new IllegalArgumentException(
           "Too many priors to guarantee reliable conjunction. Recommend staging the evaluation into a tree.");
     }
@@ -60,5 +60,20 @@ public class SynapticNode extends Node {
     for (val prior : priors) {
       synapse.setCoefficient(prior, weight);
     }
+
+    return this;
+  }
+
+  public SynapticNode disjunction(final Node... priors) {
+    for (val prior : priors) {
+      prior.then(this);
+    }
+
+    return this;
+  }
+
+  public SynapticNode inhibitor(final Node antiprior) {
+    synapse.setCoefficient(antiprior, -1);
+    return this;
   }
 }

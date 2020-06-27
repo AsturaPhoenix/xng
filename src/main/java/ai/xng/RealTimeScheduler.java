@@ -11,23 +11,17 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.common.collect.ComparisonChain;
 
-import io.reactivex.Scheduler;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.disposables.Disposables;
 import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.val;
-import lombok.experimental.Accessors;
 
 /**
- * A sequential scheduler for contexts. Tasks are executed in a non-overlapping
- * manner. While the task queue is empty, the thread is returned to a common
- * pool.
+ * A sequential scheduler based on real time. Tasks are executed in a
+ * non-overlapping manner. While the task queue is empty, the thread is returned
+ * to a common pool.
  */
-public class ContextScheduler extends Scheduler implements Executor {
-  private static final TimeUnit RESOLUTION = TimeUnit.MILLISECONDS;
-
+public class RealTimeScheduler extends Scheduler {
   @AllArgsConstructor
   private class Task implements Comparable<Task>, Disposable {
     final Disposable parent;
@@ -36,7 +30,10 @@ public class ContextScheduler extends Scheduler implements Executor {
 
     @Override
     public int compareTo(final Task o) {
-      return ComparisonChain.start().compare(deadline, o.deadline).compare(sequenceNumber, o.sequenceNumber).result();
+      return ComparisonChain.start()
+          .compare(deadline, o.deadline)
+          .compare(sequenceNumber, o.sequenceNumber)
+          .result();
     }
 
     @Override
@@ -50,33 +47,6 @@ public class ContextScheduler extends Scheduler implements Executor {
     }
   }
 
-  @RequiredArgsConstructor
-  private static abstract class LazyShutdownWorker extends Scheduler.Worker {
-    final Disposable parent;
-    volatile boolean isDisposed;
-
-    @Override
-    public void dispose() {
-      isDisposed = true;
-    }
-
-    @Override
-    public boolean isDisposed() {
-      return isDisposed || parent.isDisposed();
-    }
-  }
-
-  private class Worker extends LazyShutdownWorker {
-    Worker(final Disposable parent) {
-      super(parent);
-    }
-
-    @Override
-    public Disposable schedule(final Runnable run, final long delay, final TimeUnit unit) {
-      return ContextScheduler.this.schedule(this, run, deadline(delay, unit));
-    }
-  }
-
   private final Executor threadPool;
 
   // guards the task queue
@@ -87,7 +57,7 @@ public class ContextScheduler extends Scheduler implements Executor {
   private long sequenceNumber = Long.MIN_VALUE;
   private final PriorityQueue<Task> tasks = new PriorityQueue<>();
   private CompletableFuture<Thread> thread;
-  private Disposable controller = Disposables.disposed();
+  private Disposable controller = Disposables.empty();
 
   private int pauseCount;
   private final Condition pauseCondition = lock.newCondition();
@@ -96,12 +66,8 @@ public class ContextScheduler extends Scheduler implements Executor {
    * Creates a scheduler that uses {@code threadPool} to run the dispatch loop. As
    * long as tasks are pending, this will hold onto a thread/task.
    */
-  public ContextScheduler(final Executor threadPool) {
+  public RealTimeScheduler(final Executor threadPool) {
     this.threadPool = threadPool;
-  }
-
-  private long deadline(final long delay, final TimeUnit unit) {
-    return now(RESOLUTION) + RESOLUTION.convert(delay, unit);
   }
 
   private Disposable schedule(final Disposable controller, final Runnable run, final long deadline) {
@@ -189,7 +155,8 @@ public class ContextScheduler extends Scheduler implements Executor {
         // Just poll this once per work loop. (During wait, we'll have
         // InterruptedException instead.) Don't bother polling it while we consume
         // disposed tasks. Also make sure not to clear interruption.
-        if (!Thread.currentThread().isInterrupted()) {
+        if (!Thread.currentThread()
+            .isInterrupted()) {
           while (!tasks.isEmpty() && pauseCount == 0) {
             final Task head = tasks.peek();
 
@@ -198,10 +165,10 @@ public class ContextScheduler extends Scheduler implements Executor {
               continue;
             }
 
-            final long now = now(RESOLUTION);
+            final long now = now();
             // Use deadline > now instead of delta > 0 for overflow robustness.
             if (head.deadline > now) {
-              delayCondition.await(head.deadline - now, RESOLUTION);
+              delayCondition.await(head.deadline - now, TimeUnit.MILLISECONDS);
               continue;
             }
 
@@ -211,7 +178,8 @@ public class ContextScheduler extends Scheduler implements Executor {
           }
         }
       } catch (final InterruptedException e) {
-        Thread.currentThread().interrupt();
+        Thread.currentThread()
+            .interrupt();
       }
 
       if (pauseCount > 0) {
@@ -292,28 +260,10 @@ public class ContextScheduler extends Scheduler implements Executor {
     return getThreadNow() == Thread.currentThread();
   }
 
-  @Override
-  public Scheduler.Worker createWorker() {
-    return new Worker(controller);
-  }
-
-  @Override
-  public void start() {
-    lock.lock();
-    try {
-      if (controller.isDisposed()) {
-        controller = Disposables.empty();
-      }
-    } finally {
-      lock.unlock();
-    }
-  }
-
   /**
    * Interrupts any ongoing tasks and rejects any new tasks. Does not block; to
    * block, call {@link #pause()} afterwards.
    */
-  @Override
   public void shutdown() {
     lock.lock();
     try {
@@ -345,92 +295,24 @@ public class ContextScheduler extends Scheduler implements Executor {
     }
   }
 
+  @Override
+  public long now() {
+    return System.currentTimeMillis();
+  }
+
+  @Override
+  public Disposable postTask(Runnable task) {
+    return postTask(task, now());
+  }
+
   /**
-   * Schedules the execution of the given task with the given delay amount.
-   * Negative delays may be used to raise priority. This method is safe to be
-   * called from multiple threads. Tasks scheduled from the same thread (or
-   * otherwise synchronized) with the same delay will be executed in order.
+   * Schedules the execution of the given task with the given target time. Target
+   * times before {@link #now()} may be used to raise priority. This method is
+   * safe to be called from multiple threads. Tasks scheduled from the same thread
+   * (or otherwise synchronized) with the same delay will be executed in order.
    */
   @Override
-  public Disposable scheduleDirect(final Runnable run, final long delay, final TimeUnit unit) {
-    return schedule(controller, run, deadline(delay, unit));
+  public Disposable postTask(final Runnable run, final long time) {
+    return schedule(controller, run, time);
   }
-
-  public void ensureOnThread(final Runnable run) {
-    if (isOnThread()) {
-      run.run();
-    } else {
-      scheduleDirect(run);
-    }
-  }
-
-  /**
-   * {@link Executor} equivalent of {@link #scheduleDirect(Runnable)}.
-   * 
-   * @throws RejectedExecutionException if the scheduler is shut down.
-   */
-  @Override
-  public void execute(final Runnable command) {
-    final Disposable task = scheduleDirect(command);
-    if (task.isDisposed())
-      throw new RejectedExecutionException("ContextScheduler is not started.");
-  }
-
-  /**
-   * A view of a {@link ContextScheduler} that prefers to run actions immediately
-   * if scheduled from the dispatch thread without delay.
-   */
-  private class PreferImmediateScheduler extends Scheduler {
-    class Worker extends LazyShutdownWorker {
-      Worker(final Disposable parent) {
-        super(parent);
-      }
-
-      @Override
-      public Disposable schedule(final Runnable run, final long delay, final TimeUnit unit) {
-        return PreferImmediateScheduler.this.schedule(this, run, deadline(delay, unit));
-      }
-    }
-
-    @Override
-    public Worker createWorker() {
-      return new Worker(controller);
-    }
-
-    Disposable schedule(final Disposable controller, final Runnable run, final long deadline) {
-      if (isOnThread() && deadline <= now(RESOLUTION)) {
-        run.run();
-        return Disposables.empty();
-      } else {
-        return ContextScheduler.this.schedule(controller, run, deadline);
-      }
-    }
-
-    /**
-     * Schedules the execution of the given task with the given delay amount. If
-     * called from the dispatch thread with non-positive delay, the action executes
-     * immediately. Otherwise, negative delays may be used to raise priority. This
-     * method is safe to be called from multiple threads. Tasks scheduled from the
-     * same thread (or otherwise synchronized) with the same delay will be executed
-     * in order.
-     */
-    @Override
-    public Disposable scheduleDirect(final Runnable run, final long delay, final TimeUnit unit) {
-      return schedule(controller, run, deadline(delay, unit));
-    }
-
-    @Override
-    public void start() {
-      ContextScheduler.this.start();
-    }
-
-    @Override
-    public void shutdown() {
-      ContextScheduler.this.shutdown();
-    }
-  }
-
-  @Getter(lazy = true)
-  @Accessors(fluent = true)
-  private final Scheduler preferImmediate = new PreferImmediateScheduler();
 }

@@ -18,7 +18,11 @@ public class GcFixture {
   }
 
   public void assertNoGrowth() throws IOException, InterruptedException {
-    assertSize("%d", initialSize);
+    assertNoGrowth(System::gc);
+  }
+
+  public void assertNoGrowth(final Runnable gc) throws IOException, InterruptedException {
+    assertSize("%d", initialSize, gc);
   }
 
   public void assertSize(final String format, final int limit) throws IOException, InterruptedException {

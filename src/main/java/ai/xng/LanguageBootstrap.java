@@ -559,29 +559,22 @@ public class LanguageBootstrap {
       finalize.then(rewrite(1, expression, finalize));
     }
 
-    // Baking uses a leading 'apostrophe to evaluate an expression at parse time and
-    // bake the result in as a literal. Note that preceding a literal with an
-    // apostrophe would conceivably be passthrough and is not supported by default.
-    //
-    // For convenience, the apostrophe operator precedence is just below the .
-    // operator.
+    // Baking uses `backticks` to evaluate an expression at parse time and bake the
+    // result in as a literal. Note that surrounding a literal in backticks would
+    // conceivably be passthrough and is not supported by default.
     val bake = new SynapticNode();
     indexNode(parse, bake, "bake");
     {
-      val apostrophe = new SynapticNode()
-          .conjunction(
-              apply,
-              kb.eavNode(true, false, symbol(-1), operator),
-              kb.eavNode(true, false, value(-1), kb.node((int) '\'')))
-          .then(needsLookahead);
+      bake.conjunction(apply, new SynapticNode().conjunction(
+          new SynapticNode().conjunction(
+              kb.eavNode(true, false, symbol(-2), operator),
+              kb.eavNode(true, false, value(-2), kb.node((int) '`'))),
+          kb.eavNode(true, false, symbol(-1), expression),
+          new SynapticNode().conjunction(
+              kb.eavNode(true, false, symbol(0), operator),
+              kb.eavNode(true, false, value(0), kb.node((int) '`')))));
 
-      bake.conjunction(apostrophe, lookaheadOk,
-          kb.eavNode(true, false, symbol(0), expression))
-          .inhibitor(new SynapticNode().conjunction(
-              kb.eavNode(true, false, symbol(1), operator),
-              kb.eavNode(true, false, value(1), kb.node((int) '.'))));
-
-      val getTail = kb.new InvocationNode(BuiltIn.getProperty).transform(Common.object, value(0))
+      val getTail = kb.new InvocationNode(BuiltIn.getProperty).transform(Common.object, value(-1))
           .literal(Common.name, expressionTail);
       bake.then(getTail);
       val getResult = kb.new InvocationNode(BuiltIn.getProperty).transform(Common.name, getTail);
@@ -589,9 +582,9 @@ public class LanguageBootstrap {
           .literal(Common.posterior, getResult);
       getTail.then(linkResult);
 
-      val activate = kb.new InvocationNode(BuiltIn.activate).transform(Common.value, value(0));
+      val activate = kb.new InvocationNode(BuiltIn.activate).transform(Common.value, value(-1));
       linkResult.then(activate);
-      getResult.then(rewrite(2, literal, getResult));
+      getResult.then(rewrite(3, literal, getResult));
     }
 
     val parenExpr = new SynapticNode();
@@ -739,7 +732,7 @@ public class LanguageBootstrap {
         startCall.then(create);
         create
             .then((SynapticNode) parse(
-                "['parse.call.invocation.create]['parse.expression.tail] = ['parse.call.invocation.create]"))
+                "[`parse.call.invocation.create`][`parse.expression.tail`] = [`parse.call.invocation.create`]"))
             .then(kb.new InvocationNode(mergeArgument)
                 .transform(Common.object, create)
                 .literal(Common.name, indirectCallEntrypoint)
@@ -765,25 +758,42 @@ public class LanguageBootstrap {
 
       val argDelimiter = new SynapticNode().disjunction(comma, cParen);
 
-      resolvedIdentifier.inhibitor(new SynapticNode().conjunction(
-          kb.eavNode(true, false, symbol(1), operator),
-          kb.eavNode(true, false, value(1), kb.node((int) ':'))));
-
       val namedArg = new SynapticNode();
       indexNode(call, namedArg, "namedArg");
       namedArg
           .conjunction(
-              kb.eavNode(true, false, symbol(-4), invocation),
+              apply,
               new SynapticNode().conjunction(
-                  kb.eavNode(true, false, symbol(-2), operator),
-                  kb.eavNode(true, false, value(-2), kb.node((int) ':')),
-                  kb.eavNode(true, true, symbol(-1), parseValue)),
-              argDelimiter)
+                  kb.eavNode(true, false, symbol(-4), invocation),
+                  new SynapticNode().conjunction(
+                      kb.eavNode(true, false, symbol(-2), operator),
+                      kb.eavNode(true, false, value(-2), kb.node((int) ':')),
+                      kb.eavNode(true, true, symbol(-1), parseValue)),
+                  argDelimiter))
           .then(kb.new InvocationNode(mergeArgument)
               .transform(Common.object, value(-4))
               .transform(Common.name, value(-3))
               .transform(Common.symbol, symbol(-1))
               .transform(Common.value, value(-1)));
+
+      // For now, auto-bake argument names. In the future, we may instead want to
+      // suppress identifier resolution or take a more contextual approach, but baking
+      // is the common case right now.
+      val autoBake = new SynapticNode();
+      indexNode(namedArg, autoBake, "autoBake");
+      autoBake.conjunction(
+          apply,
+          kb.eavNode(true, false, symbol(0), expression),
+          new SynapticNode().conjunction(
+              kb.eavNode(true, false, symbol(1), operator),
+              kb.eavNode(true, false, value(1), kb.node((int) ':'))));
+      autoBake.then(rewrite(1)
+          .literal(symbol(1), operator)
+          .literal(value(1), kb.node((int) '`'))
+          .transform(symbol(2), symbol(0))
+          .transform(value(2), value(0))
+          .literal(symbol(3), operator)
+          .literal(value(3), kb.node((int) '`')));
 
       rewrite(5, invocation, value(-4)).conjunction(namedArg, comma);
       rewrite(5)
@@ -909,11 +919,11 @@ public class LanguageBootstrap {
     // strings so we'll want to reset the recursion limit while progress is being
     // made.
     {
-      parse.then((SynapticNode) parse("maxStackDepthOnReset = ['maxStackDepth]"));
+      parse.then((SynapticNode) parse("maxStackDepthOnReset = [`maxStackDepth`]"));
       val initLength = (SynapticNode) parse("""
-          ['parse.rewriter].shortestLength = 'method(
-            'object: ['parse.rewriter],
-            'name: "length")
+          [`parse.rewriter`].shortestLength = `method`(
+            object: [`parse.rewriter`],
+            name: "length")
           """);
       val rewriter = eval("parse.rewriter");
       rewriter.then(initLength);
@@ -929,13 +939,13 @@ public class LanguageBootstrap {
       recurse.literal(Common.maxStackDepth, KnowledgeBase.DEFAULT_MAX_STACK_DEPTH);
 
       val compareLengths = (SynapticNode) parse("""
-          'method(
-            'object: 'method(
-              'object: ['parse.rewriter],
-              'name: "length"),
-            'name: "compareTo",
-            _param1: '(findClass('name: "java.lang.Integer"),
-            _arg1: ['parse.rewriter].shortestLength)
+          `method`(
+            `object`: `method`(
+              `object`: [`parse.rewriter`],
+              `name`: "length"),
+            `name`: "compareTo",
+            `_param1`: `findClass(`name`: "java.lang.Integer")`,
+            `_arg1`: [`parse.rewriter`].shortestLength)
           """,
           ImmutableMap.of(
               "_param1", kb.param(1),
@@ -946,12 +956,26 @@ public class LanguageBootstrap {
       val shorter = kb.eavNode(true, false, tail(compareLengths), kb.node(-1));
 
       // If the length got shorter, first reset the max stack depth.
-      shorter.then((SynapticNode) parse("'maxStackDepth = maxStackDepthOnReset"))
+      shorter.then((SynapticNode) parse("`maxStackDepth` = maxStackDepthOnReset"))
           .then(recurse);
       tail(compareLengths).then(recurse)
           .inhibitor(shorter);
       recurse.getSynapse()
           .dissociate(invokeApply);
+    }
+
+    // If an expression (or other statement-like subroutine) is preceded by an
+    // 'apostrophe, treat it as a literal (like a lambda).
+    val expressionLiteral = new SynapticNode();
+    indexNode(parse, expressionLiteral, "expressionLiteral");
+    {
+      expressionLiteral.conjunction(
+          apply,
+          new SynapticNode().conjunction(
+              kb.eavNode(true, false, symbol(-1), operator),
+              kb.eavNode(true, false, value(-1), kb.node((int) '\''))),
+          kb.eavNode(true, true, symbol(0), statement))
+          .then(rewrite(2, literal, value(0)));
     }
 
     val intLiteral = new SynapticNode();
@@ -961,13 +985,12 @@ public class LanguageBootstrap {
       indexNode(intLiteral, builder, "builder");
 
       eval("""
-          parse.isDigit = '(method(
-            javaClass: '`findClass(name: "java.lang.Character")`,
-            name: "isDigit",
-            _param1: '`findClass(name: "int")`,
-            _arg1: _v0
-          ));
-          associate(prior: 'parse.isCodePoint, posterior: 'parse.isDigit);
+          parse.isDigit = '`method`(
+            `javaClass`: `findClass(`name`: "java.lang.Character")`,
+            `name`: "isDigit",
+            `_param1`: '`findClass(`name`: "int")`,
+            `_arg1`: [`_v0`]);
+          associate(`prior`: parse.isCodePoint, `posterior`: parse.isDigit);
           """);
 
       val isDigit = new SynapticNode();

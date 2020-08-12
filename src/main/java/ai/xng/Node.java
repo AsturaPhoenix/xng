@@ -254,7 +254,7 @@ public class Node implements Serializable {
   /**
    * @return next
    */
-  public SynapticNode then(final SynapticNode next) {
+  public <T extends SynapticNode> T then(final T next) {
     next.getSynapse()
         .setCoefficient(this, DEFAULT_COEFFICIENT);
     return next;

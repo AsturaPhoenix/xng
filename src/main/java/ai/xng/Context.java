@@ -6,6 +6,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -82,6 +83,35 @@ public class Context implements Serializable {
 
   public CompletableFuture<Void> continuation() {
     return continuation;
+  }
+
+  // These are kept as a map on the parent context rather than as a list in the
+  // child contexts to facilitate multi-return across tail recursion.
+  private transient Map<Node, List<Node>> returnValueCollectors;
+
+  public List<Node> getReturnValues(final Node collector) {
+    assert scheduler.isOnThread();
+
+    return returnValueCollectors != null ? returnValueCollectors.get(collector) : null;
+  }
+
+  public void registerReturnValueCollector(final Node collector) {
+    assert scheduler.isOnThread();
+
+    if (returnValueCollectors == null) {
+      returnValueCollectors = new HashMap<>();
+    }
+
+    returnValueCollectors.computeIfAbsent(collector, c -> new ArrayList<>());
+  }
+
+  public void addReturnValue(final Node collector, final Node returnValue) {
+    scheduler.ensureOnThread(() -> {
+      val returnValues = getReturnValues(collector);
+      if (returnValues != null) {
+        returnValues.add(returnValue);
+      }
+    });
   }
 
   public Context(final Function<? super Context, Node> nodeFactory,
@@ -172,12 +202,15 @@ public class Context implements Serializable {
   }
 
   public void blockUntilIdle() {
-    rxActive.filter(active -> !active).blockingFirst();
+    rxActive.filter(active -> !active)
+        .blockingFirst();
   }
 
   public void blockUntilIdle(final Duration timeout) throws TimeoutException {
     try {
-      rxActive.filter(active -> !active).timeout(timeout.toMillis(), TimeUnit.MILLISECONDS).blockingFirst();
+      rxActive.filter(active -> !active)
+          .timeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
+          .blockingFirst();
     } catch (final RuntimeException e) {
       val cause = e.getCause();
       if (cause instanceof TimeoutException timeoutException) {
@@ -282,7 +315,8 @@ public class Context implements Serializable {
     @Override
     public List<Node> next() {
       while (next != null && (deck.isEmpty()
-          || next.getLastActivation(Context.this) >= deck.peek().getLastActivation(Context.this) - HEBBIAN_MAX_LOCAL)) {
+          || next.getLastActivation(Context.this) >= deck.peek()
+              .getLastActivation(Context.this) - HEBBIAN_MAX_LOCAL)) {
         deck.add(next);
         draw();
       }
@@ -302,7 +336,8 @@ public class Context implements Serializable {
 
     for (final Node prior : snapshot.subList(1, snapshot.size())) {
       // TODO: prepopulate a 0 evaluation
-      synapticPosterior.getSynapse().profile(prior);
+      synapticPosterior.getSynapse()
+          .profile(prior);
     }
   }
 

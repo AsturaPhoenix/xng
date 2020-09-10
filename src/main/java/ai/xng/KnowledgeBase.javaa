@@ -31,7 +31,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.MapMaker;
 
-import ai.xng.NGramWindow.SymbolPair;
 import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.Observer;
@@ -41,19 +40,8 @@ import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.val;
 
-/**
- * Since this is meant to be a proof of concept, encapsulation is not perfect.
- * Particularly, the following external operations should be avoided:
- * 
- * <ul>
- * <li>{@link Node#setOnActivate(java.util.function.Consumer)}
- * <li>mutators on {@link Context#index}
- * </ul>
- */
 public class KnowledgeBase implements Serializable, AutoCloseable {
-  private static final long serialVersionUID = 5249665334141533302L;
-
-  public static final int DEFAULT_MAX_STACK_DEPTH = 512, DEFAULT_LOOKBEHIND = 5, DEFAULT_LOOKAHEAD = 2;
+  private static final long serialVersionUID = 2L;
 
   /**
    * Map that keeps its nodes alive. Note that the {@code weakKeys} configuration
@@ -79,9 +67,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     // invocation
     literal, transform, exceptionHandler,
     // If present as a property on an invocation node, the value node is activated
-    // after
-    // the child context goes inactive, after which all return values (if any) are
-    // unpacked into an ordinal array typed by the value node.
+    // after the child context goes inactive, after which all return values (if any)
+    // are unpacked into an ordinal array typed by the value node.
     afterAll,
     // If present as a property on an invocation node, the value node is activated
     // in a tail recursion context for every return value of the invoked function.
@@ -100,7 +87,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     // parsing
     rewriteWindow, symbol, codePoint, lookahead, lookbehind, rewriteLength,
 
-    javaClass, argument, parameter, object, name, exception, source, value, entrypoint, relative,
+    javaClass, argument, parameter, object, name, exception, source, value,
+    entrypoint, relative,
 
     // association
     prior, posterior, coefficient,
@@ -124,7 +112,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * Activates the node at {@link Common#value} in the context given by
      * {@link Common#context}, or the calling context if absent. This activation
      * does not block.
-     * 
+     *
      * As an alternative, consider chaining off of EAV nodes instead of activating
      * contextual nodes. However, this is useful for function pointers as it can
      * invoke an entrypoint with indirection.
@@ -141,8 +129,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
         final Node prior = kb.requireNode(context, Common.prior);
-        final SynapticNode posterior = (SynapticNode) kb.requireNode(context, Common.posterior);
-        final float coefficient = kb.optional(context, Common.coefficient, Node.DEFAULT_COEFFICIENT);
+        final SynapticNode posterior = (SynapticNode) kb.requireNode(context,
+            Common.posterior);
+        final float coefficient = kb.optional(context, Common.coefficient,
+            Node.DEFAULT_COEFFICIENT);
 
         posterior.getSynapse()
             .setCoefficient(prior, coefficient);
@@ -165,7 +155,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             kb.<String>require(context, Common.value)
                 .codePoints()
                 .boxed()
-                .map(codePoint -> new SymbolPair(kb.node(Common.codePoint), kb.node(codePoint))),
+                .map(codePoint -> new SymbolPair(kb.node(Common.codePoint),
+                    kb.node(codePoint))),
             kb.optional(context, Common.lookbehind, DEFAULT_LOOKBEHIND),
             kb.optional(context, Common.lookahead, DEFAULT_LOOKAHEAD)));
       }
@@ -174,7 +165,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * Activates EAV nodes for symbols in a rewrite window. The keys to the EAV
      * nodes are symbol ordinals, where the 0 position is the first symbol behind
      * the current position. The EAV nodes are activated in the parent context.
-     * 
+     *
      * <ul>
      * <li>{@link Common#rewriteWindow} - required
      * </ul>
@@ -186,7 +177,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
         // n-gram ordinals range from -lookbehind + 1 to lookahead, where 0 is the most
         // recent 1-gram.
-        final int ordinalShift = 1 - Math.min(rewriter.position, rewriter.config.behind());
+        final int ordinalShift = 1 - Math.min(rewriter.position,
+            rewriter.config.behind());
 
         kb.unpackList(rewriter.window(), kb.getParent(context), ImmutableMap.of(
             kb.node(Common.symbol), SymbolPair::symbol,
@@ -203,19 +195,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       protected Node impl(final KnowledgeBase kb, final Context context) {
         final NGramWindow rewriter = kb.require(context, Common.rewriteWindow);
         final int rewriteLength = kb.require(context, Common.rewriteLength);
-        val replacement = kb.packList(context, SymbolPair::new, Common.symbol, Common.value);
+        val replacement = kb.packList(context, SymbolPair::new, Common.symbol,
+            Common.value);
         return kb.node(rewriter.rewrite(rewriteLength, replacement));
       }
     },
     /**
      * Get the node representing an entity-attribute-value tuple. This node is
      * automatically activated when a matching property is queried or written.
-     * 
+     *
      * If only one of {@link Common#object} or {@link Common#name} is specified, a
      * relative EAV node to the contextual EAV node for the specified node is
      * returned. Alternatively, {@link Common#relative} is a boolean to indicate a
      * fully specified relative EAV node.
-     * 
+     *
      * If {@link Common#value} is omitted, the wildcard EAV node is returned. To
      * retrieve the EAV node for the clearing of a property, pass
      * {@link Common#eavUnset}.
@@ -232,7 +225,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           path.add(object);
         if (name != null)
           path.add(name);
-        final boolean relative = path.size() == 1 || kb.<Boolean>require(context, Common.relative);
+        final boolean relative = path.size() == 1 || kb.<Boolean>require(context,
+            Common.relative);
 
         if (value != null)
           path.add(value.getValue() == Common.eavUnset ? null : value);
@@ -247,7 +241,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
         final Object object = kb.optional(context, Common.object, null);
-        final Class<?> clazz = kb.optional(context, Common.javaClass, object::getClass);
+        final Class<?> clazz = kb.optional(context, Common.javaClass,
+            object::getClass);
         final String name = kb.require(context, Common.name);
 
         return kb.node(clazz.getField(name)
@@ -257,7 +252,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     /**
      * Takes two args: {@link Common#object} and {@link Common#name}. If
      * {@code object} is omitted, gets the property from the parent context.
-     * 
+     *
      * Additionally, invokes AV/EAV nodes for the retrieved property in the parent
      * context.
      */
@@ -282,7 +277,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * inaccessible concrete class of the object. More mature knowledge bases should
      * implement a more intelligent interop mechanism, which may include better
      * resolution, caching, and/or lambda metafactory.
-     * 
+     *
      * {@link Common#javaClass}: optional class on which to invoke method. If
      * {@link Common#object} is also provided, this must be a supertype.
      * {@link Common#object}: optional object on which to invoke method.
@@ -292,7 +287,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) throws Exception {
         final Object object = kb.optional(context, Common.object, null);
-        final Class<?> clazz = kb.optional(context, Common.javaClass, object::getClass);
+        final Class<?> clazz = kb.optional(context, Common.javaClass,
+            object::getClass);
         final String name = kb.require(context, Common.name);
 
         val args = kb.packList(context, (type, value) -> new Argument(
@@ -312,7 +308,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     ordinal {
       @Override
       protected Node impl(final KnowledgeBase kb, final Context context) throws Exception {
-        return kb.node(new Ordinal(kb.requireNode(context, Common.type), kb.require(context, Common.ordinal)));
+        return kb.node(new Ordinal(kb.requireNode(context, Common.type),
+            kb.require(context, Common.ordinal)));
       }
     },
     findClass {
@@ -379,10 +376,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * <li>{@link Common#value}: optional value to set. If null, the property is
      * cleared.
      * <li>Returns the value previously at this property.
-     * 
+     *
      * Additionally, invokes AV/EAV nodes for the new property in the parent
      * context.
-     * 
+     *
      * The special context key {@link Common#returnValue} is mirrored to the parent
      * context keyed by the invocation node, and may trigger the continuation of the
      * invocation activation chain.
@@ -390,8 +387,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     setProperty {
       @Override
       public Node impl(final KnowledgeBase kb, final Context context) {
-        return kb.setProperty(kb.getParent(context), kb.optionalNode(context, Common.object),
-            kb.requireNode(context, Common.name), kb.optionalNode(context, Common.value));
+        return kb.setProperty(kb.getParent(context), kb.optionalNode(context,
+            Common.object),
+            kb.requireNode(context, Common.name), kb.optionalNode(context,
+                Common.value));
       }
     };
 
@@ -407,7 +406,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         @Override
         protected Completable onActivate(final Context context) {
           return Completable
-              .fromAction(() -> kb.setProperty(context, null, kb.node(Common.returnValue), impl(kb, context)));
+              .fromAction(() -> kb.setProperty(context, null, kb.node(Common.returnValue),
+                  impl(kb, context)));
         }
       };
     }
@@ -445,14 +445,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       final int ordinalShift) {
     for (int i = 0; i < list.size(); ++i) {
       for (val extractor : extractors.entrySet()) {
-        setProperty(context, null, node(new Ordinal(extractor.getKey(), i + ordinalShift)), extractor.getValue()
-            .apply(list.get(i)));
+        setProperty(context, null, node(new Ordinal(extractor.getKey(), i +
+            ordinalShift)), extractor.getValue()
+                .apply(list.get(i)));
       }
     }
   }
 
   public void unpackList(final List<Node> list, final Context context, final Node ordinalType) {
-    unpackList(list, context, ImmutableMap.of(ordinalType, Function.identity()), 0);
+    unpackList(list, context, ImmutableMap.of(ordinalType, Function.identity()),
+        0);
   }
 
   public <T> ImmutableList<T> packList(final Context context, final Function<Node[], T> aggregator,
@@ -519,7 +521,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
     final int corePoolSize = Runtime.getRuntime()
         .availableProcessors();
-    threadPool = new ThreadPoolExecutor(corePoolSize, 4 * corePoolSize, 60, TimeUnit.SECONDS, new SynchronousQueue<>());
+    threadPool = new ThreadPoolExecutor(corePoolSize, 4 * corePoolSize, 60,
+        TimeUnit.SECONDS, new SynchronousQueue<>());
   }
 
   private void postInit() {
@@ -586,12 +589,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * Attempts to get the parent context of a given context. If the context does
    * not have a parent, the original context is used instead. If the parent node
    * is not a context, {@link ClassCastException} is thrown.
-   * 
+   *
    * There is also an edge case where the parent node has a null value, in which
    * case null is returned.
    */
   private Context getParent(final Context context) {
-    final Node parentNode = propertyDescent(context.node, Common.caller, Common.context);
+    final Node parentNode = propertyDescent(context.node, Common.caller,
+        Common.context);
     return parentNode != null ? (Context) parentNode.getValue() : context;
   }
 
@@ -634,15 +638,16 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public static record NodeStackFrame(InvocationNode invocation, Context context) implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    @Override
-    public String toString() {
-      val sb = new StringBuilder("from ").append(invocation.debugDump(SKIP_CALLER));
-      for (val traceElement : invocation.trace) {
-        sb.append("\n        at ")
-            .append(traceElement);
-      }
-      return sb.toString();
-    }
+@Override
+public String toString() {
+val sb = new StringBuilder("from
+").append(invocation.debugDump(SKIP_CALLER));
+for (val traceElement : invocation.trace) {
+sb.append("\n at ")
+.append(traceElement);
+}
+return sb.toString();
+}
 
     public Stream<NodeStackFrame> trace(final KnowledgeBase kb) {
       final Node callerKey = kb.node(Common.caller), invocationKey = kb.node(Common.invocation),
@@ -656,7 +661,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         final Node invocation = caller.properties.get(invocationKey), contextNode = caller.properties.get(contextKey);
         final Object context = contextNode == null ? null : contextNode.getValue();
 
-        return invocation instanceof InvocationNode i && context instanceof Context c ? new NodeStackFrame(i, c) : null;
+        return invocation instanceof InvocationNode i && context instanceof Context c
+            ? new NodeStackFrame(i, c)
+            : null;
       })
           .takeWhile(s -> s != null);
     }
@@ -691,7 +698,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     }
 
     private InvocationException(final String message, final NodeStackFrame stackFrame) {
-      super(String.format("%s\n%s", message, stackFrame.traceAsString(KnowledgeBase.this)));
+      super(String.format("%s\n%s", message,
+          stackFrame.traceAsString(KnowledgeBase.this)));
       this.stackFrame = stackFrame;
     }
   }
@@ -705,7 +713,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    * literal properties if present, allowing literals to act as defaults. The
    * return value, if any, is assigned to the context property named by the node
    * with the invocation, whose activation triggered the invocation.
-   * 
+   *
    * Tail recursion can be achieved by setting the caller to the parent caller
    * (via {@code transform} or {@link #inherit(Node)}).
    */
@@ -742,9 +750,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     @Override
     protected Completable onActivate(final Context parentContext) {
       val maxStackDepthNode = parentContext.node.properties.get(node(Common.maxStackDepth));
-      final int maxStackDepth = maxStackDepthNode == null || !(maxStackDepthNode.getValue() instanceof Integer)
-          ? DEFAULT_MAX_STACK_DEPTH
-          : (int) maxStackDepthNode.getValue();
+      final int maxStackDepth = maxStackDepthNode == null ||
+          !(maxStackDepthNode.getValue() instanceof Integer)
+              ? DEFAULT_MAX_STACK_DEPTH
+              : (int) maxStackDepthNode.getValue();
       if (maxStackDepth == 0)
         return Completable.error(new StackDepthExceededException(new NodeStackFrame(this, parentContext)));
 
@@ -767,7 +776,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         setProperty(childContext, caller, node(Common.invocation), this);
         setProperty(childContext, caller, node(Common.context), parentContext.node);
 
-        setProperty(childContext, null, node(Common.maxStackDepth), node(maxStackDepth - 1));
+        setProperty(childContext, null, node(Common.maxStackDepth),
+            node(maxStackDepth - 1));
         inheritActivity(parentContext, childContext);
 
         final Node literal = properties.get(node(Common.literal));
@@ -1038,7 +1048,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   /**
    * Gets or creates a node representing a positional argument.
-   * 
+   *
    * @param ordinal 0-based argument index
    * @return "arg<i>n</i>"
    */
@@ -1049,7 +1059,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   /**
    * Gets or creates a node representing a positional parameter type, for use with
    * {@link BuiltIn#invoke}.
-   * 
+   *
    * @param ordinal 0-based argument index
    * @return "param<i>n</i>"
    */
@@ -1091,7 +1101,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     // potentialy affect other state once they are connected through Hebbian
     // learning, it is not obvious in what cases it would be safe to cull them).
     // Thus, go ahead and omit those EAV nodes.
-    if (object != null && object.getValue() instanceof Context || value != null && value.getValue() instanceof Context)
+    if (object != null && object.getValue() instanceof Context || value != null
+        && value.getValue() instanceof Context)
       return;
     // (The case of property.value instanceof context is not covered because what
     // does that even mean, and there would probably be an interesting reason for
@@ -1115,7 +1126,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         val propEavs = new ArrayList<Node>(2 * value.properties.size());
         synchronized (value.properties) {
           for (val entry : value.properties.entrySet()) {
-            propEavs.add(eavNode(true, false, property, entry.getKey(), entry.getValue()));
+            propEavs.add(eavNode(true, false, property, entry.getKey(),
+                entry.getValue()));
             propEavs.add(eavNode(true, true, property, entry.getKey()));
           }
         }
@@ -1219,16 +1231,17 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         init(tuple);
     }
 
-    void destroy() {
-      // Note that since this happens in response to a tuple element having become
-      // unreachable, we don't really have to worry much about race conditions since
-      // no write conflicts can arise at this point.
-      eavNodes.remove(this);
-      for (val ref : tuple) {
-        if (ref != null)
-          ref.clear();
-      }
-    }
+void destroy() {
+// Note that since this happens in response to a tuple element having become
+// unreachable, we don't really have to worry much about race conditions
+since
+// no write conflicts can arise at this point.
+eavNodes.remove(this);
+for (val ref : tuple) {
+if (ref != null)
+ref.clear();
+}
+}
 
     @Override
     public boolean equals(Object obj) {
@@ -1300,8 +1313,10 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
               val forEach = invocation.properties.get(node(Common.forEach));
               if (forEach != null) {
                 val childContext = newContext();
-                setProperty(childContext, null, node(Common.caller), optionalNode(parent, Common.caller));
-                setProperty(childContext, null, node(Common.maxStackDepth), optionalNode(parent, Common.maxStackDepth));
+                setProperty(childContext, null, node(Common.caller), optionalNode(parent,
+                    Common.caller));
+                setProperty(childContext, null, node(Common.maxStackDepth),
+                    optionalNode(parent, Common.maxStackDepth));
                 // This could conceivably be the invocation node as well for isomorphicity with
                 // normal return.
                 setProperty(childContext, null, node(Common.value), value);
@@ -1341,7 +1356,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   /**
    * Single-instance resolution for immutable types. Skip for/bootstrap with Class
    * and enum since they're always single-instance.
-   * 
+   *
    * An immutable class is designated by having the node for the class instance
    * have a Common.value property that has a value of a ConcurrentHashMap, which
    * will be used to resolve values to canonical instances.
@@ -1367,7 +1382,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       value = canonicalize(s);
     }
 
-    final Map<Object, SynapticNode> index = value instanceof Context ? weakIndex : strongIndex;
+    final Map<Object, SynapticNode> index = value instanceof Context ? weakIndex
+        : strongIndex;
     return index.computeIfAbsent(value, v -> v instanceof BuiltIn b ? b.node(this) : new SynapticNode(v));
   }
 
@@ -1383,7 +1399,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
    */
   public static void debug(final Node node) {
     node.rxActivate()
-        .subscribe(a -> System.err.printf("Watch %s context: %s\n", node, a.context.node.debugDump(SKIP_CALLER)));
+        .subscribe(a -> System.err.printf("Watch %s context: %s\n", node,
+            a.context.node.debugDump(SKIP_CALLER)));
   }
 
   public void indexNode(final Node index, final Node node, final String name) {
@@ -1429,7 +1446,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             .autoConnect();
 
         // Mark some more common types immutable.
-        for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class, Character.class, Integer.class,
+        for (final Class<?> type : new Class<?>[] { Boolean.class, Byte.class,
+            Character.class, Integer.class,
             Long.class, Float.class, Double.class }) {
           val context = kb.newContext();
           kb.new InvocationNode(markImmutable)
@@ -1485,7 +1503,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * Index of built-in nodes by string name.
      */
     index {
-      private <T extends Enum<T>> SynapticNode compileEnum(final KnowledgeBase kb, final T[] e) {
+      private <T extends Enum<T>> SynapticNode compileEnum(final KnowledgeBase kb,
+          final T[] e) {
         val index = new SynapticNode();
         for (final T member : e) {
           index.properties.put(kb.node(member.name()), kb.node(member));
@@ -1495,7 +1514,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
       @Override
       protected void setUp(final KnowledgeBase kb, final Node index) {
-        val common = compileEnum(kb, Common.values()), builtIn = compileEnum(kb, BuiltIn.values()),
+        val common = compileEnum(kb, Common.values()), builtIn = compileEnum(kb,
+            BuiltIn.values()),
             bootstrap = compileEnum(kb, Bootstrap.values());
         for (val type : new SynapticNode[] { common, builtIn, bootstrap }) {
           index.properties.putAll(type.properties);
@@ -1556,7 +1576,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
      * Interpretation is split into parse and eval phases. As language becomes more
      * natural they blur, but a rough demarcation is that parse should not have
      * lasting side effects (perhaps aside from altering a parse context).
-     * 
+     *
      * <ul>
      * <li>{@link Common#value}: string to parse
      * </ul>

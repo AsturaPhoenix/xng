@@ -14,7 +14,7 @@ public class BiNode implements Prior, Posterior {
   }
 
   @Override
-  public Map<Posterior, Distribution> getPosteriors() {
+  public Map<Posterior, Profile> getPosteriors() {
     return output.getPosteriors();
   }
 

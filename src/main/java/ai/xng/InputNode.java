@@ -8,7 +8,7 @@ public class InputNode implements Prior {
   private final Prior.Trait output = new Prior.Trait();
 
   @Override
-  public Map<Posterior, Distribution> getPosteriors() {
+  public Map<Posterior, Profile> getPosteriors() {
     return output.getPosteriors();
   }
 

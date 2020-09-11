@@ -7,41 +7,46 @@ import lombok.Getter;
 import lombok.val;
 
 public interface Prior extends Node {
-  /**
-   * Margin by which to pad on either side of a threshold for default conjunctive
-   * or disjunctive edges.
-   */
   final float THRESHOLD_MARGIN = .2f;
   final float DEFAULT_COEFFICIENT = ThresholdIntegrator.THRESHOLD + THRESHOLD_MARGIN;
 
   final long RAMP_UP = 5, RAMP_DOWN = 15;
 
-  Map<Posterior, Distribution> getPosteriors();
+  record Profile(Distribution coefficient, Integrator trace) {
+  }
+
+  Map<Posterior, Profile> getPosteriors();
 
   class Trait implements Prior {
     private static final long serialVersionUID = 1L;
 
     @Getter
-    private final Map<Posterior, Distribution> posteriors = new HashMap<>();
+    private final Map<Posterior, Profile> posteriors = new HashMap<>();
   }
 
   @Override
   default void activate() {
     for (val entry : getPosteriors().entrySet()) {
+      final float sample = entry.getValue()
+          .coefficient()
+          .generate();
       entry.getKey()
           .getIntegrator()
-          .add(RAMP_UP, RAMP_DOWN, entry.getValue()
-              .generate());
+          .add(RAMP_UP, RAMP_DOWN, sample);
+      entry.getValue()
+          .trace()
+          .add(Scheduler.global.now(), RAMP_UP, RAMP_DOWN, sample);
     }
   }
 
   default void setCoefficient(final Posterior posterior, final float coefficient) {
-    getPosteriors().compute(posterior, (__, distribution) -> {
-      if (distribution == null) {
-        return new UnimodalHypothesis(coefficient);
+    getPosteriors().compute(posterior, (__, profile) -> {
+      if (profile == null) {
+        return new Profile(new UnimodalHypothesis(coefficient), new Integrator());
       } else {
-        distribution.set(coefficient);
-        return distribution;
+        profile.coefficient()
+            .set(coefficient);
+        return profile;
       }
     });
   }

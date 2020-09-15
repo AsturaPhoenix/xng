@@ -53,7 +53,7 @@ public class NodeTest {
     and.conjunction(a, b);
 
     a.activate();
-    scheduler.runUntilIdle();
+    scheduler.runUntil(Prior.RAMP_UP + Prior.RAMP_DOWN);
     b.activate();
     scheduler.runUntilIdle();
     assertFalse(and.didActivate());

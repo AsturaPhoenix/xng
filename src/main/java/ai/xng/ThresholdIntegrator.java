@@ -7,59 +7,65 @@ import lombok.val;
 
 public abstract class ThresholdIntegrator {
   public static final float THRESHOLD = 1;
+  public static final long REINFORCEMENT_TTL = 15000;
 
   private static record TimeSeries<T> (T item, long time) {
   }
 
   private final Integrator integrator = new Integrator();
 
-  private TimeSeries<Disposable> nextEvaluation;
+  private TimeSeries<Disposable> nextThreshold;
 
   protected abstract void onThreshold();
 
   public void add(final long rampUp, final long rampDown, final float magnitude) {
+    evict();
     integrator.add(Scheduler.global.now(), rampUp, rampDown, magnitude);
 
-    final TimeSeries<Runnable> updatedNextEvaluation = nextEvaluation().get();
+    final Optional<Long> updatedNextThreshold = nextThreshold(Scheduler.global.now());
 
-    if (nextEvaluation != null) {
-      // TODO: This results in some unnecessary churn.
-      nextEvaluation.item.dispose();
+    if (nextThreshold == null || updatedNextThreshold.map(t -> t != nextThreshold.time())
+        .orElse(true)) {
+      if (nextThreshold != null) {
+        nextThreshold.item.dispose();
+      }
+      schedule(updatedNextThreshold);
     }
-    nextEvaluation = scheduleEvaluation(updatedNextEvaluation);
   }
 
-  private Optional<TimeSeries<Runnable>> nextEvaluation() {
-    final long now = Scheduler.global.now();
+  public Optional<Long> nextThreshold(long t) {
+    while (true) {
+      val trajectory = integrator.evaluate(t);
+      val nextCriticalPoint = integrator.nextCriticalPoint(t);
 
-    integrator.evict(now);
-
-    val trajectory = integrator.evaluate(now);
-    val nextCriticalPoint = integrator.nextCriticalPoint(now);
-
-    if (trajectory.value() < THRESHOLD) {
-      if (trajectory.rate() > 0) {
-        final long intercept = now + (long) Math.ceil((THRESHOLD - trajectory.value()) / trajectory.rate());
-        if (nextCriticalPoint.map(t -> intercept <= t)
-            .orElse(true)) {
-          return Optional.of(new TimeSeries<Runnable>(() -> {
-            onThreshold();
-            scheduleNextEvaluation();
-          }, intercept));
+      if (trajectory.value() < THRESHOLD) {
+        if (trajectory.rate() > 0) {
+          final long intercept = t + (long) Math.ceil((THRESHOLD - trajectory.value()) / trajectory.rate());
+          if (nextCriticalPoint.map(tc -> intercept <= tc)
+              .orElse(true)) {
+            return Optional.of(intercept);
+          }
         }
       }
+
+      if (nextCriticalPoint.isEmpty())
+        break;
+      t = nextCriticalPoint.get();
     }
 
-    return nextCriticalPoint.map(t -> new TimeSeries<Runnable>(this::scheduleNextEvaluation, t));
+    return Optional.empty();
   }
 
-  private void scheduleNextEvaluation() {
-    nextEvaluation = nextEvaluation()
-        .map(this::scheduleEvaluation)
+  private void evict() {
+    integrator.evict(Scheduler.global.now() - REINFORCEMENT_TTL);
+  }
+
+  private void schedule(final Optional<Long> tOpt) {
+    nextThreshold = tOpt.map(t -> new TimeSeries<Disposable>(Scheduler.global.postTask(() -> {
+      onThreshold();
+      evict();
+      schedule(nextThreshold(Scheduler.global.now()));
+    }, t), t))
         .orElse(null);
-  }
-
-  private TimeSeries<Disposable> scheduleEvaluation(final TimeSeries<Runnable> task) {
-    return new TimeSeries<Disposable>(Scheduler.global.postTask(task.item, task.time), task.time);
   }
 }

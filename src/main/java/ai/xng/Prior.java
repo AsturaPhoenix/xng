@@ -60,7 +60,7 @@ public interface Prior extends Node {
           .add(RAMP_UP, RAMP_DOWN, sample);
       entry.getValue()
           .trace()
-          .add(Scheduler.global.now(), RAMP_UP, RAMP_DOWN, 1);
+          .add(Scheduler.global.now(), RAMP_UP, RAMP_DOWN, sample);
     }
   }
 

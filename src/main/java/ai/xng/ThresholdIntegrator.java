@@ -7,7 +7,6 @@ import lombok.val;
 
 public abstract class ThresholdIntegrator {
   public static final float THRESHOLD = 1;
-  public static final long REINFORCEMENT_TTL = 15000;
 
   private static record TimeSeries<T> (T item, long time) {
   }
@@ -57,7 +56,7 @@ public abstract class ThresholdIntegrator {
   }
 
   private void evict() {
-    integrator.evict(Scheduler.global.now() - REINFORCEMENT_TTL);
+    integrator.evict(Scheduler.global.now());
   }
 
   private void schedule(final Optional<Long> tOpt) {

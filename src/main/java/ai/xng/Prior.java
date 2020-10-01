@@ -14,7 +14,7 @@ public interface Prior extends Node {
   final float THRESHOLD_MARGIN = .2f;
   final float DEFAULT_COEFFICIENT = ThresholdIntegrator.THRESHOLD + THRESHOLD_MARGIN;
 
-  final long RAMP_UP = 5, RAMP_DOWN = 15;
+  final long RAMP_UP = 5, RAMP_DOWN = 50;
 
   @Accessors(fluent = true)
   class Profile implements Serializable {
@@ -55,6 +55,7 @@ public interface Prior extends Node {
       final float sample = entry.getValue()
           .coefficient()
           .generate();
+      // TODO: adaptation/depletion
       entry.getKey()
           .getIntegrator()
           .add(RAMP_UP, RAMP_DOWN, sample);

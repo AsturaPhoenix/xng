@@ -3,6 +3,9 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.Map;
+
+import com.google.common.collect.MapMaker;
 
 import lombok.Getter;
 import lombok.val;
@@ -10,12 +13,17 @@ import lombok.val;
 public interface Posterior extends Node {
   ThresholdIntegrator getIntegrator();
 
+  Map<Prior, Distribution> getPriors();
+
   class Trait implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final Node owner;
     @Getter
     private transient ThresholdIntegrator integrator;
+    @Getter
+    private final Map<Prior, Distribution> priors = new MapMaker().weakKeys()
+        .makeMap();
 
     public Trait(final Node owner) {
       this.owner = owner;
@@ -34,6 +42,10 @@ public interface Posterior extends Node {
     private void readObject(final ObjectInputStream stream) throws IOException, ClassNotFoundException {
       stream.defaultReadObject();
       init();
+    }
+
+    public void activate() {
+      // TODO: LTP
     }
   }
 

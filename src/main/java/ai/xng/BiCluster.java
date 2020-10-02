@@ -1,15 +1,20 @@
 package ai.xng;
 
-public class BiCluster extends Cluster<BiNode> {
+public class BiCluster extends PriorCluster<BiNode> {
   private static final long serialVersionUID = 1L;
 
   public class Node extends BiNode {
     private static final long serialVersionUID = 1L;
 
-    private final RecencyQueue<?>.Link link;
+    private final Link link;
 
     public Node() {
-      link = activations.new Link(this);
+      link = new Link(this);
+    }
+
+    @Override
+    public BiCluster getCluster() {
+      return BiCluster.this;
     }
 
     @Override

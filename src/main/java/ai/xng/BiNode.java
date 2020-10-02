@@ -2,7 +2,7 @@ package ai.xng;
 
 import java.util.Map;
 
-public class BiNode implements Prior, Posterior {
+public abstract class BiNode implements Prior, Posterior {
   private static final long serialVersionUID = 1L;
 
   private final Posterior.Trait input = new Posterior.Trait(this);
@@ -14,7 +14,12 @@ public class BiNode implements Prior, Posterior {
   }
 
   @Override
-  public Map<Posterior, Profile> getPosteriors() {
+  public Map<Prior, Distribution> getPriors() {
+    return input.getPriors();
+  }
+
+  @Override
+  public Map<Posterior, Distribution> getPosteriors() {
     return output.getPosteriors();
   }
 

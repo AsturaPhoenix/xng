@@ -14,10 +14,10 @@ import lombok.val;
 public class NodeTest {
   @Test
   public void testEmptySerialization() throws Exception {
-    assertNotNull(TestUtil.serialize(new BiNode()));
-    assertNotNull(TestUtil.serialize(new ActionNode.Lambda(() -> {
+    assertNotNull(TestUtil.serialize(new BiCluster().new Node()));
+    assertNotNull(TestUtil.serialize(new ActionCluster().new Node(() -> {
     })));
-    assertNotNull(TestUtil.serialize(new InputNode()));
+    assertNotNull(TestUtil.serialize(new InputCluster().new Node()));
   }
 
   @Test
@@ -25,7 +25,7 @@ public class NodeTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val prior = new InputNode();
+    val prior = new InputCluster().new Node();
     val posterior = new TestNode();
     prior.then(posterior);
     prior.activate();
@@ -37,7 +37,8 @@ public class NodeTest {
   public void testAnd() {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
-    val a = new InputNode(), b = new InputNode(), and = new TestNode();
+    val input = new InputCluster();
+    val a = input.new Node(), b = input.new Node(), and = new TestNode();
     and.conjunction(a, b);
     a.activate();
     b.activate();
@@ -49,7 +50,8 @@ public class NodeTest {
   public void testDisjointAnd() {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
-    val a = new InputNode(), b = new InputNode(), and = new TestNode();
+    val input = new InputCluster();
+    val a = input.new Node(), b = input.new Node(), and = new TestNode();
     and.conjunction(a, b);
 
     a.activate();
@@ -64,7 +66,8 @@ public class NodeTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val a = new InputNode(), b = new InputNode(), c = new InputNode(), d = new InputNode(), and = new TestNode();
+    val input = new InputCluster();
+    val a = input.new Node(), b = input.new Node(), c = input.new Node(), d = input.new Node(), and = new TestNode();
     and.conjunction(a, b, c, d);
 
     {
@@ -90,7 +93,8 @@ public class NodeTest {
   private static class AndFixture implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    final InputNode a = new InputNode(), b = new InputNode();
+    final InputCluster input = new InputCluster();
+    final InputNode a = input.new Node(), b = input.new Node();
     final TestNode and = new TestNode();
 
     AndFixture() {
@@ -128,7 +132,8 @@ public class NodeTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val a = new InputNode(), b = new InputNode(), and = new TestNode();
+    val input = new InputCluster();
+    val a = input.new Node(), b = input.new Node(), and = new TestNode();
     and.conjunction(a, b);
     a.activate();
     b.activate();
@@ -142,7 +147,8 @@ public class NodeTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val up = new InputNode(), down = new InputNode(), out = new TestNode();
+    val input = new InputCluster();
+    val up = input.new Node(), down = input.new Node(), out = new TestNode();
     up.then(out);
     down.inhibit(out);
 
@@ -153,16 +159,24 @@ public class NodeTest {
     assertFalse(out.didActivate());
   }
 
+  /**
+   * Posteriors should not hold strong references to priors since if the prior
+   * cannot be activated, it should not have any effect.
+   */
   @Test
   public void testGc() throws Exception {
+    val input = new InputCluster();
     val posterior = new TestNode();
 
     val gc = new GcFixture(posterior);
 
     for (int i = 0; i < 1000; ++i) {
-      new InputNode().then(posterior);
+      input.new Node().then(posterior);
     }
 
-    gc.assertNoGrowth();
+    gc.assertNoGrowth(() -> {
+      System.gc();
+      input.clean();
+    });
   }
 }

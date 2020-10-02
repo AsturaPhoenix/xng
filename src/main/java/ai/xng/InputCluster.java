@@ -1,15 +1,20 @@
 package ai.xng;
 
-public class InputCluster extends Cluster<InputNode> {
+public class InputCluster extends PriorCluster<InputNode> {
   private static final long serialVersionUID = 1L;
 
   public class Node extends InputNode {
     private static final long serialVersionUID = 1L;
 
-    private final RecencyQueue<?>.Link link;
+    private final Link link;
 
     public Node() {
-      link = activations.new Link(this);
+      link = new Link(this);
+    }
+
+    @Override
+    public InputCluster getCluster() {
+      return InputCluster.this;
     }
 
     @Override

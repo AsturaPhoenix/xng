@@ -11,7 +11,13 @@ public class TestNode extends ActionNode {
   private final List<Long> activations = new ArrayList<>();
 
   @Override
+  public Cluster<?> getCluster() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public void activate() {
+    // This implementation skips LTP since it has no cluster.
     activations.add(Scheduler.global.now());
   }
 

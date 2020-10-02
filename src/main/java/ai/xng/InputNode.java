@@ -2,13 +2,13 @@ package ai.xng;
 
 import java.util.Map;
 
-public class InputNode implements Prior {
+public abstract class InputNode implements Prior {
   private static final long serialVersionUID = 1L;
 
   private final Prior.Trait output = new Prior.Trait();
 
   @Override
-  public Map<Posterior, Profile> getPosteriors() {
+  public Map<Posterior, Distribution> getPosteriors() {
     return output.getPosteriors();
   }
 

@@ -1,14 +1,11 @@
 package ai.xng;
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 
 import lombok.Getter;
 import lombok.val;
-import lombok.experimental.Accessors;
 
 public interface Prior extends Node {
   final float THRESHOLD_MARGIN = .2f;
@@ -16,63 +13,36 @@ public interface Prior extends Node {
 
   final long RAMP_UP = 5, RAMP_DOWN = 50;
 
-  @Accessors(fluent = true)
-  class Profile implements Serializable {
+  Map<Posterior, Distribution> getPosteriors();
+
+  class Trait implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Getter
-    private final Distribution coefficient;
-    @Getter
-    private transient Integrator trace;
+    private final Map<Posterior, Distribution> posteriors = new HashMap<>();
 
-    public Profile(final float coefficient) {
-      this.coefficient = new UnimodalHypothesis(coefficient);
-      init();
-    }
-
-    private void init() {
-      trace = new Integrator();
-    }
-
-    private void readObject(final ObjectInputStream stream) throws IOException, ClassNotFoundException {
-      stream.defaultReadObject();
-      init();
-    }
-  }
-
-  Map<Posterior, Profile> getPosteriors();
-
-  class Trait implements Prior {
-    private static final long serialVersionUID = 1L;
-
-    @Getter
-    private final Map<Posterior, Profile> posteriors = new HashMap<>();
-  }
-
-  @Override
-  default void activate() {
-    for (val entry : getPosteriors().entrySet()) {
-      final float sample = entry.getValue()
-          .coefficient()
-          .generate();
-      // TODO: adaptation/depletion
-      entry.getKey()
-          .getIntegrator()
-          .add(RAMP_UP, RAMP_DOWN, sample);
-      entry.getValue()
-          .trace()
-          .add(Scheduler.global.now(), RAMP_UP, RAMP_DOWN, sample);
+    public void activate() {
+      for (val entry : getPosteriors().entrySet()) {
+        final float sample = entry.getValue()
+            .generate();
+        // TODO: adaptation/depletion
+        entry.getKey()
+            .getIntegrator()
+            .add(RAMP_UP, RAMP_DOWN, sample);
+      }
     }
   }
 
   default void setCoefficient(final Posterior posterior, final float coefficient) {
-    getPosteriors().compute(posterior, (__, profile) -> {
-      if (profile == null) {
-        return new Profile(coefficient);
+    getPosteriors().compute(posterior, (__, distribution) -> {
+      if (distribution == null) {
+        distribution = new UnimodalHypothesis(coefficient);
+        posterior.getPriors()
+            .put(this, distribution);
+        return distribution;
       } else {
-        profile.coefficient()
-            .set(coefficient);
-        return profile;
+        distribution.set(coefficient);
+        return distribution;
       }
     });
   }

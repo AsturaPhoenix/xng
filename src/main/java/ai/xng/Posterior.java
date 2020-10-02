@@ -13,6 +13,9 @@ import lombok.val;
 public interface Posterior extends Node {
   ThresholdIntegrator getIntegrator();
 
+  @Override
+  PosteriorCluster<?> getCluster();
+
   Map<Prior, Distribution> getPriors();
 
   class Trait implements Serializable {

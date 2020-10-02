@@ -1,6 +1,6 @@
 package ai.xng;
 
-public class ActionCluster extends Cluster<ActionNode> {
+public class ActionCluster extends PosteriorCluster<ActionNode> {
   private static final long serialVersionUID = 1L;
 
   public class Node extends ActionNode.Lambda {

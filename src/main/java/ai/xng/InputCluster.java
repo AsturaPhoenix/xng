@@ -1,6 +1,6 @@
 package ai.xng;
 
-public class InputCluster extends PriorCluster<InputNode> {
+public class InputCluster extends Cluster<InputNode> {
   private static final long serialVersionUID = 1L;
 
   public class Node extends InputNode {

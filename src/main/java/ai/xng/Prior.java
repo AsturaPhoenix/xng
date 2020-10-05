@@ -11,7 +11,7 @@ public interface Prior extends Node {
   final float THRESHOLD_MARGIN = .2f;
   final float DEFAULT_COEFFICIENT = ThresholdIntegrator.THRESHOLD + THRESHOLD_MARGIN;
 
-  final long RAMP_UP = 5, RAMP_DOWN = 50;
+  final long RAMP_UP = 5, RAMP_DOWN = 45;
 
   Map<Posterior, Distribution> getPosteriors();
 
@@ -34,15 +34,15 @@ public interface Prior extends Node {
   }
 
   default void setCoefficient(final Posterior posterior, final float coefficient) {
-    getPosteriors().compute(posterior, (__, distribution) -> {
-      if (distribution == null) {
-        distribution = new UnimodalHypothesis(coefficient);
+    getPosteriors().compute(posterior, (__, profile) -> {
+      if (profile == null) {
+        profile = new UnimodalHypothesis(coefficient);
         posterior.getPriors()
-            .put(this, distribution);
-        return distribution;
+            .put(this, profile);
+        return profile;
       } else {
-        distribution.set(coefficient);
-        return distribution;
+        profile.set(coefficient);
+        return profile;
       }
     });
   }

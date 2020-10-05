@@ -2,13 +2,20 @@ package ai.xng;
 
 import java.io.Serializable;
 import java.util.Map;
+import java.util.Optional;
 
 import lombok.RequiredArgsConstructor;
 
 public abstract class ActionNode implements Posterior {
   private static final long serialVersionUID = 1L;
 
+  private final Node.Trait node = new Node.Trait();
   private final Posterior.Trait input = new Posterior.Trait(this);
+
+  @Override
+  public Optional<Long> getLastActivation() {
+    return node.getLastActivation();
+  }
 
   @Override
   public ThresholdIntegrator getIntegrator() {
@@ -22,6 +29,7 @@ public abstract class ActionNode implements Posterior {
 
   @Override
   public void activate() {
+    node.activate();
     input.activate();
   }
 

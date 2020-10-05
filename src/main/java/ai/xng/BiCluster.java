@@ -1,6 +1,6 @@
 package ai.xng;
 
-public class BiCluster extends PriorCluster<BiNode> {
+public class BiCluster extends PosteriorCluster<BiNode> {
   private static final long serialVersionUID = 1L;
 
   public class Node extends BiNode {

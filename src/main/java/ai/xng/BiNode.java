@@ -1,12 +1,19 @@
 package ai.xng;
 
 import java.util.Map;
+import java.util.Optional;
 
 public abstract class BiNode implements Prior, Posterior {
   private static final long serialVersionUID = 1L;
 
+  private final Node.Trait node = new Node.Trait();
   private final Posterior.Trait input = new Posterior.Trait(this);
   private final Prior.Trait output = new Prior.Trait();
+
+  @Override
+  public Optional<Long> getLastActivation() {
+    return node.getLastActivation();
+  }
 
   @Override
   public ThresholdIntegrator getIntegrator() {
@@ -25,6 +32,8 @@ public abstract class BiNode implements Prior, Posterior {
 
   @Override
   public void activate() {
+    node.activate();
+    input.activate();
     output.activate();
   }
 }

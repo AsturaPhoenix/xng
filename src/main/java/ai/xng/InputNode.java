@@ -19,7 +19,7 @@ public abstract class InputNode implements Prior {
   }
 
   @Override
-  public ConnectionMap.PosteriorMap getPosteriors() {
+  public Connections.Posteriors getPosteriors() {
     return output.getPosteriors();
   }
 

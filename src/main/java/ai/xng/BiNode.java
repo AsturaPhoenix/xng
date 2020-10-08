@@ -1,6 +1,5 @@
 package ai.xng;
 
-import java.util.Map;
 import java.util.Optional;
 
 public abstract class BiNode implements Prior, Posterior {
@@ -8,7 +7,7 @@ public abstract class BiNode implements Prior, Posterior {
 
   private final Node.Trait node = new Node.Trait();
   private final Posterior.Trait input = new Posterior.Trait(this);
-  private final Prior.Trait output = new Prior.Trait();
+  private final Prior.Trait output = new Prior.Trait(this);
 
   @Override
   public Integrator getTrace() {
@@ -26,12 +25,12 @@ public abstract class BiNode implements Prior, Posterior {
   }
 
   @Override
-  public Map<Prior, Distribution> getPriors() {
+  public Connections.Priors getPriors() {
     return input.getPriors();
   }
 
   @Override
-  public Map<Posterior, Distribution> getPosteriors() {
+  public Connections.Posteriors getPosteriors() {
     return output.getPosteriors();
   }
 

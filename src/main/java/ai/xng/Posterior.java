@@ -13,19 +13,20 @@ public interface Posterior extends Node {
   @Override
   PosteriorCluster<?> getCluster();
 
-  ConnectionMap.PriorMap getPriors();
+  Connections.Priors getPriors();
 
   class Trait implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    private final Node owner;
+    private final Posterior owner;
     @Getter
     private transient ThresholdIntegrator integrator;
     @Getter
-    private final ConnectionMap.PriorMap priors = new ConnectionMap.PriorMap();
+    private final Connections.Priors priors;
 
-    public Trait(final Node owner) {
+    public Trait(final Posterior owner) {
       this.owner = owner;
+      priors = new Connections.Priors(owner);
       init();
     }
 
@@ -56,7 +57,8 @@ public interface Posterior extends Node {
     }
 
     for (val prior : priors) {
-      prior.setCoefficient(this, coefficient);
+      prior.getPosteriors()
+          .setCoefficient(this, coefficient);
     }
 
     return this;

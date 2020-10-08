@@ -1,7 +1,6 @@
 package ai.xng;
 
 import java.io.Serializable;
-import java.util.Map;
 import java.util.Optional;
 
 import lombok.RequiredArgsConstructor;
@@ -28,7 +27,7 @@ public abstract class ActionNode implements Posterior {
   }
 
   @Override
-  public Map<Prior, Distribution> getPriors() {
+  public Connections.Priors getPriors() {
     return input.getPriors();
   }
 

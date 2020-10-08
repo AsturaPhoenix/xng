@@ -29,13 +29,14 @@ public class ConjunctionJunction {
   public void build(final Posterior posterior, final float weight) {
     // Scale such that activation of the last principal component (may be
     // hypothetical, with relative weight 1) has margins on either side of the
-    // activation threshold.
-    final float normAdj = norm - .5f / norm;
+    // activation threshold (but cap the maximum at the default coefficient).
+    final float normAdj = Math.max(norm - .5f / norm, norm / Prior.DEFAULT_COEFFICIENT);
 
     for (val weightedPrior : priors) {
       final float coefficient = Math.min(1, weightedPrior.weight()) / normAdj;
-      posterior.getPriors()
-          .put(weightedPrior.prior(), new UnimodalHypothesis(coefficient, weight));
+      weightedPrior.prior()
+          .getPosteriors()
+          .setCoefficient(posterior, coefficient, weight);
     }
   }
 }

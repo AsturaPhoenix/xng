@@ -71,6 +71,10 @@ public class TestScheduler extends Scheduler {
     }
   }
 
+  public void runFor(final long dt) {
+    runUntil(now() + dt);
+  }
+
   public void runUntilIdle() {
     Optional<Long> next;
     while ((next = step()).isPresent()) {

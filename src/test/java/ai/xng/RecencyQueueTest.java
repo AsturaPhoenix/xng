@@ -20,6 +20,13 @@ public class RecencyQueueTest {
   }
 
   @Test
+  public void testOne() {
+    val queue = new RecencyQueue<Integer>();
+    queue.new Link(1).promote();
+    assertThat(queue).containsExactly(1);
+  }
+
+  @Test
   public void testThree() {
     val queue = new RecencyQueue<Integer>();
     queue.new Link(1).promote();

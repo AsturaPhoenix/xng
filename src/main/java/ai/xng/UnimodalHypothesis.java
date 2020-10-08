@@ -36,13 +36,15 @@ public class UnimodalHypothesis implements Distribution, Serializable {
 
   @Override
   public String toString() {
-    lock.readLock().lock();
+    lock.readLock()
+        .lock();
     try {
       return String.format(
           "μ = %.4g, w = %.2f (left tail: μ = %.4g, w = %.2f; core: μ = %.4g, w = %.2f; right tail: μ = %.4g, w = %.2f)",
           getMode(), getWeight(), lower.mean, lower.weight, core.mean, core.weight, upper.mean, upper.weight);
     } finally {
-      lock.readLock().unlock();
+      lock.readLock()
+          .unlock();
     }
   }
 
@@ -65,6 +67,10 @@ public class UnimodalHypothesis implements Distribution, Serializable {
     set(mean);
   }
 
+  public UnimodalHypothesis(final float mean, final float weight) {
+    set(mean, weight);
+  }
+
   @Override
   public void set(final float value, final float weight) {
     core.mean = value;
@@ -84,7 +90,8 @@ public class UnimodalHypothesis implements Distribution, Serializable {
     if (weight == 0)
       return;
 
-    lock.writeLock().lock();
+    lock.writeLock()
+        .lock();
     try {
       final Bucket tail, counterTail;
       if (value < core.mean) {
@@ -140,7 +147,8 @@ public class UnimodalHypothesis implements Distribution, Serializable {
       assert core.mean > lower.mean && core.mean < upper.mean : String.format("%+.4g x %.2f to %s", value, weight,
           this);
     } finally {
-      lock.writeLock().unlock();
+      lock.writeLock()
+          .unlock();
     }
   }
 

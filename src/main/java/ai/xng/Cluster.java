@@ -89,9 +89,11 @@ public class Cluster<T extends Node> implements Serializable {
               if (next == null) {
                 it.remove();
               } else {
-                break;
+                return;
               }
             }
+
+            next = null;
           }
 
           @Override
@@ -110,47 +112,37 @@ public class Cluster<T extends Node> implements Serializable {
     };
   }
 
-  private static record WeightedPrior(Prior prior, float weight) {
-  }
-
   public static void associate(final Cluster<? extends Prior> priorCluster,
       final Cluster<? extends Posterior> posteriorCluster) {
     final long now = Scheduler.global.now();
 
     for (final Posterior posterior : posteriorCluster.activations()) {
-      // For each posterior, connect all priors with timings that could have
-      // contributed to the firing in a conjunctive way.
-
-      if (posterior.getLastActivation()
-          .map(t -> t <= now - (Prior.RAMP_UP + Prior.RAMP_DOWN))
-          .orElse(true)) {
-        break;
-      }
-
+      // The recency queue will only iterate over nodes that have been activated at
+      // some point.
       final long t1 = posterior.getLastActivation()
           .get();
 
-      float priorWeightTotal = 0;
-      val priors = new ArrayList<WeightedPrior>();
+      if (t1 <= now - (Prior.RAMP_UP + Prior.RAMP_DOWN)) {
+        break;
+      }
+
+      // For each posterior, connect all priors with timings that could have
+      // contributed to the firing in a conjunctive way.
+
+      val conjunction = new ConjunctionJunction(t1);
 
       for (final Prior prior : priorCluster.activations()) {
         if (prior.getLastActivation()
-            .map(t -> t <= t1 - (Prior.RAMP_UP + Prior.RAMP_DOWN))
-            .orElse(true)) {
+            .get() <= t1 - (Prior.RAMP_UP + Prior.RAMP_DOWN)) {
           break;
         }
 
-        final long dt = t1 - prior.getLastActivation()
-            .get();
-        if (dt <= 0) {
-          continue;
-        }
-
-        final float priorWeight = dt < Prior.RAMP_UP ? (float) dt / Prior.RAMP_UP
-            : 1 - (float) (dt - Prior.RAMP_UP) / Prior.RAMP_DOWN;
-        priorWeightTotal += priorWeight;
-        priors.add(new WeightedPrior(prior, priorWeight));
+        conjunction.add(prior);
       }
+
+      conjunction.build(posterior, posterior.getTrace()
+          .evaluate(now)
+          .value() * Distribution.DEFAULT_WEIGHT);
     }
   }
 }

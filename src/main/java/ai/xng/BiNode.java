@@ -11,6 +11,11 @@ public abstract class BiNode implements Prior, Posterior {
   private final Prior.Trait output = new Prior.Trait();
 
   @Override
+  public Integrator getTrace() {
+    return node.getTrace();
+  }
+
+  @Override
   public Optional<Long> getLastActivation() {
     return node.getLastActivation();
   }

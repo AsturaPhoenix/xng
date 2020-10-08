@@ -1,8 +1,6 @@
 package ai.xng;
 
 import java.io.Serializable;
-import java.util.HashMap;
-import java.util.Map;
 
 import lombok.Getter;
 import lombok.val;
@@ -13,13 +11,17 @@ public interface Prior extends Node {
 
   final long RAMP_UP = 5, RAMP_DOWN = 45;
 
-  Map<Posterior, Distribution> getPosteriors();
+  ConnectionMap.PosteriorMap getPosteriors();
 
   class Trait implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Getter
-    private final Map<Posterior, Distribution> posteriors = new HashMap<>();
+    private final ConnectionMap.PosteriorMap posteriors;
+
+    public Trait(final Prior owner) {
+      posteriors = new ConnectionMap.PosteriorMap(owner);
+    }
 
     public void activate() {
       for (val entry : getPosteriors().entrySet()) {

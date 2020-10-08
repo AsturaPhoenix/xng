@@ -13,6 +13,11 @@ public abstract class ActionNode implements Posterior {
   private final Posterior.Trait input = new Posterior.Trait(this);
 
   @Override
+  public Integrator getTrace() {
+    return node.getTrace();
+  }
+
+  @Override
   public Optional<Long> getLastActivation() {
     return node.getLastActivation();
   }

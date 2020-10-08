@@ -3,9 +3,6 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
-import java.util.Map;
-
-import com.google.common.collect.MapMaker;
 
 import lombok.Getter;
 import lombok.val;
@@ -16,7 +13,7 @@ public interface Posterior extends Node {
   @Override
   PosteriorCluster<?> getCluster();
 
-  Map<Prior, Distribution> getPriors();
+  ConnectionMap.PriorMap getPriors();
 
   class Trait implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -25,8 +22,7 @@ public interface Posterior extends Node {
     @Getter
     private transient ThresholdIntegrator integrator;
     @Getter
-    private final Map<Prior, Distribution> priors = new MapMaker().weakKeys()
-        .makeMap();
+    private final ConnectionMap.PriorMap priors = new ConnectionMap.PriorMap();
 
     public Trait(final Node owner) {
       this.owner = owner;

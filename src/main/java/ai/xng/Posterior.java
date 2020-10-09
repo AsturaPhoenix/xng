@@ -45,7 +45,21 @@ public interface Posterior extends Node {
     }
 
     public void activate() {
-      // TODO: LTP
+      final long now = Scheduler.global.now();
+      final float plasticity = owner.getCluster()
+          .getPlasticity();
+
+      for (val prior : priors) {
+        // LTP due to STDP
+        prior.distribution()
+            .add(
+                prior.distribution()
+                    .getMode(),
+                prior.node()
+                    .getTrace()
+                    .evaluate(now)
+                    .value() * plasticity);
+      }
     }
   }
 

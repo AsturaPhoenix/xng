@@ -6,10 +6,11 @@ import lombok.Getter;
 import lombok.val;
 
 public interface Prior extends Node {
-  final float THRESHOLD_MARGIN = .2f;
-  final float DEFAULT_COEFFICIENT = ThresholdIntegrator.THRESHOLD + THRESHOLD_MARGIN;
+  float THRESHOLD_MARGIN = .2f;
+  float DEFAULT_COEFFICIENT = ThresholdIntegrator.THRESHOLD + THRESHOLD_MARGIN;
 
-  final long RAMP_UP = 5, RAMP_DOWN = 45;
+  long RAMP_UP = 5, RAMP_DOWN = 45;
+  float LTD_STRENGTH = .1f;
 
   Connections.Posteriors getPosteriors();
 
@@ -24,11 +25,24 @@ public interface Prior extends Node {
     }
 
     public void activate() {
-      for (val entry : posteriors) {
-        final float sample = entry.distribution()
+      final long now = Scheduler.global.now();
+
+      for (val posterior : posteriors) {
+        // LTD due to reverse STDP
+        posterior.distribution()
+            .add(
+                posterior.distribution()
+                    .getMode(),
+                -posterior.node()
+                    .getTrace()
+                    .evaluate(now)
+                    .value() * posterior.node()
+                        .getCluster()
+                        .getPlasticity());
+
+        final float sample = posterior.distribution()
             .generate();
-        // TODO: adaptation/depletion
-        entry.node()
+        posterior.node()
             .getIntegrator()
             .add(RAMP_UP, RAMP_DOWN, sample);
       }

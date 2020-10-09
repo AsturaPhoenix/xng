@@ -35,8 +35,9 @@ public interface Prior extends Node {
     }
   }
 
-  default void then(final Posterior posterior) {
+  default <T extends Posterior> T then(final T posterior) {
     getPosteriors().setCoefficient(posterior, DEFAULT_COEFFICIENT);
+    return posterior;
   }
 
   default void inhibit(final Posterior posterior) {

@@ -68,6 +68,11 @@ public class Connections {
         }
       });
     }
+
+    @Override
+    public String toString() {
+      return backing.toString();
+    }
   }
 
   @RequiredArgsConstructor
@@ -103,6 +108,11 @@ public class Connections {
           backing.remove();
         }
       };
+    }
+
+    @Override
+    public String toString() {
+      return backing.toString();
     }
   }
 }

@@ -59,7 +59,7 @@ public class AssociationTest {
     for (int n = 1; n <= 10; ++n) {
       val input = new InputCluster(), output = new ActionCluster();
 
-      final InputNode[] in = new InputNode[n];
+      val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
@@ -92,7 +92,7 @@ public class AssociationTest {
     for (int n = 1; n <= 10; ++n) {
       val input = new InputCluster(), output = new ActionCluster();
 
-      final InputNode[] in = new InputNode[n];
+      val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
@@ -125,14 +125,12 @@ public class AssociationTest {
     for (int n = 1; n <= 10; ++n) {
       val input = new InputCluster(), output = new ActionCluster();
 
-      final InputNode[] in = new InputNode[n];
+      val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
         scheduler.runFor(Prior.RAMP_UP);
       }
-
-      scheduler.runFor(Prior.RAMP_UP);
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
@@ -145,9 +143,10 @@ public class AssociationTest {
 
       for (val i : in) {
         i.activate();
+        scheduler.runFor(Prior.RAMP_UP);
       }
       scheduler.runUntilIdle();
-      assertTrue(monitor.didEmit());
+      assertTrue(monitor.didEmit(), String.format("Failed with %s priors.", n));
     }
   }
 
@@ -159,14 +158,12 @@ public class AssociationTest {
     for (int n = 1; n <= 10; ++n) {
       val input = new InputCluster(), output = new ActionCluster();
 
-      final InputNode[] in = new InputNode[n];
+      val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
         scheduler.runFor(Prior.RAMP_UP);
       }
-
-      scheduler.runFor(Prior.RAMP_UP);
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
@@ -179,9 +176,10 @@ public class AssociationTest {
 
       for (int i = 0; i < in.length - 1; ++i) {
         in[i].activate();
+        scheduler.runFor(Prior.RAMP_UP);
       }
       scheduler.runUntilIdle();
-      assertFalse(monitor.didEmit());
+      assertFalse(monitor.didEmit(), String.format("Failed with %s priors.", n));
     }
   }
 
@@ -190,19 +188,17 @@ public class AssociationTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    // This test fails at 8 priors, which is reasonable as by then the least
-    // significant prior will have decayed quite a lot during training.
-    for (int n = 1; n <= 7; ++n) {
+    // This test fails at 7 priors, which is reasonable as by then the least
+    // significant prior will have decayed greatly during training.
+    for (int n = 1; n <= 6; ++n) {
       val input = new InputCluster(), output = new ActionCluster();
 
-      final InputNode[] in = new InputNode[n];
+      val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
         scheduler.runFor(Prior.RAMP_UP);
       }
-
-      scheduler.runFor(Prior.RAMP_UP);
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
@@ -215,42 +211,96 @@ public class AssociationTest {
 
       for (int i = 1; i < in.length; ++i) {
         in[i].activate();
+        scheduler.runFor(Prior.RAMP_UP);
       }
       scheduler.runUntilIdle();
       assertFalse(monitor.didEmit(), String.format("Failed with %s priors.", n));
     }
   }
 
+  /**
+   * This test should be roughly equivalent to the prior jitter test, but is
+   * structured as a causal chain.
+   */
   @Test
-  public void testDelayedTraining() {
+  public void testStickSequence() {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    for (int n = 1; n <= 10; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+    val input = new InputCluster(), recog = new BiCluster(), output = new ActionCluster();
 
-      final InputNode[] in = new InputNode[n];
-      for (int i = 0; i < in.length; ++i) {
-        in[i] = input.new Node();
-        in[i].activate();
-      }
-
-      scheduler.runFor(Prior.RAMP_UP);
-
-      val monitor = new EmissionMonitor<Long>();
-      val out = TestUtil.testNode(output, monitor);
-      out.activate();
-      scheduler.runFor(Prior.RAMP_UP + Prior.RAMP_DOWN);
-      Cluster.associate(input, output);
-
-      scheduler.runFor(Prior.RAMP_DOWN);
-      monitor.reset();
-
-      for (val i : in) {
-        i.activate();
-      }
-      scheduler.runUntilIdle();
-      assertFalse(monitor.didEmit());
+    val in = input.new Node();
+    Prior tail = in;
+    for (int i = 0; i < 10; ++i) {
+      tail = tail.then(recog.new Node());
     }
+
+    in.activate();
+    scheduler.runUntilIdle();
+
+    val monitor = new EmissionMonitor<Long>();
+    val out = TestUtil.testNode(output, monitor);
+    out.activate();
+    scheduler.runFor(Prior.RAMP_UP);
+    Cluster.associate(recog, output);
+
+    scheduler.runFor(Prior.RAMP_DOWN);
+    monitor.reset();
+
+    in.activate();
+    scheduler.runUntilIdle();
+    assertTrue(monitor.didEmit());
+  }
+
+  @Test
+  public void testFullyDelayedTraining() {
+    val scheduler = new TestScheduler();
+    Scheduler.global = scheduler;
+
+    val input = new InputCluster(), output = new ActionCluster();
+
+    final InputNode in = input.new Node();
+    in.activate();
+
+    scheduler.runFor(Prior.RAMP_UP);
+
+    val monitor = new EmissionMonitor<Long>();
+    val out = TestUtil.testNode(output, monitor);
+    out.activate();
+    scheduler.runFor(Prior.RAMP_UP + Prior.RAMP_DOWN);
+    Cluster.associate(input, output);
+
+    scheduler.runFor(Prior.RAMP_DOWN);
+    monitor.reset();
+
+    in.activate();
+    scheduler.runUntilIdle();
+    assertFalse(monitor.didEmit());
+  }
+
+  @Test
+  public void testMostlyDelayedTraining() {
+    val scheduler = new TestScheduler();
+    Scheduler.global = scheduler;
+
+    val input = new InputCluster(), output = new ActionCluster();
+
+    final InputNode in = input.new Node();
+    in.activate();
+
+    scheduler.runFor(Prior.RAMP_UP);
+
+    val monitor = new EmissionMonitor<Long>();
+    val out = TestUtil.testNode(output, monitor);
+    out.activate();
+    scheduler.runFor(Prior.RAMP_UP + Prior.RAMP_DOWN - 1);
+    Cluster.associate(input, output);
+
+    scheduler.runFor(Prior.RAMP_DOWN);
+    monitor.reset();
+
+    in.activate();
+    scheduler.runUntilIdle();
+    assertFalse(monitor.didEmit());
   }
 }

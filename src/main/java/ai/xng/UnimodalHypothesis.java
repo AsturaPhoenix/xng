@@ -7,6 +7,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /**
  * A hypothetical unimodal distribution. This distribution keeps track of
  * outliers that contradict the distribution.
+ * <p>
+ * Additionally, below a critical support level, the peak of the distribution
+ * will degrade towards zero.
  */
 public class UnimodalHypothesis implements Distribution, Serializable {
   private static final long serialVersionUID = -4582334729234682748L;
@@ -14,6 +17,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
    * Spread basis with no evidence.
    */
   private static final float DEFAULT_SPREAD_BASIS = .2f;
+  private static final float CRITICAL_SUPPORT = Distribution.DEFAULT_WEIGHT / 2;
 
   private static class Bucket implements Serializable {
     static final long serialVersionUID = 7305465527837682602L;
@@ -51,8 +55,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
   @Override
   public float getMode() {
     final float weight = getWeight();
-    return weight == 0 ? core.mean
-        : (lower.mean * lower.weight + core.mean * core.weight + upper.mean * upper.weight) / weight;
+    return weight == 0 ? 0 : (lower.mean * lower.weight + core.mean * core.weight + upper.mean * upper.weight) / weight;
   }
 
   public float getWeight() {
@@ -73,9 +76,13 @@ public class UnimodalHypothesis implements Distribution, Serializable {
 
   @Override
   public void set(final float value, final float weight) {
-    core.mean = value;
-    lower.mean = value - DEFAULT_SPREAD_BASIS;
-    upper.mean = value + DEFAULT_SPREAD_BASIS;
+    if (weight < 0) {
+      throw new IllegalArgumentException("weight must be non-negative");
+    }
+
+    core.mean = weight >= CRITICAL_SUPPORT ? value : value * weight / CRITICAL_SUPPORT;
+    lower.mean = core.mean - DEFAULT_SPREAD_BASIS;
+    upper.mean = core.mean + DEFAULT_SPREAD_BASIS;
     core.weight = weight;
     lower.weight = upper.weight = 0;
   }
@@ -93,6 +100,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
     lock.writeLock()
         .lock();
     try {
+      final float oldWeight = getWeight();
       final Bucket tail, counterTail;
       if (value < core.mean) {
         tail = lower;
@@ -135,6 +143,14 @@ public class UnimodalHypothesis implements Distribution, Serializable {
       if (core.mean >= upper.mean) {
         core.weight += upper.weight;
         upper.weight = 0;
+      }
+
+      final float newWeight = getWeight();
+      if (newWeight < CRITICAL_SUPPORT && newWeight < oldWeight) {
+        final float adjustment = newWeight / oldWeight;
+        core.mean *= adjustment;
+        lower.mean *= adjustment;
+        upper.mean *= adjustment;
       }
 
       if (lower.weight == 0) {

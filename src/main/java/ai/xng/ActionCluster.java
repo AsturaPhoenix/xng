@@ -1,9 +1,9 @@
 package ai.xng;
 
-public class ActionCluster extends PosteriorCluster<ActionNode> {
+public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
   private static final long serialVersionUID = 1L;
 
-  public class Node extends ActionNode.Lambda {
+  public class Node extends ActionNode {
     private static final long serialVersionUID = 1L;
 
     private final Link link;

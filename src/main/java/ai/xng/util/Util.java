@@ -1,4 +1,4 @@
-package ai.xng;
+package ai.xng.util;
 
 import lombok.experimental.UtilityClass;
 

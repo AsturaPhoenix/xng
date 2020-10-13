@@ -20,8 +20,8 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
 
     @Override
     public final void activate() {
-      super.activate();
       link.promote();
+      super.activate();
     }
   }
 }

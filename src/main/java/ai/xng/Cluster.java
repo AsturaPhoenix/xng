@@ -123,6 +123,7 @@ public class Cluster<T extends Node> implements Serializable {
           .get();
 
       if (t1 <= now - (Prior.RAMP_UP + Prior.RAMP_DOWN)) {
+        // This assumes that all traces have the default curves.
         break;
       }
 
@@ -134,6 +135,7 @@ public class Cluster<T extends Node> implements Serializable {
       for (final Prior prior : priorCluster.activations()) {
         if (prior.getLastActivation()
             .get() <= t1 - (Prior.RAMP_UP + Prior.RAMP_DOWN)) {
+          // This assumes that all traces have the default curves.
           break;
         }
 

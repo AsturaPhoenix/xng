@@ -55,6 +55,11 @@ public abstract class ThresholdIntegrator {
     return Optional.empty();
   }
 
+  public boolean isActive() {
+    return integrator.evaluate(Scheduler.global.now())
+        .value() >= THRESHOLD;
+  }
+
   private void evict() {
     integrator.evict(Scheduler.global.now());
   }

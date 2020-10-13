@@ -63,12 +63,23 @@ public class TestScheduler extends Scheduler {
         .map(t -> t.deadline);
   }
 
+  /**
+   * Runs up to and including the given time.
+   */
   public void runUntil(final long time) {
-    while (now < time) {
-      now = Math.max(now,
-          step().map(t -> Math.min(t, time))
-              .orElse(time));
+    if (time < now) {
+      return;
     }
+
+    long next;
+    while (!tasks.isEmpty() && (next = tasks.peek().deadline) <= time) {
+      if (next > now) {
+        now = next;
+      }
+      tasks.poll().run.run();
+    }
+
+    now = time;
   }
 
   public void runFor(final long dt) {

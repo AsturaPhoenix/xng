@@ -1,10 +1,10 @@
 package ai.xng;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.Test;
 
 import lombok.val;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class ClusterTest {
   @Test

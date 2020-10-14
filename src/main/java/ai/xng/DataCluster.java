@@ -2,13 +2,10 @@ package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.Serializable;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
 public class DataCluster extends PosteriorCluster<DataCluster.Node> {
   private static final long serialVersionUID = 1L;
@@ -34,31 +31,38 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
 
     @Override
     public final void activate() {
-      rxActivations.onNext(this);
       link.promote();
       super.activate();
+      rxActivations.onNext(this);
     }
   }
 
-  @RequiredArgsConstructor
-  public class FinalNode extends Node {
+  public class FinalNode<T> extends Node {
     private static final long serialVersionUID = 1L;
 
-    @Getter
-    private final Serializable data;
-  }
-
-  public class MutableNode extends Node {
-    private static final long serialVersionUID = 1L;
-
-    private final DataNode.MaybeTransient container = new DataNode.MaybeTransient();
+    private final SerializableOrProxy<T> container;
 
     @Override
     public Object getData() {
+      return container.getData();
+    }
+
+    public FinalNode(final T value) {
+      container = new SerializableOrProxy<>(value);
+    }
+  }
+
+  public class MutableNode<T> extends Node {
+    private static final long serialVersionUID = 1L;
+
+    private final DataNode.MaybeTransient<T> container = new DataNode.MaybeTransient<>();
+
+    @Override
+    public T getData() {
       return container.data;
     }
 
-    public void setData(final Object value) {
+    public void setData(final T value) {
       container.data = value;
     }
   }

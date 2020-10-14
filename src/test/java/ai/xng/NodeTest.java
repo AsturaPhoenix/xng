@@ -136,10 +136,10 @@ public class NodeTest {
   /**
    * The refractory period of a neuron is the period after an activation where it
    * will not respond to another incoming pulse. This is implemented in the
-   * synapse, which only triggers on edges.
+   * threshold integrator, which only triggers on edges.
    *
-   * Note that refractory periods do not apply to explicit
-   * {@link Node#activate(Context)} calls.
+   * Note that refractory periods do not apply to explicit {@link Node#activate()}
+   * calls.
    */
   @Test
   public void testAndRefractory() throws InterruptedException {

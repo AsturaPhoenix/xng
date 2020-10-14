@@ -1,20 +1,59 @@
 package ai.xng;
 
 import java.io.IOException;
+import java.io.NotSerializableException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Method;
 
 import ai.xng.util.SerializedMethod;
+import lombok.Getter;
 
 public interface DataNode extends Posterior {
   Object getData();
 
-  class MaybeTransient implements Serializable {
+  class SerializableOrProxy<T> implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    public Object data;
+    @Getter
+    private T data;
+
+    public SerializableOrProxy(final T data) {
+      if (data instanceof Serializable || data instanceof Method) {
+        this.data = data;
+      } else {
+        throw new IllegalArgumentException("Data must have a serialized form.");
+      }
+    }
+
+    private void writeObject(final ObjectOutputStream o) throws IOException {
+      if (data instanceof Serializable) {
+        o.writeObject(data);
+      } else if (data instanceof Method method) {
+        o.writeObject(new SerializedMethod(method));
+      } else {
+        throw new NotSerializableException();
+      }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
+      data = (T) o.readObject();
+      if (data instanceof SerializedMethod proxy) {
+        try {
+          data = (T) proxy.deserialize();
+        } catch (final NoSuchMethodException e) {
+          throw new IOException(e);
+        }
+      }
+    }
+  }
+
+  class MaybeTransient<T> implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    public T data;
 
     private void writeObject(final ObjectOutputStream o) throws IOException {
       if (data instanceof Serializable) {
@@ -26,11 +65,12 @@ public interface DataNode extends Posterior {
       }
     }
 
+    @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
-      data = o.readObject();
+      data = (T) o.readObject();
       if (data instanceof SerializedMethod proxy) {
         try {
-          data = proxy.deserialize();
+          data = (T) proxy.deserialize();
         } catch (final NoSuchMethodException e) {
           throw new IOException(e);
         }

@@ -72,42 +72,38 @@ public class Cluster<T extends Node> implements Serializable {
   }
 
   public Iterable<T> activations() {
-    return new Iterable<T>() {
-      public Iterator<T> iterator() {
-        val it = activations.iterator();
-        return new Iterator<T>() {
-          T next;
+    return () -> new Iterator<T>() {
+      final Iterator<WeakReference<T>> it = activations.iterator();
+      T next;
 
-          {
-            advance();
+      {
+        advance();
+      }
+
+      private void advance() {
+        while (it.hasNext()) {
+          next = it.next()
+              .get();
+          if (next == null) {
+            it.remove();
+          } else {
+            return;
           }
+        }
 
-          private void advance() {
-            while (it.hasNext()) {
-              next = it.next()
-                  .get();
-              if (next == null) {
-                it.remove();
-              } else {
-                return;
-              }
-            }
+        next = null;
+      }
 
-            next = null;
-          }
+      @Override
+      public boolean hasNext() {
+        return next != null;
+      }
 
-          @Override
-          public boolean hasNext() {
-            return next != null;
-          }
-
-          @Override
-          public T next() {
-            val next = this.next;
-            advance();
-            return next;
-          }
-        };
+      @Override
+      public T next() {
+        val next = this.next;
+        advance();
+        return next;
       }
     };
   }

@@ -22,7 +22,7 @@ public abstract class ActionNode extends OutputNode {
 
   @Override
   public void activate() {
-    onActivate.run();
     super.activate();
+    onActivate.run();
   }
 }

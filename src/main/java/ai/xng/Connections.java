@@ -80,6 +80,7 @@ public class Connections {
     private static final long serialVersionUID = 1L;
 
     private final Posterior owner;
+    // Use MapMaker... rather than WeakHashMap for serializability.
     private final Map<Prior, Distribution> backing = new MapMaker().weakKeys()
         .makeMap();
 

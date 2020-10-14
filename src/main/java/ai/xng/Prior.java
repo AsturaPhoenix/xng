@@ -10,7 +10,6 @@ public interface Prior extends Node {
   float DEFAULT_COEFFICIENT = ThresholdIntegrator.THRESHOLD + THRESHOLD_MARGIN;
 
   long RAMP_UP = 5, RAMP_DOWN = 45;
-  float LTD_STRENGTH = .1f;
 
   Connections.Posteriors getPosteriors();
 

@@ -22,6 +22,9 @@ public interface Node extends Serializable {
   class Trait implements Serializable {
     private static final long serialVersionUID = 1L;
 
+    // Something to keep in mind that we might need:
+    // http://www.scholarpedia.org/article/Spike-timing_dependent_plasticity#Triplet_rule_of_STDP
+    // http://www.scholarpedia.org/article/Spike-timing_dependent_plasticity#Diversity_of_STDP
     @Getter
     private transient Integrator trace;
 

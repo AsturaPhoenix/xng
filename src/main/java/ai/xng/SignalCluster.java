@@ -28,9 +28,9 @@ public class SignalCluster extends PosteriorCluster<SignalCluster.Node> {
 
     @Override
     public final void activate() {
-      rxActivations.onNext(this);
       link.promote();
       super.activate();
+      rxActivations.onNext(this);
     }
   }
 }

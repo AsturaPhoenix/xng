@@ -75,14 +75,14 @@ public class LanguageBootstrap {
       val transitionToIsParsing = kb.recognition.new Node();
       new ConjunctionJunction.Pure()
           .addAll(inputIterator.rawDecoder.outputFor('"'))
-          .build(transitionToIsParsing);
+          .build(transitionToIsParsing, IntegrationProfile.TRANSIENT);
       isParsing.inhibit(transitionToIsParsing);
 
       // need to clear frame capture register
       val captureFrame = program(kb,
           frameCapture.address,
           setIsParsing,
-          kb.associate,
+          kb.associateTransient,
           frameCaptureCluster,
           kb.contextInput);
       transitionToIsParsing.then(captureFrame.head());

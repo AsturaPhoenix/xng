@@ -10,7 +10,7 @@ public abstract class BiNode implements Prior, Posterior {
   private final Prior.Trait output = new Prior.Trait(this);
 
   @Override
-  public Integrator getTrace() {
+  public LazyIntegrator getTrace() {
     return node.getTrace();
   }
 

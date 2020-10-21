@@ -13,7 +13,10 @@ import lombok.experimental.UtilityClass;
 
 @UtilityClass
 public class Connections {
-  public static record Entry<T extends Serializable> (T node, Distribution distribution) implements Serializable {
+  public static record Entry<T> (T node, IntegrationProfile profile, Distribution distribution) {
+  }
+
+  private static record Key<T extends Serializable> (T node, IntegrationProfile profile) implements Serializable {
     private static final long serialVersionUID = 1L;
   }
 
@@ -22,14 +25,13 @@ public class Connections {
     private static final long serialVersionUID = 1L;
 
     private final Prior owner;
-    private final Map<Posterior, Distribution> backing = new HashMap<>();
+    private final Map<Key<Posterior>, Distribution> backing = new HashMap<>();
 
     @Override
     public Iterator<Entry<Posterior>> iterator() {
-      val backing = this.backing.entrySet()
-          .iterator();
+      val backing = this.backing.entrySet().iterator();
       return new Iterator<Entry<Posterior>>() {
-        Map.Entry<Posterior, Distribution> current;
+        Map.Entry<Key<Posterior>, Distribution> current;
 
         @Override
         public boolean hasNext() {
@@ -39,32 +41,31 @@ public class Connections {
         @Override
         public Entry<Posterior> next() {
           current = backing.next();
-          return new Entry<>(current.getKey(), current.getValue());
+          return new Entry<>(current.getKey().node(), current.getKey().profile(), current.getValue());
         }
 
         @Override
         public void remove() {
-          current.getKey()
-              .getPriors().backing.remove(owner);
+          current.getKey().node().getPriors().backing.remove(new Key<>(owner, current.getKey().profile()));
           backing.remove();
         }
       };
     }
 
-    public void setCoefficient(final Posterior posterior, final float coefficient) {
-      setCoefficient(posterior, coefficient, Distribution.DEFAULT_WEIGHT);
+    public void setCoefficient(final Posterior posterior, final IntegrationProfile profile, final float coefficient) {
+      setCoefficient(posterior, profile, coefficient, Distribution.DEFAULT_WEIGHT);
     }
 
-    public void setCoefficient(final Posterior posterior, final float coefficient, final float weight) {
-      backing.compute(posterior, (__, profile) -> {
-        if (profile == null) {
-          profile = new UnimodalHypothesis(coefficient, weight);
-          posterior.getPriors().backing
-              .put(owner, profile);
-          return profile;
+    public void setCoefficient(final Posterior posterior, final IntegrationProfile profile, final float coefficient,
+        final float weight) {
+      backing.compute(new Key<>(posterior, profile), (__, distribution) -> {
+        if (distribution == null) {
+          distribution = new UnimodalHypothesis(coefficient, weight);
+          posterior.getPriors().backing.put(new Key<>(owner, profile), distribution);
+          return distribution;
         } else {
-          profile.set(coefficient, weight);
-          return profile;
+          distribution.set(coefficient, weight);
+          return distribution;
         }
       });
     }
@@ -81,15 +82,14 @@ public class Connections {
 
     private final Posterior owner;
     // Use MapMaker... rather than WeakHashMap for serializability.
-    private final Map<Prior, Distribution> backing = new MapMaker().weakKeys()
-        .makeMap();
+    private final Map<Key<Prior>, Distribution> backing = new MapMaker().weakKeys().makeMap();
 
     @Override
     public Iterator<Entry<Prior>> iterator() {
       val backing = this.backing.entrySet()
           .iterator();
       return new Iterator<Entry<Prior>>() {
-        Map.Entry<Prior, Distribution> current;
+        Map.Entry<Key<Prior>, Distribution> current;
 
         @Override
         public boolean hasNext() {
@@ -99,13 +99,12 @@ public class Connections {
         @Override
         public Entry<Prior> next() {
           current = backing.next();
-          return new Entry<>(current.getKey(), current.getValue());
+          return new Entry<>(current.getKey().node(), current.getKey().profile(), current.getValue());
         }
 
         @Override
         public void remove() {
-          current.getKey()
-              .getPosteriors().backing.remove(owner);
+          current.getKey().node().getPosteriors().backing.remove(new Key<>(owner, current.getKey().profile()));
           backing.remove();
         }
       };

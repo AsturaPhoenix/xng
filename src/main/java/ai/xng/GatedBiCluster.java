@@ -86,14 +86,12 @@ public class GatedBiCluster {
     final long now = Scheduler.global.now();
 
     for (val recent : input.activations()) {
-      if (recent.getLastActivation()
-          .get() < now - (Prior.RAMP_UP + Prior.RAMP_DOWN)) {
-        // This assumes that all traces have the default curves.
+      if (recent.getLastActivation().get() < now - IntegrationProfile.PERSISTENT.period()) {
+        // This assumes that PERSISTENT is an upper bound on integration curve periods.
         break;
       }
 
-      if (recent.getIntegrator()
-          .isActive()) {
+      if (recent.getIntegrator().isActive()) {
         recent.output.activate();
       }
     }

@@ -22,12 +22,12 @@ public class ConjunctionJunction {
       return this;
     }
 
-    public void build(final Posterior posterior) {
+    public void build(final Posterior posterior, final IntegrationProfile profile) {
       final float coefficient = priors.size() <= 1 ? Prior.DEFAULT_COEFFICIENT
           : 1 / (priors.size() - .5f / priors.size());
 
       for (val prior : priors) {
-        prior.getPosteriors().setCoefficient(posterior, coefficient);
+        prior.getPosteriors().setCoefficient(posterior, profile, coefficient);
       }
     }
   }
@@ -37,13 +37,13 @@ public class ConjunctionJunction {
 
   private final List<WeightedPrior> priors = new ArrayList<>();
   private final long t;
+  private final IntegrationProfile profile;
 
   private float norm;
 
   public void add(final Prior prior) {
-    final float w = prior.getTrace()
-        .evaluate(t)
-        .value();
+    final float w = prior.getTrace().evaluate(t, profile);
+
     if (w > 0) {
       priors.add(new WeightedPrior(prior, w));
       norm += w * w;
@@ -65,9 +65,7 @@ public class ConjunctionJunction {
     for (val weightedPrior : priors) {
       final float coefficient = weightedPrior.weight() / normAdj;
       assert coefficient <= Prior.DEFAULT_COEFFICIENT;
-      weightedPrior.prior()
-          .getPosteriors()
-          .setCoefficient(posterior, coefficient, weight);
+      weightedPrior.prior().getPosteriors().setCoefficient(posterior, profile, coefficient, weight);
     }
   }
 }

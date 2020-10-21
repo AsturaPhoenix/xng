@@ -9,7 +9,7 @@ public abstract class OutputNode implements Posterior {
   private final Posterior.Trait input = new Posterior.Trait(this);
 
   @Override
-  public Integrator getTrace() {
+  public LazyIntegrator getTrace() {
     return node.getTrace();
   }
 

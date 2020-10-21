@@ -7,6 +7,8 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import lombok.val;
+
 public class ThresholdIntegratorTest {
   private static final long INTERVAL = 100;
 
@@ -25,42 +27,45 @@ public class ThresholdIntegratorTest {
 
   @Test
   public void testShortPulse() {
-    integrator.add(1, 1, 1);
+    integrator.add(IntegrationProfile.fromEdges(1, 1), 1);
     scheduler.runUntilIdle();
     assertThat(output).containsExactly(1L);
   }
 
   @Test
   public void testTwoSimultaneous() {
-    integrator.add(INTERVAL, INTERVAL, 1);
-    integrator.add(INTERVAL, INTERVAL, 1);
+    val profile = IntegrationProfile.fromEdges(INTERVAL, INTERVAL);
+    integrator.add(profile, 1);
+    integrator.add(profile, 1);
     scheduler.runUntilIdle();
     assertThat(output).containsExactly(INTERVAL / 2);
   }
 
   @Test
   public void testConjunction() {
-    integrator.add(INTERVAL, 2 * INTERVAL, .5f);
+    val profile = IntegrationProfile.fromEdges(INTERVAL, 2 * INTERVAL);
+    integrator.add(profile, .5f);
     scheduler.runUntil(INTERVAL);
-    integrator.add(INTERVAL, 2 * INTERVAL, .75f);
+    integrator.add(profile, .75f);
     scheduler.runUntilIdle();
     assertThat(output).containsExactly(2 * INTERVAL);
   }
 
   @Test
   public void testInhibition() {
-    integrator.add(INTERVAL, INTERVAL, 1);
+    val profile = IntegrationProfile.fromEdges(INTERVAL, INTERVAL);
+    integrator.add(profile, 1);
     scheduler.runUntil(INTERVAL / 2);
-    integrator.add(INTERVAL, INTERVAL, -1);
+    integrator.add(profile, -1);
     scheduler.runUntilIdle();
     assertThat(output).isEmpty();
   }
 
   @Test
   public void testPullDown() {
-    integrator.add(INTERVAL, INTERVAL, 2);
+    integrator.add(IntegrationProfile.fromEdges(INTERVAL, INTERVAL), 2);
     scheduler.runUntil(INTERVAL);
-    integrator.add(INTERVAL / 4, INTERVAL / 4, -1);
+    integrator.add(IntegrationProfile.fromEdges(INTERVAL / 4, INTERVAL / 4), -1);
     scheduler.runUntilIdle();
     assertThat(output).containsExactly(INTERVAL / 2, 3 * INTERVAL / 2);
   }

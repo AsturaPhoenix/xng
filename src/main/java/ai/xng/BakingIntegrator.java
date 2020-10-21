@@ -6,7 +6,7 @@ import java.util.Optional;
 
 import lombok.val;
 
-public class Integrator {
+public class BakingIntegrator {
   private static record Segment(long t0, long t1, float v0, float rate) {
   }
 
@@ -15,14 +15,14 @@ public class Integrator {
 
   private final List<Segment> segments = new ArrayList<>();
 
-  public void add(final long start, final long rampUp, final long rampDown, final float magnitude) {
-    final long peak = start + rampUp;
-    segments.add(new Segment(start, peak, 0, magnitude / rampUp));
-    segments.add(new Segment(peak, peak + rampDown, magnitude, -magnitude / rampDown));
+  public void add(final long start, final IntegrationProfile profile, final float magnitude) {
+    final long peak = start + profile.rampUp();
+    segments.add(new Segment(start, peak, 0, magnitude / profile.rampUp()));
+    segments.add(new Segment(peak, peak + profile.rampDown(), magnitude, -magnitude / profile.rampDown()));
   }
 
   public void evict(final long t) {
-    segments.removeIf(s -> s.t1 <= t);
+    segments.removeIf(s -> s.t1() <= t);
   }
 
   public Ray evaluate(final long t) {

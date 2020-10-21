@@ -108,39 +108,47 @@ public class Cluster<T extends Node> implements Serializable {
     };
   }
 
+  /**
+   * Forms explicit conjunctive associations between the given prior cluster and
+   * posterior cluster, using the given integration profile for the new edges. The
+   * active posteriors considered at the time this function executes are always
+   * based on a {@link IntegrationProfile#TRANSIENT} window.
+   */
   public static void associate(final Cluster<? extends Prior> priorCluster,
-      final Cluster<? extends Posterior> posteriorCluster) {
+      final Cluster<? extends Posterior> posteriorCluster, final IntegrationProfile profile) {
     final long now = Scheduler.global.now();
 
     for (final Posterior posterior : posteriorCluster.activations()) {
       // The recency queue will only iterate over nodes that have been activated at
       // some point.
-      final long t1 = posterior.getLastActivation()
-          .get();
+      final long t1 = posterior.getLastActivation().get();
 
-      if (t1 <= now - (Prior.RAMP_UP + Prior.RAMP_DOWN)) {
-        // This assumes that all traces have the default curves.
+      // Use the transient profile to drive association strength.
+      if (t1 <= now - IntegrationProfile.TRANSIENT.period()) {
         break;
       }
+
+      final float posteriorTrace = posterior.getTrace().evaluate(now, IntegrationProfile.TRANSIENT);
+
+      if (posteriorTrace == 0) {
+        continue;
+      }
+      assert posteriorTrace > 0;
 
       // For each posterior, connect all priors with timings that could have
       // contributed to the firing in a conjunctive way.
 
-      val conjunction = new ConjunctionJunction(t1);
+      val conjunction = new ConjunctionJunction(t1, profile);
 
       for (final Prior prior : priorCluster.activations()) {
-        if (prior.getLastActivation()
-            .get() <= t1 - (Prior.RAMP_UP + Prior.RAMP_DOWN)) {
-          // This assumes that all traces have the default curves.
+        if (prior.getLastActivation().get() <= t1 - profile.period()) {
           break;
         }
 
         conjunction.add(prior);
       }
 
-      conjunction.build(posterior, posterior.getTrace()
-          .evaluate(now)
-          .value() * Distribution.DEFAULT_WEIGHT);
+      conjunction.build(posterior, posteriorTrace * Distribution.DEFAULT_WEIGHT);
     }
   }
 }

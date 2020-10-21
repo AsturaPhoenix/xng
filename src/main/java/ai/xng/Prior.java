@@ -9,8 +9,6 @@ public interface Prior extends Node {
   float THRESHOLD_MARGIN = .2f;
   float DEFAULT_COEFFICIENT = ThresholdIntegrator.THRESHOLD + THRESHOLD_MARGIN;
 
-  long RAMP_UP = 5, RAMP_DOWN = 45;
-
   Connections.Posteriors getPosteriors();
 
   class Trait implements Serializable {
@@ -29,31 +27,22 @@ public interface Prior extends Node {
       for (val posterior : posteriors) {
         // LTD due to reverse STDP
         posterior.distribution()
-            .add(
-                posterior.distribution()
-                    .getMode(),
-                -posterior.node()
-                    .getTrace()
-                    .evaluate(now)
-                    .value() * posterior.node()
-                        .getCluster()
-                        .getPlasticity());
+            .add(posterior.distribution().getMode(),
+                -posterior.node().getTrace().evaluate(now, posterior.profile())
+                    * posterior.node().getCluster().getPlasticity());
 
-        final float sample = posterior.distribution()
-            .generate();
-        posterior.node()
-            .getIntegrator()
-            .add(RAMP_UP, RAMP_DOWN, sample);
+        final float sample = posterior.distribution().generate();
+        posterior.node().getIntegrator().add(posterior.profile(), sample);
       }
     }
   }
 
   default <T extends Posterior> T then(final T posterior) {
-    getPosteriors().setCoefficient(posterior, DEFAULT_COEFFICIENT);
+    getPosteriors().setCoefficient(posterior, IntegrationProfile.TRANSIENT, DEFAULT_COEFFICIENT);
     return posterior;
   }
 
   default void inhibit(final Posterior posterior) {
-    getPosteriors().setCoefficient(posterior, -1);
+    getPosteriors().setCoefficient(posterior, IntegrationProfile.TRANSIENT, -1);
   }
 }

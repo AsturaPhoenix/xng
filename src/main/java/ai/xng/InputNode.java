@@ -9,7 +9,7 @@ public abstract class InputNode implements Prior {
   private final Prior.Trait output = new Prior.Trait(this);
 
   @Override
-  public Integrator getTrace() {
+  public LazyIntegrator getTrace() {
     return node.getTrace();
   }
 

@@ -2,31 +2,29 @@ package ai.xng;
 
 import java.util.Optional;
 
+import ai.xng.util.TimeSeries;
 import io.reactivex.disposables.Disposable;
 import lombok.val;
 
 public abstract class ThresholdIntegrator {
   public static final float THRESHOLD = 1;
 
-  private static record TimeSeries<T> (T item, long time) {
-  }
-
-  private final Integrator integrator = new Integrator();
+  private final BakingIntegrator integrator = new BakingIntegrator();
 
   private TimeSeries<Disposable> nextThreshold;
 
   protected abstract void onThreshold();
 
-  public void add(final long rampUp, final long rampDown, final float magnitude) {
+  public void add(final IntegrationProfile profile, final float magnitude) {
     evict();
-    integrator.add(Scheduler.global.now(), rampUp, rampDown, magnitude);
+    integrator.add(Scheduler.global.now(), profile, magnitude);
 
     final Optional<Long> updatedNextThreshold = nextThreshold(Scheduler.global.now());
 
     if (nextThreshold == null || updatedNextThreshold.map(t -> t != nextThreshold.time())
         .orElse(true)) {
       if (nextThreshold != null) {
-        nextThreshold.item.dispose();
+        nextThreshold.value().dispose();
       }
       schedule(updatedNextThreshold);
     }

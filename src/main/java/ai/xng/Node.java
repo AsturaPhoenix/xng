@@ -8,12 +8,11 @@ import java.util.Optional;
 import lombok.Getter;
 
 public interface Node extends Serializable {
-  long TRACE_RAMP_UP = Prior.RAMP_UP, TRACE_RAMP_DOWN = Prior.RAMP_DOWN,
-      TRACE_TTL = 2 * TRACE_RAMP_UP + TRACE_RAMP_DOWN;
+  long TRACE_SAMPLE_TTL = IntegrationProfile.PERSISTENT.period() * 3;
 
   Cluster<?> getCluster();
 
-  Integrator getTrace();
+  LazyIntegrator getTrace();
 
   Optional<Long> getLastActivation();
 
@@ -26,7 +25,7 @@ public interface Node extends Serializable {
     // http://www.scholarpedia.org/article/Spike-timing_dependent_plasticity#Triplet_rule_of_STDP
     // http://www.scholarpedia.org/article/Spike-timing_dependent_plasticity#Diversity_of_STDP
     @Getter
-    private transient Integrator trace;
+    private transient LazyIntegrator trace;
 
     @Getter
     private transient Optional<Long> lastActivation;
@@ -36,14 +35,14 @@ public interface Node extends Serializable {
     }
 
     private void init() {
-      trace = new Integrator();
+      trace = new LazyIntegrator();
       lastActivation = Optional.empty();
     }
 
     public void activate() {
       final long now = Scheduler.global.now();
-      trace.evict(now - TRACE_TTL);
-      trace.add(now, TRACE_RAMP_UP, TRACE_RAMP_DOWN, 1);
+      trace.evict(now - TRACE_SAMPLE_TTL);
+      trace.add(now, 1);
       lastActivation = Optional.of(now);
     }
 

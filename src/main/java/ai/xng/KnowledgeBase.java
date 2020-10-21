@@ -46,7 +46,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
   @SuppressWarnings("unchecked")
-  public final ActionCluster.Node associate = actions.new Node(
+  public final ActionCluster.Node associateTransient = actions.new Node(
       () -> data.rxActivations()
           .map(DataNode::getData)
           .buffer(2)
@@ -54,18 +54,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           .subscribe(
               args -> Cluster.associate(
                   (Cluster<? extends Prior>) args.get(0),
-                  (Cluster<? extends Posterior>) args.get(1)),
+                  (Cluster<? extends Posterior>) args.get(1),
+                  IntegrationProfile.TRANSIENT),
               this::exceptionHandler)),
-      disassociate = actions.new Node(
-          () -> data.rxActivations()
-              .map(DataNode::getData)
-              .buffer(2)
-              .firstElement()
-              .subscribe(
-                  args -> Cluster.associate(
-                      (Cluster<? extends Prior>) args.get(0),
-                      (Cluster<? extends Posterior>) args.get(1)),
-                  this::exceptionHandler)),
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()

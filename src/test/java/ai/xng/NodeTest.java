@@ -62,7 +62,7 @@ public class NodeTest {
     and.conjunction(a, b);
 
     a.activate();
-    scheduler.runUntil(Prior.RAMP_UP + Prior.RAMP_DOWN);
+    scheduler.runUntil(IntegrationProfile.TRANSIENT.period());
     b.activate();
     scheduler.runUntilIdle();
     assertFalse(monitor.didEmit());

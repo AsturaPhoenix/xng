@@ -17,7 +17,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public final InputCluster input = new InputCluster();
   public final BiCluster recognition = new BiCluster(),
-      execution = new BiCluster();
+      execution = new BiCluster(),
+      timing = new BiCluster();
   public final ActionCluster actions = new ActionCluster();
   public final SignalCluster signals = new SignalCluster();
   public final GatedBiCluster context = new GatedBiCluster(actions);
@@ -25,7 +26,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public final DataCluster.FinalNode<InputCluster> inputCluster = data.new FinalNode<>(input);
   public final DataCluster.FinalNode<BiCluster> recognitionCluster = data.new FinalNode<>(recognition),
-      executionCluster = data.new FinalNode<>(execution);
+      executionCluster = data.new FinalNode<>(execution),
+      timingCluster = data.new FinalNode<>(timing);
   public final DataCluster.FinalNode<ActionCluster> actionCluster = data.new FinalNode<>(actions);
   public final DataCluster.FinalNode<SignalCluster> signalCluster = data.new FinalNode<>(signals);
   public final DataCluster.FinalNode<GatedBiCluster.InputCluster> contextInput = data.new FinalNode<>(context.input);

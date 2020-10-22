@@ -11,7 +11,7 @@ import lombok.val;
 public class LanguageBootstrap {
   private final KnowledgeBase kb;
 
-  private static record Sequence(Posterior head, Prior tail) {
+  public static record Sequence(Posterior head, Prior tail) {
   }
 
   private static Sequence program(final KnowledgeBase kb, final Posterior... sequence) {
@@ -25,8 +25,22 @@ public class LanguageBootstrap {
     return new Sequence(head, tail);
   }
 
+  /**
+   * Produces a chain of nodes that spans roughly {@code period} between head and
+   * tail activation.
+   */
+  public Sequence timingChain(final long period) {
+    val head = kb.timing.new Node();
+    BiNode tail = head;
+    final long dt = IntegrationProfile.TRANSIENT.defaultDelay();
+    for (long t = dt; t < period; t += dt) {
+      tail = tail.then(kb.timing.new Node());
+    }
+    return new Sequence(head, tail);
+  }
+
   private class InputIterator {
-    final BiNode hasNext, next;
+    final BiNode onNext;
     final BooleanDecoder hasNextDecoder;
     final DataCluster.MutableNode<Integer> codePoint;
     final BinaryDecoder rawDecoder;
@@ -40,13 +54,13 @@ public class LanguageBootstrap {
       kb.inputUpdated.then(getIterator);
 
       hasNextDecoder = new BooleanDecoder(() -> iterator.getData().hasNext(), kb.input);
-      hasNext = kb.execution.new Node();
+      val hasNext = kb.execution.new Node();
       getIterator
           .then(hasNext)
           .then(kb.actions.new Node(hasNextDecoder));
 
       codePoint = kb.data.new MutableNode<>();
-      next = kb.execution.new Node();
+      val next = kb.execution.new Node();
       hasNextDecoder.isTrue
           .then(next)
           .then(kb.actions.new Node(() -> codePoint.setData(iterator.getData().next())));
@@ -57,18 +71,24 @@ public class LanguageBootstrap {
       charDecoder = new CharacterDecoder(codePoint::getData, kb.input);
       decode.then(kb.actions.new Node(rawDecoder));
       decode.then(kb.actions.new Node(charDecoder));
+      onNext = kb.execution.new Node();
+      decode.then(onNext);
+
+      val delay = timingChain(IntegrationProfile.TRANSIENT.period());
+      onNext.then(delay.head);
+      delay.tail.then(hasNext);
     }
   }
 
   private final InputIterator inputIterator;
 
-  private final DataCluster.MutableNode<Object> literal;
+  public final DataCluster.MutableNode<Object> literal;
 
   private class RecognitionClass {
     final BiCluster.Node character = kb.recognition.new Node();
   }
 
-  private final RecognitionClass recognitionClass = new RecognitionClass();
+  private final RecognitionClass recognitionClass;
 
   private class StringLiteralBuilder {
     final Latch isParsing;
@@ -88,9 +108,10 @@ public class LanguageBootstrap {
           .build(quote);
       start.conjunction(quote, isParsing.isFalse);
       end.conjunction(quote, isParsing.isTrue);
-      inputIterator.next.then(kb.actions.new Node(isParsing));
+      inputIterator.onNext.then(kb.actions.new Node(isParsing));
 
       start.then(kb.actions.new Node(() -> literal.setData(new StringBuilder())));
+      end.then(kb.actions.new Node(() -> literal.setData(((StringBuilder) literal.getData()).toString())));
 
       val notQuote = kb.recognition.new Node();
       notQuote.disjunction(quoteInput.complement());
@@ -106,6 +127,7 @@ public class LanguageBootstrap {
     this.kb = kb;
     inputIterator = new InputIterator();
     literal = kb.data.new MutableNode<>();
+    recognitionClass = new RecognitionClass();
     stringLiteralBuilder = new StringLiteralBuilder();
   }
 }

@@ -20,6 +20,10 @@ public abstract class ActionNode extends OutputNode {
 
   private final Action action;
 
+  /**
+   * Updates posteriors and then calls this node's action. Even if the action
+   * throws an exception, posteriors are updated.
+   */
   @Override
   public void activate() {
     super.activate();

@@ -16,13 +16,18 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   private transient Subject<String> rxOutput;
 
   public final InputCluster input = new InputCluster();
+
+  public final DataCluster data = new DataCluster(input);
+  public final DataCluster.MutableNode<String> inputValue = data.new MutableNode<>();
+  public final DataCluster.MutableNode<Throwable> lastException = data.new MutableNode<>();
+  public final DataCluster.MutableNode<Object> returnValue = data.new MutableNode<>();
+
   public final BiCluster recognition = new BiCluster(),
       execution = new BiCluster(),
       timing = new BiCluster();
-  public final ActionCluster actions = new ActionCluster();
+  public final ActionCluster actions = new ActionCluster(lastException);
   public final SignalCluster signals = new SignalCluster();
   public final GatedBiCluster context = new GatedBiCluster(actions);
-  public final DataCluster data = new DataCluster(input);
 
   public final DataCluster.FinalNode<InputCluster> inputCluster = data.new FinalNode<>(input);
   public final DataCluster.FinalNode<BiCluster> recognitionCluster = data.new FinalNode<>(recognition),
@@ -34,13 +39,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final DataCluster.FinalNode<GatedBiCluster.OutputCluster> contextOutput = data.new FinalNode<>(context.output);
   public final DataCluster.FinalNode<DataCluster> dataCluster = data.new FinalNode<>(data);
 
-  public final DataCluster.MutableNode<String> inputValue = data.new MutableNode<>();
-  public final DataCluster.MutableNode<Throwable> lastException = data.new MutableNode<>();
-  public final DataCluster.MutableNode<Object> returnValue = data.new MutableNode<>();
-
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
-  // TODO: global exception handling on the action cluster
   @SuppressWarnings("unchecked")
   public final ActionCluster.Node associateTransient = actions.new Node(
       () -> data.rxActivations()

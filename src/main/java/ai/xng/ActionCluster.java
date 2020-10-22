@@ -1,7 +1,16 @@
 package ai.xng;
 
+import lombok.RequiredArgsConstructor;
+
+@RequiredArgsConstructor
 public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
   private static final long serialVersionUID = 1L;
+
+  public final DataCluster.MutableNode<? super Throwable> exceptionHandler;
+
+  public ActionCluster() {
+    this(null);
+  }
 
   public class Node extends ActionNode {
     private static final long serialVersionUID = 1L;
@@ -21,7 +30,15 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
     @Override
     public final void activate() {
       link.promote();
-      super.activate();
+      try {
+        super.activate();
+      } catch (final RuntimeException e) {
+        if (exceptionHandler != null) {
+          exceptionHandler.setData(e);
+        } else {
+          throw e;
+        }
+      }
     }
   }
 }

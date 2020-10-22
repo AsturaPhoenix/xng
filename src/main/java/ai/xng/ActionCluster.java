@@ -8,7 +8,7 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
 
     private final Link link;
 
-    public Node(final OnActivate onActivate) {
+    public Node(final Action onActivate) {
       super(onActivate);
       link = new Link(this);
     }

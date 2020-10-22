@@ -3,6 +3,7 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.Arrays;
 
 import lombok.Getter;
 import lombok.val;
@@ -72,6 +73,10 @@ public interface Posterior extends Node {
   }
 
   default Posterior disjunction(final Prior... priors) {
+    return disjunction(Arrays.asList(priors));
+  }
+
+  default Posterior disjunction(final Iterable<? extends Prior> priors) {
     for (val prior : priors) {
       prior.then(this);
     }

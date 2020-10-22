@@ -22,6 +22,10 @@ public class ConjunctionJunction {
       return this;
     }
 
+    public void build(final Posterior posterior) {
+      build(posterior, IntegrationProfile.TRANSIENT);
+    }
+
     public void build(final Posterior posterior, final IntegrationProfile profile) {
       final float coefficient = priors.size() <= 1 ? Prior.DEFAULT_COEFFICIENT
           : 1 / (priors.size() - .5f / priors.size());

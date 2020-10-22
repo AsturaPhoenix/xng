@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
-import ai.xng.decoders.BinaryDecoder;
+import ai.xng.constructs.BinaryDecoder;
 import lombok.val;
 
 public class BinaryDecoderTest {

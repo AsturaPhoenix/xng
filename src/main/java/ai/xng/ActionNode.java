@@ -14,15 +14,15 @@ public abstract class ActionNode extends OutputNode {
    * needing to declare serial version UIDs for all of them.
    */
   @FunctionalInterface
-  public static interface OnActivate extends Serializable {
-    void run();
+  public static interface Action extends Serializable {
+    void activate();
   }
 
-  private final OnActivate onActivate;
+  private final Action action;
 
   @Override
   public void activate() {
     super.activate();
-    onActivate.run();
+    action.activate();
   }
 }

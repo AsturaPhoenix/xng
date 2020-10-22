@@ -2,9 +2,10 @@ package ai.xng;
 
 import java.util.PrimitiveIterator;
 
-import ai.xng.decoders.BinaryDecoder;
-import ai.xng.decoders.BooleanDecoder;
-import ai.xng.decoders.CharacterDecoder;
+import ai.xng.constructs.BinaryDecoder;
+import ai.xng.constructs.BooleanDecoder;
+import ai.xng.constructs.CharacterDecoder;
+import ai.xng.constructs.Latch;
 import lombok.val;
 
 public class LanguageBootstrap {
@@ -42,7 +43,7 @@ public class LanguageBootstrap {
       hasNext = kb.execution.new Node();
       getIterator
           .then(hasNext)
-          .then(kb.actions.new Node(hasNextDecoder::activate));
+          .then(kb.actions.new Node(hasNextDecoder));
 
       codePoint = kb.data.new MutableNode<>();
       next = kb.execution.new Node();
@@ -54,47 +55,57 @@ public class LanguageBootstrap {
       next.then(decode);
       rawDecoder = new BinaryDecoder(codePoint::getData, kb.input);
       charDecoder = new CharacterDecoder(codePoint::getData, kb.input);
-      decode.then(kb.actions.new Node(rawDecoder::activate));
-      decode.then(kb.actions.new Node(charDecoder::activate));
+      decode.then(kb.actions.new Node(rawDecoder));
+      decode.then(kb.actions.new Node(charDecoder));
     }
   }
 
   private final InputIterator inputIterator;
 
   private final DataCluster.MutableNode<Object> literal;
-  private final StmCluster frameCapture = new StmCluster(), frameReplay = new StmCluster();
-  private final DataCluster.FinalNode<StmCluster> frameCaptureCluster, frameReplayCluster;
+
+  private class RecognitionClass {
+    final BiCluster.Node character = kb.recognition.new Node();
+  }
+
+  private final RecognitionClass recognitionClass = new RecognitionClass();
 
   private class StringLiteralBuilder {
-    final GatedBiCluster.OutputCluster.Node isParsing;
+    final Latch isParsing;
 
     {
-      val setIsParsing = kb.context.input.new Node();
-      isParsing = setIsParsing.output;
+      isParsing = new Latch(kb.actions, kb.input);
 
-      val transitionToIsParsing = kb.recognition.new Node();
+      val start = kb.execution.new Node(), append = kb.execution.new Node(), end = kb.execution.new Node();
+      start.then(isParsing.set);
+      end.then(isParsing.clear);
+
+      val quoteInput = inputIterator.rawDecoder.outputFor('"');
+      val quote = kb.recognition.new Node();
+      quote.then(recognitionClass.character);
       new ConjunctionJunction.Pure()
-          .addAll(inputIterator.rawDecoder.outputFor('"'))
-          .build(transitionToIsParsing, IntegrationProfile.TRANSIENT);
-      isParsing.inhibit(transitionToIsParsing);
+          .addAll(quoteInput)
+          .build(quote);
+      start.conjunction(quote, isParsing.isFalse);
+      end.conjunction(quote, isParsing.isTrue);
+      inputIterator.next.then(kb.actions.new Node(isParsing));
 
-      // need to clear frame capture register
-      val captureFrame = program(kb,
-          frameCapture.address,
-          setIsParsing,
-          kb.associateTransient,
-          frameCaptureCluster,
-          kb.contextInput);
-      transitionToIsParsing.then(captureFrame.head());
+      start.then(kb.actions.new Node(() -> literal.setData(new StringBuilder())));
+
+      val notQuote = kb.recognition.new Node();
+      notQuote.disjunction(quoteInput.complement());
+      append.conjunction(notQuote, isParsing.isTrue);
+      append.then(kb.actions.new Node(() -> ((StringBuilder) literal.getData())
+          .appendCodePoint(inputIterator.codePoint.getData())));
     }
   }
+
+  private final StringLiteralBuilder stringLiteralBuilder;
 
   public LanguageBootstrap(final KnowledgeBase kb) {
     this.kb = kb;
     inputIterator = new InputIterator();
     literal = kb.data.new MutableNode<>();
-
-    frameCaptureCluster = kb.data.new FinalNode<>(frameCapture);
-    frameReplayCluster = kb.data.new FinalNode<>(frameReplay);
+    stringLiteralBuilder = new StringLiteralBuilder();
   }
 }

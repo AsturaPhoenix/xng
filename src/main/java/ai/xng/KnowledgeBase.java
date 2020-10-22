@@ -45,6 +45,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
+  // TODO: global exception handling on the action cluster
   @SuppressWarnings("unchecked")
   public final ActionCluster.Node associateTransient = actions.new Node(
       () -> data.rxActivations()

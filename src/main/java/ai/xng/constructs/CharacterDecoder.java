@@ -1,12 +1,13 @@
-package ai.xng.decoders;
+package ai.xng.constructs;
 
 import java.io.Serializable;
 
+import ai.xng.ActionNode;
 import ai.xng.InputCluster;
 import ai.xng.util.SerializableSupplier;
 import lombok.val;
 
-public class CharacterDecoder implements Serializable {
+public class CharacterDecoder implements ActionNode.Action {
   private static final long serialVersionUID = 1L;
 
   private static interface Predicate extends Serializable {
@@ -44,6 +45,7 @@ public class CharacterDecoder implements Serializable {
     isOther = output.new Node();
   }
 
+  @Override
   public void activate() {
     final int codePoint = data.get();
     boolean isClassified = false;

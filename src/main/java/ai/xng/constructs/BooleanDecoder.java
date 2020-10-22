@@ -1,11 +1,10 @@
-package ai.xng.decoders;
+package ai.xng.constructs;
 
-import java.io.Serializable;
-
+import ai.xng.ActionNode;
 import ai.xng.InputCluster;
 import ai.xng.util.SerializableSupplier;
 
-public class BooleanDecoder implements Serializable {
+public class BooleanDecoder implements ActionNode.Action {
   private static final long serialVersionUID = 1L;
 
   public final SerializableSupplier<Boolean> data;
@@ -17,6 +16,7 @@ public class BooleanDecoder implements Serializable {
     isTrue = output.new Node();
   }
 
+  @Override
   public void activate() {
     if (data.get()) {
       isTrue.activate();

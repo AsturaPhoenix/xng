@@ -51,7 +51,7 @@ public class LanguageBootstrap {
       val getIterator = kb.execution.new Node();
       getIterator.then(kb.actions.new Node(() -> iterator.setData(
           kb.inputValue.getData().codePoints().iterator())));
-      kb.inputUpdated.then(getIterator);
+      kb.inputValue.onUpdate.then(getIterator);
 
       hasNextDecoder = new BooleanDecoder(() -> iterator.getData().hasNext(), kb.input);
       val hasNext = kb.execution.new Node();

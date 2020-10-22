@@ -15,7 +15,6 @@ public class LanguageTest {
     try (val kb = new KnowledgeBase()) {
       val language = new LanguageBootstrap(kb);
       kb.inputValue.setData("\"Hello, world!\"");
-      kb.inputUpdated.activate();
       scheduler.runUntilIdle();
       assertEquals("Hello, world!", language.literal.getData());
     }

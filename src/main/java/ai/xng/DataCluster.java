@@ -16,6 +16,8 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
     return rxActivations;
   }
 
+  private final InputCluster updateCluster;
+
   public abstract class Node extends OutputNode implements DataNode {
     private static final long serialVersionUID = 1L;
 
@@ -57,6 +59,12 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
 
     private final DataNode.MaybeTransient<T> container = new DataNode.MaybeTransient<>();
 
+    /**
+     * Node activated when {@link #setData(Object)} is called. This node is
+     * activated whether or not the data was actually changed.
+     */
+    public final InputCluster.Node onUpdate = updateCluster.new Node();
+
     @Override
     public T getData() {
       return container.data;
@@ -64,10 +72,12 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
 
     public void setData(final T value) {
       container.data = value;
+      onUpdate.activate();
     }
   }
 
-  public DataCluster() {
+  public DataCluster(final InputCluster updateCluster) {
+    this.updateCluster = updateCluster;
     init();
   }
 

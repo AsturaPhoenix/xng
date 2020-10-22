@@ -22,7 +22,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final ActionCluster actions = new ActionCluster();
   public final SignalCluster signals = new SignalCluster();
   public final GatedBiCluster context = new GatedBiCluster(actions);
-  public final DataCluster data = new DataCluster();
+  public final DataCluster data = new DataCluster(input);
 
   public final DataCluster.FinalNode<InputCluster> inputCluster = data.new FinalNode<>(input);
   public final DataCluster.FinalNode<BiCluster> recognitionCluster = data.new FinalNode<>(recognition),
@@ -34,16 +34,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final DataCluster.FinalNode<GatedBiCluster.OutputCluster> contextOutput = data.new FinalNode<>(context.output);
   public final DataCluster.FinalNode<DataCluster> dataCluster = data.new FinalNode<>(data);
 
-  public final InputCluster.Node inputUpdated = input.new Node(),
-      exceptionCaught = input.new Node();
   public final DataCluster.MutableNode<String> inputValue = data.new MutableNode<>();
   public final DataCluster.MutableNode<Throwable> lastException = data.new MutableNode<>();
   public final DataCluster.MutableNode<Object> returnValue = data.new MutableNode<>();
-
-  public void exceptionHandler(final Throwable t) {
-    lastException.setData(t);
-    exceptionCaught.activate();
-  }
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
@@ -59,11 +52,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                   (Cluster<? extends Prior>) args.get(0),
                   (Cluster<? extends Posterior>) args.get(1),
                   IntegrationProfile.TRANSIENT),
-              this::exceptionHandler)),
+              lastException::setData)),
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()
-          .subscribe(arg -> rxOutput.onNext(Objects.toString(arg)), this::exceptionHandler)),
+          .subscribe(arg -> rxOutput.onNext(Objects.toString(arg)), lastException::setData)),
       findClass = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()
@@ -78,7 +71,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                   (String) args.get(1),
                   args.subList(2, args.size())
                       .toArray(Class<?>[]::new))),
-              this::exceptionHandler)),
+              lastException::setData)),
       invokeMethod = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .buffer(2)
@@ -91,8 +84,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                 .firstElement()
                 .subscribe(
                     callArgs -> returnValue.setData(method.invoke(args.get(1), callArgs.toArray())),
-                    this::exceptionHandler);
-          }, this::exceptionHandler));
+                    lastException::setData);
+          }, lastException::setData));
 
   public Observable<String> rxOutput() {
     return rxOutput;

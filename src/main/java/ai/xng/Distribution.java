@@ -1,15 +1,17 @@
 package ai.xng;
 
 public interface Distribution {
-  static final float DEFAULT_WEIGHT = 10;
-
   void set(float value, float weight);
 
   default void set(final float value) {
-    set(value, DEFAULT_WEIGHT);
+    set(value, 1);
   }
 
   void add(float value, float weight);
+
+  default void reinforce(float weight) {
+    add(getMode(), weight);
+  }
 
   float generate();
 
@@ -18,4 +20,6 @@ public interface Distribution {
   float getMin();
 
   float getMode();
+
+  float getWeight();
 }

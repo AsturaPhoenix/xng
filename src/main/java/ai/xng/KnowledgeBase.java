@@ -9,6 +9,7 @@ import java.util.Objects;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import lombok.val;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
   private static final long serialVersionUID = 2L;
@@ -42,17 +43,38 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
   @SuppressWarnings("unchecked")
-  public final ActionCluster.Node associateTransient = actions.new Node(
+  public final ActionCluster.Node associate = actions.new Node(
       () -> data.rxActivations()
           .map(DataNode::getData)
-          .buffer(2)
-          .firstElement()
+          .take(2)
+          .toList()
           .subscribe(
               args -> Cluster.associate(
                   (Cluster<? extends Prior>) args.get(0),
                   (Cluster<? extends Posterior>) args.get(1),
                   IntegrationProfile.TRANSIENT),
               lastException::setData)),
+      disassociate = actions.new Node(() -> data.rxActivations()
+          .map(DataNode::getData)
+          .take(2)
+          .toList()
+          .subscribe(
+              args -> Cluster.disassociate(
+                  (Cluster<? extends Prior>) args.get(0),
+                  (Cluster<? extends Posterior>) args.get(1)),
+              lastException::setData)),
+      capture = actions.new Node(() -> data.rxActivations()
+          .map(DataNode::getData)
+          .take(2)
+          .toList()
+          .subscribe(
+              args -> {
+                val priorCluster = (Cluster<? extends Prior>) args.get(0);
+                val posteriorCluster = (NodeFactory) args.get(1);
+
+                Cluster.associate(priorCluster, posteriorCluster.createNode(),
+                    IntegrationProfile.TRANSIENT, Scheduler.global.now(), 1);
+              }, lastException::setData)),
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()
@@ -63,9 +85,9 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
           .subscribe(name -> returnValue.setData(Class.forName((String) name)))),
       getMethod = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
-          .buffer(signals.rxActivations()
+          .takeUntil(signals.rxActivations()
               .filter(signal -> signal == variadicEnd))
-          .firstElement()
+          .toList()
           .subscribe(
               args -> returnValue.setData(((Class<?>) args.get(0)).getMethod(
                   (String) args.get(1),
@@ -74,14 +96,14 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
               lastException::setData)),
       invokeMethod = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
-          .buffer(2)
-          .firstElement()
+          .take(2)
+          .toList()
           .subscribe(args -> {
             var method = (Method) args.get(0);
             data.rxActivations()
                 .map(DataNode::getData)
-                .buffer(method.getParameterCount())
-                .firstElement()
+                .take(method.getParameterCount())
+                .toList()
                 .subscribe(
                     callArgs -> returnValue.setData(method.invoke(args.get(1), callArgs.toArray())),
                     lastException::setData);

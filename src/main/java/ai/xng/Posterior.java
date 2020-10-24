@@ -52,8 +52,7 @@ public interface Posterior extends Node {
 
       for (val prior : priors) {
         // LTP due to STDP
-        prior.distribution().add(prior.distribution().getMode(),
-            prior.node().getTrace().evaluate(now, prior.profile()) * plasticity);
+        prior.distribution().reinforce(prior.node().getTrace().evaluate(now, prior.profile()) * plasticity);
       }
     }
   }
@@ -66,7 +65,7 @@ public interface Posterior extends Node {
     }
 
     for (val prior : priors) {
-      prior.getPosteriors().setCoefficient(this, IntegrationProfile.TRANSIENT, coefficient);
+      prior.getPosteriors().getDistribution(this, IntegrationProfile.TRANSIENT).set(coefficient);
     }
 
     return this;

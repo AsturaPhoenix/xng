@@ -17,7 +17,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
    * Spread basis with no evidence.
    */
   private static final float DEFAULT_SPREAD_BASIS = .2f;
-  private static final float CRITICAL_SUPPORT = Distribution.DEFAULT_WEIGHT / 2;
+  private static final float CRITICAL_SUPPORT = .5f;
 
   private static class Bucket implements Serializable {
     static final long serialVersionUID = 7305465527837682602L;
@@ -54,16 +54,17 @@ public class UnimodalHypothesis implements Distribution, Serializable {
 
   @Override
   public float getMode() {
-    final float weight = getWeight();
-    return weight == 0 ? 0 : (lower.mean * lower.weight + core.mean * core.weight + upper.mean * upper.weight) / weight;
+    return (lower.mean * lower.weight + core.mean * core.weight + upper.mean * upper.weight)
+        / Math.max(getWeight(), CRITICAL_SUPPORT);
   }
 
+  @Override
   public float getWeight() {
     return lower.weight + core.weight + upper.weight;
   }
 
   public UnimodalHypothesis() {
-    this(0);
+    this(0, 0);
   }
 
   public UnimodalHypothesis(final float mean) {
@@ -80,7 +81,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
       throw new IllegalArgumentException("weight must be non-negative");
     }
 
-    core.mean = weight >= CRITICAL_SUPPORT ? value : value * weight / CRITICAL_SUPPORT;
+    core.mean = value;
     lower.mean = core.mean - DEFAULT_SPREAD_BASIS;
     upper.mean = core.mean + DEFAULT_SPREAD_BASIS;
     core.weight = weight;
@@ -100,7 +101,6 @@ public class UnimodalHypothesis implements Distribution, Serializable {
     lock.writeLock()
         .lock();
     try {
-      final float oldWeight = getWeight();
       final Bucket tail, counterTail;
       if (value < core.mean) {
         tail = lower;
@@ -143,14 +143,6 @@ public class UnimodalHypothesis implements Distribution, Serializable {
       if (core.mean >= upper.mean) {
         core.weight += upper.weight;
         upper.weight = 0;
-      }
-
-      final float newWeight = getWeight();
-      if (newWeight < CRITICAL_SUPPORT && newWeight < oldWeight) {
-        final float adjustment = newWeight / oldWeight;
-        core.mean *= adjustment;
-        lower.mean *= adjustment;
-        upper.mean *= adjustment;
       }
 
       if (lower.weight == 0) {

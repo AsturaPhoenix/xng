@@ -1,7 +1,6 @@
 package ai.xng;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 import lombok.RequiredArgsConstructor;
@@ -9,52 +8,36 @@ import lombok.val;
 
 @RequiredArgsConstructor
 public class ConjunctionJunction {
-  public static class Pure {
-    private final List<Prior> priors = new ArrayList<>();
-
-    public Pure add(final Prior prior) {
-      priors.add(prior);
-      return this;
-    }
-
-    public Pure addAll(final Collection<? extends Prior> priors) {
-      this.priors.addAll(priors);
-      return this;
-    }
-
-    public void build(final Posterior posterior) {
-      build(posterior, IntegrationProfile.TRANSIENT);
-    }
-
-    public void build(final Posterior posterior, final IntegrationProfile profile) {
-      final float coefficient = priors.size() <= 1 ? Prior.DEFAULT_COEFFICIENT
-          : 1 / (priors.size() - .5f / priors.size());
-
-      for (val prior : priors) {
-        prior.getPosteriors().setCoefficient(posterior, profile, coefficient);
-      }
-    }
-  }
-
   private static record WeightedPrior(Prior prior, float weight) {
   }
 
   private final List<WeightedPrior> priors = new ArrayList<>();
-  private final long t;
-  private final IntegrationProfile profile;
-
   private float norm;
 
-  public void add(final Prior prior) {
-    final float w = prior.getTrace().evaluate(t, profile);
-
-    if (w > 0) {
-      priors.add(new WeightedPrior(prior, w));
-      norm += w * w;
+  public ConjunctionJunction addAll(final Iterable<? extends Prior> priors) {
+    for (val prior : priors) {
+      add(prior);
     }
+    return this;
   }
 
-  public void build(final Posterior posterior, final float weight) {
+  public ConjunctionJunction add(final Prior prior) {
+    return add(prior, 1);
+  }
+
+  public ConjunctionJunction add(final Prior prior, final float weight) {
+    if (weight > 0) {
+      priors.add(new WeightedPrior(prior, weight));
+      norm += weight * weight;
+    }
+    return this;
+  }
+
+  public void build(final Posterior posterior, final IntegrationProfile profile) {
+    build(posterior, profile, 1);
+  }
+
+  public void build(final Posterior posterior, final IntegrationProfile profile, final float weight) {
     // Scale such that activation of the last principal component (may be
     // hypothetical, with relative weight 1) roughly has margins on either side of
     // the activation threshold (but cap the maximum at the default coefficient, and
@@ -69,7 +52,7 @@ public class ConjunctionJunction {
     for (val weightedPrior : priors) {
       final float coefficient = weightedPrior.weight() / normAdj;
       assert coefficient <= Prior.DEFAULT_COEFFICIENT;
-      weightedPrior.prior().getPosteriors().setCoefficient(posterior, profile, coefficient, weight);
+      weightedPrior.prior().getPosteriors().getDistribution(posterior, profile).add(coefficient, weight);
     }
   }
 }

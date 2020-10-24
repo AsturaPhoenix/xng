@@ -1,6 +1,6 @@
 package ai.xng;
 
-public class BiCluster extends PosteriorCluster<BiCluster.Node> {
+public class BiCluster extends PosteriorCluster<BiCluster.Node> implements NodeFactory {
   private static final long serialVersionUID = 1L;
 
   public class Node extends BiNode {
@@ -22,5 +22,10 @@ public class BiCluster extends PosteriorCluster<BiCluster.Node> {
       link.promote();
       super.activate();
     }
+  }
+
+  @Override
+  public Posterior createNode() {
+    return new Node();
   }
 }

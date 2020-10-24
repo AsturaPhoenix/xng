@@ -52,21 +52,11 @@ public class Connections {
       };
     }
 
-    public void setCoefficient(final Posterior posterior, final IntegrationProfile profile, final float coefficient) {
-      setCoefficient(posterior, profile, coefficient, Distribution.DEFAULT_WEIGHT);
-    }
-
-    public void setCoefficient(final Posterior posterior, final IntegrationProfile profile, final float coefficient,
-        final float weight) {
-      backing.compute(new Key<>(posterior, profile), (__, distribution) -> {
-        if (distribution == null) {
-          distribution = new UnimodalHypothesis(coefficient, weight);
-          posterior.getPriors().backing.put(new Key<>(owner, profile), distribution);
-          return distribution;
-        } else {
-          distribution.set(coefficient, weight);
-          return distribution;
-        }
+    public Distribution getDistribution(final Posterior posterior, final IntegrationProfile profile) {
+      return backing.computeIfAbsent(new Key<>(posterior, profile), (__) -> {
+        val distribution = new UnimodalHypothesis();
+        posterior.getPriors().backing.put(new Key<>(owner, profile), distribution);
+        return distribution;
       });
     }
 

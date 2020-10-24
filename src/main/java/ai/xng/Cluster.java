@@ -7,6 +7,7 @@ import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.function.BiConsumer;
 
 import lombok.val;
 
@@ -64,8 +65,7 @@ public class Cluster<T extends Node> implements Serializable {
   public void clean() {
     val it = activations.iterator();
     while (it.hasNext()) {
-      if (it.next()
-          .get() == null) {
+      if (it.next().get() == null) {
         it.remove();
       }
     }
@@ -108,6 +108,29 @@ public class Cluster<T extends Node> implements Serializable {
     };
   }
 
+  public static <T extends Node> void forEachByTrace(final Cluster<T> cluster, final IntegrationProfile profile,
+      final long t, final BiConsumer<T, Float> action) {
+    final long horizon = t - profile.period();
+
+    for (final T node : cluster.activations()) {
+      if (node.getLastActivation().get() <= horizon) {
+        break;
+      }
+
+      final float trace = node.getTrace().evaluate(t, profile);
+      if (trace > 0) {
+        action.accept(node, trace);
+      }
+    }
+  }
+
+  public static void associate(final Cluster<? extends Prior> priorCluster, final Posterior posterior,
+      final IntegrationProfile profile, final long t, final float weight) {
+    val conjunction = new ConjunctionJunction();
+    forEachByTrace(priorCluster, profile, t, conjunction::add);
+    conjunction.build(posterior, profile, weight);
+  }
+
   /**
    * Forms explicit conjunctive associations between the given prior cluster and
    * posterior cluster, using the given integration profile for the new edges. The
@@ -116,39 +139,38 @@ public class Cluster<T extends Node> implements Serializable {
    */
   public static void associate(final Cluster<? extends Prior> priorCluster,
       final Cluster<? extends Posterior> posteriorCluster, final IntegrationProfile profile) {
-    final long now = Scheduler.global.now();
+    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
+        (posterior, posteriorTrace) -> {
+          // For each posterior, connect all priors with timings that could have
+          // contributed to the firing in a conjunctive way.
 
-    for (final Posterior posterior : posteriorCluster.activations()) {
-      // The recency queue will only iterate over nodes that have been activated at
-      // some point.
-      final long t1 = posterior.getLastActivation().get();
+          associate(priorCluster, posterior, profile, posterior.getLastActivation().get(), posteriorTrace);
+        });
+  }
 
-      // Use the transient profile to drive association strength.
-      if (t1 <= now - IntegrationProfile.TRANSIENT.period()) {
-        break;
-      }
+  /**
+   * Breaks associations between the given prior cluster and posterior cluster.
+   * The active posteriors considered at the time this function executes are
+   * always based on a {@link IntegrationProfile#TRANSIENT} window. The degree to
+   * which associations are broken are determined by this window and the prior
+   * trace.
+   */
+  public static void disassociate(final Cluster<? extends Prior> priorCluster,
+      final Cluster<? extends Posterior> posteriorCluster) {
+    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
+        (posterior, posteriorTrace) -> {
+          // For each posterior, find all priors in the designated cluster and reduce
+          // their weight by the product of the pertinent traces.
 
-      final float posteriorTrace = posterior.getTrace().evaluate(now, IntegrationProfile.TRANSIENT);
-
-      if (posteriorTrace == 0) {
-        continue;
-      }
-      assert posteriorTrace > 0;
-
-      // For each posterior, connect all priors with timings that could have
-      // contributed to the firing in a conjunctive way.
-
-      val conjunction = new ConjunctionJunction(t1, profile);
-
-      for (final Prior prior : priorCluster.activations()) {
-        if (prior.getLastActivation().get() <= t1 - profile.period()) {
-          break;
-        }
-
-        conjunction.add(prior);
-      }
-
-      conjunction.build(posterior, posteriorTrace * Distribution.DEFAULT_WEIGHT);
-    }
+          for (val prior : posterior.getPriors()) {
+            if (prior.node().getCluster() == priorCluster) {
+              final float priorTrace = prior.node().getTrace()
+                  .evaluate(posterior.getLastActivation().get(), prior.profile());
+              if (priorTrace > 0) {
+                prior.distribution().reinforce(-prior.distribution().getWeight() * priorTrace * posteriorTrace);
+              }
+            }
+          }
+        });
   }
 }

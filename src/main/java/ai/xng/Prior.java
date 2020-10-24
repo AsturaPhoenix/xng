@@ -24,25 +24,30 @@ public interface Prior extends Node {
     public void activate() {
       final long now = Scheduler.global.now();
 
-      for (val posterior : posteriors) {
+      val it = posteriors.iterator();
+      while (it.hasNext()) {
+        val posterior = it.next();
         // LTD due to reverse STDP
         posterior.distribution()
-            .add(posterior.distribution().getMode(),
-                -posterior.node().getTrace().evaluate(now, posterior.profile())
-                    * posterior.node().getCluster().getPlasticity());
+            .reinforce(-posterior.node().getTrace().evaluate(now, posterior.profile())
+                * posterior.node().getCluster().getPlasticity());
 
-        final float sample = posterior.distribution().generate();
-        posterior.node().getIntegrator().add(posterior.profile(), sample);
+        if (posterior.distribution().getWeight() == 0) {
+          it.remove();
+        } else {
+          final float sample = posterior.distribution().generate();
+          posterior.node().getIntegrator().add(posterior.profile(), sample);
+        }
       }
     }
   }
 
   default <T extends Posterior> T then(final T posterior) {
-    getPosteriors().setCoefficient(posterior, IntegrationProfile.TRANSIENT, DEFAULT_COEFFICIENT);
+    getPosteriors().getDistribution(posterior, IntegrationProfile.TRANSIENT).set(DEFAULT_COEFFICIENT);
     return posterior;
   }
 
   default void inhibit(final Posterior posterior) {
-    getPosteriors().setCoefficient(posterior, IntegrationProfile.TRANSIENT, -1);
+    getPosteriors().getDistribution(posterior, IntegrationProfile.TRANSIENT).set(-1);
   }
 }

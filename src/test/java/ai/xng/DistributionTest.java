@@ -35,7 +35,7 @@ public class DistributionTest {
 
   @Test
   public void testSubtractFromWeightedMean() {
-    val distribution = new UnimodalHypothesis(1);
+    val distribution = new UnimodalHypothesis(1, 2);
     distribution.add(1, -1);
     assertEquals(1, distribution.getMode(), 0);
   }
@@ -43,8 +43,7 @@ public class DistributionTest {
   @Test
   public void testAddToTail() {
     val distribution = new UnimodalHypothesis(0);
-    distribution.set(0, 2);
-    distribution.add(1, 1);
+    distribution.add(1, .5f);
     // Previous implementations ensured that adding to a tail would honor weighted
     // average. However, in practice it seems that subsuming core samples produces
     // better results.
@@ -60,7 +59,7 @@ public class DistributionTest {
   public void testDeathByAThousandPositiveCuts() {
     val distribution = new UnimodalHypothesis();
 
-    distribution.add(1, 1);
+    distribution.add(1, 2);
     for (int i = 0; i < 1000; ++i) {
       distribution.add(-1, .001f);
     }

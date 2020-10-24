@@ -16,7 +16,7 @@ import lombok.val;
  * activation duration must be driven synaptically. The inputs behave similarly.
  */
 public class GatedBiCluster {
-  public class InputCluster extends PosteriorCluster<InputCluster.Node> {
+  public class InputCluster extends PosteriorCluster<InputCluster.Node> implements NodeFactory {
     private static final long serialVersionUID = 1L;
 
     public class Node extends OutputNode {
@@ -46,6 +46,11 @@ public class GatedBiCluster {
           output.activate();
         }
       }
+    }
+
+    @Override
+    public Posterior createNode() {
+      return new Node();
     }
   }
 

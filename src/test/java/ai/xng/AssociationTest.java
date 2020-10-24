@@ -267,7 +267,7 @@ public class AssociationTest {
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
     out.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp() + IntegrationProfile.TRANSIENT.rampDown());
+    scheduler.runFor(IntegrationProfile.TRANSIENT.period());
     Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
 
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
@@ -293,7 +293,7 @@ public class AssociationTest {
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
     out.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp() + IntegrationProfile.TRANSIENT.rampDown() - 1);
+    scheduler.runFor(IntegrationProfile.TRANSIENT.period() - 1);
     Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
 
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());

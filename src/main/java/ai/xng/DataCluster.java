@@ -62,6 +62,10 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> implements N
     /**
      * Node activated when {@link #setData(Object)} is called. This node is
      * activated whether or not the data was actually changed.
+     * <p>
+     * This node is activated directly, so rapid updates are subject to temporal
+     * summation. Conjunctions and other posteriors sensitive to temporal summation
+     * should buffer with an intermediary node. .
      */
     public final InputCluster.Node onUpdate = updateCluster.new Node();
 

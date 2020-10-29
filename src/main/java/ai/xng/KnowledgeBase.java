@@ -30,16 +30,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final SignalCluster signals = new SignalCluster();
   public final GatedBiCluster context = new GatedBiCluster(actions);
 
-  public final DataCluster.FinalNode<InputCluster> inputCluster = data.new FinalNode<>(input);
-  public final DataCluster.FinalNode<BiCluster> recognitionCluster = data.new FinalNode<>(recognition),
-      executionCluster = data.new FinalNode<>(execution),
-      timingCluster = data.new FinalNode<>(timing);
-  public final DataCluster.FinalNode<ActionCluster> actionCluster = data.new FinalNode<>(actions);
-  public final DataCluster.FinalNode<SignalCluster> signalCluster = data.new FinalNode<>(signals);
-  public final DataCluster.FinalNode<GatedBiCluster.InputCluster> contextInput = data.new FinalNode<>(context.input);
-  public final DataCluster.FinalNode<GatedBiCluster.OutputCluster> contextOutput = data.new FinalNode<>(context.output);
-  public final DataCluster.FinalNode<DataCluster> dataCluster = data.new FinalNode<>(data);
-
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
   @SuppressWarnings("unchecked")

@@ -2,6 +2,10 @@ package ai.xng;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.Serializable;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
 import org.junit.jupiter.api.Test;
 
 import lombok.val;
@@ -22,5 +26,43 @@ public class ClusterTest {
     b.activate();
     c.activate();
     assertThat(cluster.activations()).containsExactly(c, b, a);
+  }
+
+  private static class GcTestClusters implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    final InputCluster input = new InputCluster();
+    final BiCluster intermediate = new BiCluster();
+    final ActionCluster output = new ActionCluster();
+  }
+
+  /**
+   * Clusters should not hold strong references to anonymous nodes since if the
+   * prior cannot be activated, the chain should not have any effect.
+   */
+  @Test
+  public void testGc() throws Exception {
+    val scheduler = new TestScheduler();
+    Scheduler.global = scheduler;
+    val clusters = new GcTestClusters();
+
+    val gc = new GcFixture(clusters);
+
+    for (int i = 0; i < 1000; ++i) {
+      val input = clusters.input.new Node();
+      input.then(clusters.intermediate.new Node())
+          .then(clusters.output.new Node(() -> {
+          }));
+      input.activate();
+    }
+
+    scheduler.runUntilIdle();
+
+    gc.assertNoGrowth(() -> {
+      System.gc();
+      clusters.input.clean();
+      clusters.intermediate.clean();
+      clusters.output.clean();
+    });
   }
 }

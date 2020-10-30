@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Objects;
 
 import io.reactivex.Observable;
@@ -42,7 +43,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
               args -> Cluster.associate(
                   (Cluster<? extends Prior>) args.get(0),
                   (Cluster<? extends Posterior>) args.get(1),
-                  IntegrationProfile.TRANSIENT),
+                  Arrays.asList(IntegrationProfile.TRANSIENT)),
               lastException::setData)),
       disassociate = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
@@ -63,7 +64,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
                 val posteriorCluster = (NodeFactory) args.get(1);
 
                 Cluster.associate(priorCluster, posteriorCluster.createNode(),
-                    IntegrationProfile.TRANSIENT, Scheduler.global.now(), 1);
+                    IntegrationProfile.COMMON, Scheduler.global.now(), 1);
               }, lastException::setData)),
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)

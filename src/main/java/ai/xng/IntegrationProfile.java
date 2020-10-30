@@ -2,6 +2,8 @@ package ai.xng;
 
 import java.io.Serializable;
 
+import com.google.common.collect.ImmutableList;
+
 public record IntegrationProfile(long rampUp, long period) implements Serializable {
   private static final long serialVersionUID = 1L;
 
@@ -14,6 +16,8 @@ public record IntegrationProfile(long rampUp, long period) implements Serializab
    * 50ms/10s cycle
    */
   public static final IntegrationProfile PERSISTENT = new IntegrationProfile(50, 10000);
+
+  public static ImmutableList<IntegrationProfile> COMMON = ImmutableList.of(TRANSIENT, PERSISTENT);
 
   public static IntegrationProfile fromEdges(long rampUp, long rampDown) {
     return new IntegrationProfile(rampUp, rampUp + rampDown);

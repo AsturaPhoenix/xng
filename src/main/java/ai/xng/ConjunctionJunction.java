@@ -8,10 +8,10 @@ import lombok.val;
 
 @RequiredArgsConstructor
 public class ConjunctionJunction {
-  private static record WeightedPrior(Prior prior, float weight) {
+  private static record Component(Prior prior, IntegrationProfile profile, float weight) {
   }
 
-  private final List<WeightedPrior> priors = new ArrayList<>();
+  private final List<Component> components = new ArrayList<>();
   private float norm;
 
   public ConjunctionJunction addAll(final Iterable<? extends Prior> priors) {
@@ -22,22 +22,22 @@ public class ConjunctionJunction {
   }
 
   public ConjunctionJunction add(final Prior prior) {
-    return add(prior, 1);
+    return add(prior, IntegrationProfile.TRANSIENT, 1);
   }
 
-  public ConjunctionJunction add(final Prior prior, final float weight) {
+  public ConjunctionJunction add(final Prior prior, final IntegrationProfile profile, final float weight) {
     if (weight > 0) {
-      priors.add(new WeightedPrior(prior, weight));
+      components.add(new Component(prior, profile, weight));
       norm += weight * weight;
     }
     return this;
   }
 
-  public void build(final Posterior posterior, final IntegrationProfile profile) {
-    build(posterior, profile, 1);
+  public void build(final Posterior posterior) {
+    build(posterior, 1);
   }
 
-  public void build(final Posterior posterior, final IntegrationProfile profile, final float weight) {
+  public void build(final Posterior posterior, final float weight) {
     // Scale such that activation of the last principal component (may be
     // hypothetical, with relative weight 1) roughly has margins on either side of
     // the activation threshold (but cap the maximum at the default coefficient, and
@@ -49,10 +49,10 @@ public class ConjunctionJunction {
     final float normAdj = norm <= Prior.DEFAULT_COEFFICIENT ? 1
         : Math.max(norm / Prior.DEFAULT_COEFFICIENT, norm - .5f / norm);
 
-    for (val weightedPrior : priors) {
-      final float coefficient = weightedPrior.weight() / normAdj;
+    for (val component : components) {
+      final float coefficient = component.weight() / normAdj;
       assert coefficient <= Prior.DEFAULT_COEFFICIENT;
-      weightedPrior.prior().getPosteriors().getDistribution(posterior, profile).add(coefficient, weight);
+      component.prior().getPosteriors().getDistribution(posterior, component.profile()).add(coefficient, weight);
     }
   }
 }

@@ -103,7 +103,7 @@ public class LanguageBootstrap {
       val quoteInput = inputIterator.rawDecoder.outputFor('"');
       val quote = kb.recognition.new Node();
       quote.then(recognitionClass.character);
-      new ConjunctionJunction().addAll(quoteInput).build(quote, IntegrationProfile.TRANSIENT);
+      new ConjunctionJunction().addAll(quoteInput).build(quote);
       start.conjunction(quote, isParsing.isFalse);
       end.conjunction(quote, isParsing.isTrue);
       inputIterator.onNext.then(kb.actions.new Node(isParsing));

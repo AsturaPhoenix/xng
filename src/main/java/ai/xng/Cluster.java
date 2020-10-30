@@ -125,10 +125,12 @@ public class Cluster<T extends Node> implements Serializable {
   }
 
   public static void associate(final Cluster<? extends Prior> priorCluster, final Posterior posterior,
-      final IntegrationProfile profile, final long t, final float weight) {
+      final Iterable<IntegrationProfile> profiles, final long t, final float weight) {
     val conjunction = new ConjunctionJunction();
-    forEachByTrace(priorCluster, profile, t, conjunction::add);
-    conjunction.build(posterior, profile, weight);
+    for (val profile : profiles) {
+      forEachByTrace(priorCluster, profile, t, (node, trace) -> conjunction.add(node, profile, trace));
+    }
+    conjunction.build(posterior, weight);
   }
 
   /**
@@ -138,14 +140,19 @@ public class Cluster<T extends Node> implements Serializable {
    * based on a {@link IntegrationProfile#TRANSIENT} window.
    */
   public static void associate(final Cluster<? extends Prior> priorCluster,
-      final Cluster<? extends Posterior> posteriorCluster, final IntegrationProfile profile) {
+      final Cluster<? extends Posterior> posteriorCluster, final Iterable<IntegrationProfile> profiles) {
     forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (posterior, posteriorTrace) -> {
           // For each posterior, connect all priors with timings that could have
           // contributed to the firing in a conjunctive way.
 
-          associate(priorCluster, posterior, profile, posterior.getLastActivation().get(), posteriorTrace);
+          associate(priorCluster, posterior, profiles, posterior.getLastActivation().get(), posteriorTrace);
         });
+  }
+
+  public static void associate(final Cluster<? extends Prior> priorCluster,
+      final Cluster<? extends Posterior> posteriorCluster) {
+    associate(priorCluster, posteriorCluster, IntegrationProfile.COMMON);
   }
 
   /**

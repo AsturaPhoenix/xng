@@ -19,7 +19,7 @@ public class AssociationTest {
 
     out.activate();
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-    Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+    Cluster.associate(input, output);
 
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();
@@ -41,7 +41,7 @@ public class AssociationTest {
 
     a.activate();
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-    Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+    Cluster.associate(input, output);
 
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();
@@ -71,7 +71,7 @@ public class AssociationTest {
       val out = TestUtil.testNode(output, monitor);
       out.activate();
       scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-      Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+      Cluster.associate(input, output);
 
       scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
       monitor.reset();
@@ -104,7 +104,7 @@ public class AssociationTest {
       val out = TestUtil.testNode(output, monitor);
       out.activate();
       scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-      Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+      Cluster.associate(input, output);
 
       scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
       monitor.reset();
@@ -136,9 +136,9 @@ public class AssociationTest {
       val out = TestUtil.testNode(output, monitor);
       out.activate();
       scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-      Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+      Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+      scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
       monitor.reset();
 
       for (val i : in) {
@@ -169,9 +169,9 @@ public class AssociationTest {
       val out = TestUtil.testNode(output, monitor);
       out.activate();
       scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-      Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+      Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+      scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
       monitor.reset();
 
       for (int i = 0; i < in.length - 1; ++i) {
@@ -204,9 +204,9 @@ public class AssociationTest {
       val out = TestUtil.testNode(output, monitor);
       out.activate();
       scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-      Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+      Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+      scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
       monitor.reset();
 
       for (int i = 1; i < in.length; ++i) {
@@ -242,9 +242,9 @@ public class AssociationTest {
     val out = TestUtil.testNode(output, monitor);
     out.activate();
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
-    Cluster.associate(recog, output, IntegrationProfile.TRANSIENT);
+    Cluster.associate(recog, output);
 
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+    scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
     monitor.reset();
 
     in.activate();
@@ -268,7 +268,7 @@ public class AssociationTest {
     val out = TestUtil.testNode(output, monitor);
     out.activate();
     scheduler.runFor(IntegrationProfile.TRANSIENT.period());
-    Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+    Cluster.associate(input, output);
 
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();
@@ -294,7 +294,7 @@ public class AssociationTest {
     val out = TestUtil.testNode(output, monitor);
     out.activate();
     scheduler.runFor(IntegrationProfile.TRANSIENT.period() - 1);
-    Cluster.associate(input, output, IntegrationProfile.TRANSIENT);
+    Cluster.associate(input, output);
 
     scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();

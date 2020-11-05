@@ -54,10 +54,10 @@ public class GatedBiCluster {
     }
   }
 
-  public class OutputCluster extends Cluster<OutputCluster.Node> {
+  public class OutputCluster extends PosteriorCluster<OutputCluster.Node> {
     private static final long serialVersionUID = 1L;
 
-    public class Node extends InputNode {
+    public class Node extends BiNode {
       private static final long serialVersionUID = 1L;
 
       private final Link link;

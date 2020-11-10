@@ -1,10 +1,10 @@
 # Executable Neural Graph
 
-A general purpose intelligence prototype exploring a fully extensible scripting language built into a simplified spiking neural network.
+A prototype exploring a fully extensible scripting language built into a simplified spiking neural network, with the goal of strong natural language understanding.
 
 ## Overview
 
-At their core, both natural and artificial computational systems are causal chains. The executable neural graph is a proposed paradigm that seeks to support an adaptive, Turing-complete system of causal chains in a way that minimally constrains the resulting network topology and preserves plasticity while remaining computationally feasible.
+At their core, both natural and artificial computational systems are causal chains. The executable neural graph is a paradigm that seeks to support an adaptive, Turing-complete system of causal chains in a way that minimally constrains the resulting network topology and preserves plasticity while remaining computationally feasible.
 
 The class of problem where this architecture is expected to excel over matrix methods is open domain online error correction, e.g. defining a new term or phrase in an NLU task, or interactive disambiguation during end-user programming.
 

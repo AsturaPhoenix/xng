@@ -8,7 +8,7 @@ To keep computation feasible while not constraining network fanout, we use a sim
 
 Nodes are the atom of state and network structure, and are basically neurons. Nodes may allow presynaptic connections, postsynaptic connections, or both. Input nodes may be activated by the system, and action nodes can trigger built-in side effects.
 
-For now, we shall refer to nodes that can be presynaptic as priors and nodes that can be postsynaptic as posteriors.
+For now, we shall refer to nodes that can be presynaptic as priors and nodes that can be postsynaptic as posteriors. These terms should not be construed to rigorously carry their Bayesian implications, and different terms may be chosen in the future.
 
 ### Clusters
 
@@ -78,7 +78,7 @@ Binary and topologically unconstrained networks have been investigated in the pa
 
 There is also a body of recent work dedicated to [program induction](https://www.sciencedirect.com/science/article/pii/S1364661320301741), which I am only now beginning to digest. It is likely that the exploration and program induction techniques investigated in this area will need to be incorporated into the adaptive program here in order to allow it to explore and evolve efficiently on its own.
 
-The ideas around extensible languages were explored in an earlier exploratory project, [Alchemy](https://github.com/AsturaPhoenix/alchemy). That project was shelved as it became apparent that an extensible rewrite parser may share some characteristics with semantic networks and led to this project.
+The ideas around extensible languages were explored in an earlier prototype, [Alchemy](https://github.com/AsturaPhoenix/alchemy). That project was shelved as it became apparent that an extensible rewrite parser may share some characteristics with semantic networks and led to this project.
 
 ### Design dumps
 

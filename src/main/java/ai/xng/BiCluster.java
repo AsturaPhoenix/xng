@@ -21,6 +21,7 @@ public class BiCluster extends PosteriorCluster<BiCluster.Node> implements NodeF
     public void activate() {
       link.promote();
       super.activate();
+      publish(this);
     }
   }
 

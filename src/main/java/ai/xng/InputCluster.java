@@ -21,6 +21,7 @@ public class InputCluster extends Cluster<InputCluster.Node> {
     public void activate() {
       link.promote();
       super.activate();
+      publish(this);
     }
   }
 }

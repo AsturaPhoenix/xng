@@ -1,20 +1,10 @@
 package ai.xng;
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
+import lombok.RequiredArgsConstructor;
 
-import io.reactivex.Observable;
-import io.reactivex.subjects.PublishSubject;
-import io.reactivex.subjects.Subject;
-
+@RequiredArgsConstructor
 public class DataCluster extends PosteriorCluster<DataCluster.Node> implements NodeFactory {
   private static final long serialVersionUID = 1L;
-
-  private transient Subject<Node> rxActivations;
-
-  public Observable<Node> rxActivations() {
-    return rxActivations;
-  }
 
   private final InputCluster updateCluster;
 
@@ -35,7 +25,7 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> implements N
     public final void activate() {
       link.promote();
       super.activate();
-      rxActivations.onNext(this);
+      publish(this);
     }
   }
 
@@ -83,19 +73,5 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> implements N
   @Override
   public Posterior createNode() {
     return new MutableNode<>();
-  }
-
-  public DataCluster(final InputCluster updateCluster) {
-    this.updateCluster = updateCluster;
-    init();
-  }
-
-  private void init() {
-    rxActivations = PublishSubject.create();
-  }
-
-  private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
-    o.defaultReadObject();
-    init();
   }
 }

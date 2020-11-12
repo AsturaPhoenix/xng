@@ -46,13 +46,13 @@ Nodes values may be mutable or final. Mutable nodes additionally trigger a dedic
 
 ### Context binding
 
-Context binding is a mechanism that helps us bind priors to a cluster that can also effectively be posteriors of that cluster in a way that allows us to refer to those posteriors without undue risk of spuriously activating further nodes predicated on the context. To accomplish this, we introduce the `GatedBiCluster`, which effectively acts as an input cluster connected to an output cluster with the output predicated on a gating node. While probably not strictly required, this cluster allows us to easily and consistently implement such a mechanism without repeatedly worrying about setting up the connections.
+Context binding is a mechanism that helps us bind priors to a cluster that can also effectively be posteriors of that cluster in a way that allows us to refer to those posteriors without undue risk of spuriously activating further nodes predicated on the context. To accomplish this, we introduce the `GatedBiCluster`, which effectively acts as an input (entity) cluster connected to an output (context) cluster with the output predicated on a gating node. While probably not strictly required, this cluster allows us to easily and consistently implement such a mechanism without repeatedly worrying about setting up the connections.
 
 In addition to context, this mechanism can be used for property bindings ([entity-attribute-value](https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model)), dictionary storage, and stack frames.
 
 ### Stack frames
 
-Stack frames are a special application of context binding where context nodes are "pushed onto a stack" by way of binding them to a stack node while scaling down any existing posteriors of that node. They are popped by activating the stack node and dissassociating the resulting posteriors, and then scaling up any remaining posteriors.
+Stack frames are a special application of context binding where context entity nodes are "pushed onto a stack" by way of binding them to a stack node while scaling down any existing posteriors of that node. They are popped by activating the stack node and disassociating the resulting posteriors, and then scaling up any remaining posteriors.
 
 Stack frames may additionally serve in other capacities as representations of a task, such as in parsing, planning, and episodic memory.
 

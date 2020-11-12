@@ -57,7 +57,15 @@ public class TestUtil {
     return () -> checked.runUnchecked();
   }
 
+  public static ActionCluster.Node testNode(final EmissionMonitor<Long> monitor) {
+    return testNode(new ActionCluster(), monitor);
+  }
+
   public static ActionCluster.Node testNode(final ActionCluster cluster, final EmissionMonitor<Long> monitor) {
     return cluster.new Node(() -> monitor.emit(Scheduler.global.now()));
+  }
+
+  public static EmissionMonitor<Long> activationTimeMonitor(final Cluster<?> cluster) {
+    return EmissionMonitor.fromObservable(cluster.rxActivations().map(n -> Scheduler.global.now()));
   }
 }

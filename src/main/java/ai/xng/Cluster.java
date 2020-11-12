@@ -9,12 +9,38 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.function.BiConsumer;
 
+import io.reactivex.Observable;
+import io.reactivex.subjects.PublishSubject;
+import io.reactivex.subjects.Subject;
 import lombok.val;
 
-public class Cluster<T extends Node> implements Serializable {
+public abstract class Cluster<T extends Node> implements Serializable {
   private static final long serialVersionUID = 1L;
 
-  protected transient RecencyQueue<WeakReference<T>> activations = new RecencyQueue<>();
+  private transient RecencyQueue<WeakReference<T>> activations = new RecencyQueue<>();
+
+  private transient Subject<T> rxActivations;
+
+  public Observable<T> rxActivations() {
+    return rxActivations;
+  }
+
+  /**
+   * Publishes a node activation to {@link #rxActivations()}. This should
+   * generally be called after a node's superclass activation logic to ensure that
+   * the node's activation timestamp has been updated before being published.
+   */
+  protected void publish(final T node) {
+    rxActivations.onNext(node);
+  }
+
+  public Cluster() {
+    init();
+  }
+
+  private void init() {
+    rxActivations = PublishSubject.create();
+  }
 
   private void writeObject(final ObjectOutputStream o) throws IOException {
     o.defaultWriteObject();
@@ -34,6 +60,8 @@ public class Cluster<T extends Node> implements Serializable {
     activations = new RecencyQueue<>();
     // Nodes will be added as their links deserialize.
     o.readObject();
+
+    init();
   }
 
   protected class Link implements Serializable {
@@ -57,6 +85,12 @@ public class Cluster<T extends Node> implements Serializable {
       link = activations.new Link(new WeakReference<>((T) o.readObject()));
     }
 
+    /**
+     * Promotes the node within the recency queue. This should be called at the
+     * beginning of the node activation to ensure that any side effects that query
+     * the recency queue receive a sequence consistent with the updated activation
+     * timestamps.
+     */
     public void promote() {
       link.promote();
     }

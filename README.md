@@ -8,7 +8,7 @@ At their core, both natural and artificial computational systems are causal chai
 
 The class of problem where this architecture is expected to excel over matrix methods is open domain online error correction, e.g. defining a new term or phrase in an NLU task, or interactive disambiguation during end-user programming.
 
-Further documentation is in the [wiki](wiki).
+Further documentation is in the [wiki](https://github.com/AsturaPhoenix/xng/wiki).
 
 ## Developing
 

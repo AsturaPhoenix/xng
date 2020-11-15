@@ -40,7 +40,16 @@ public class LanguageBootstrap {
   }
 
   private class InputIterator {
+    /**
+     * Node activated once a code point has been decoded.
+     */
     final BiNode onNext;
+    /**
+     * Node that should be called once a longer processing operation is ready to
+     * advance the iterator. It (or the timing cluster) can also be inhibited by
+     * paths that are not ready to proceed.
+     */
+    final BiNode advance;
     final BooleanDecoder hasNextDecoder;
     final DataCluster.MutableNode<Integer> codePoint;
     final BinaryDecoder rawDecoder;
@@ -65,23 +74,27 @@ public class LanguageBootstrap {
           .then(next)
           .then(kb.actions.new Node(() -> codePoint.setData(iterator.getData().next())));
 
-      val decode = kb.execution.new Node();
-      next.then(decode);
       rawDecoder = new BinaryDecoder(codePoint::getData, kb.input);
       charDecoder = new CharacterDecoder(codePoint::getData, kb.input);
-      decode.then(kb.actions.new Node(rawDecoder));
-      decode.then(kb.actions.new Node(charDecoder));
       onNext = kb.execution.new Node();
-      decode.then(onNext);
+      next.then(kb.execution.new Node())
+          .then(
+              kb.actions.new Node(rawDecoder),
+              kb.actions.new Node(charDecoder),
+              onNext);
 
+      advance = kb.execution.new Node();
       val delay = timingChain(IntegrationProfile.TRANSIENT.period());
-      onNext.then(delay.head);
+      advance.then(delay.head);
       delay.tail.then(hasNext);
+
+      // Advance by default unless inhibited.
+      onNext.then(advance);
     }
   }
 
   private final InputIterator inputIterator;
-
+  private final StmCluster constructionStack = new StmCluster();
   public final DataCluster.MutableNode<Object> literal;
 
   private class RecognitionClass {
@@ -102,8 +115,10 @@ public class LanguageBootstrap {
 
       val quoteInput = inputIterator.rawDecoder.outputFor('"');
       val quote = kb.recognition.new Node();
-      quote.then(recognitionClass.character);
-      new ConjunctionJunction().addAll(quoteInput).build(quote);
+      new ConjunctionJunction()
+          .addAll(quoteInput)
+          .build(quote)
+          .then(recognitionClass.character);
       start.conjunction(quote, isParsing.isFalse);
       end.conjunction(quote, isParsing.isTrue);
       inputIterator.onNext.then(kb.actions.new Node(isParsing));

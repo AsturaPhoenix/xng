@@ -47,6 +47,12 @@ public interface Prior extends Node {
     return posterior;
   }
 
+  default void then(final Posterior... posteriors) {
+    for (val posterior : posteriors) {
+      then(posterior);
+    }
+  }
+
   default void inhibit(final Posterior posterior) {
     getPosteriors().getDistribution(posterior, IntegrationProfile.TRANSIENT).set(-1);
   }

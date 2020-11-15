@@ -33,11 +33,11 @@ public class ConjunctionJunction {
     return this;
   }
 
-  public void build(final Posterior posterior) {
-    build(posterior, 1);
+  public <T extends Posterior> T build(final T posterior) {
+    return build(posterior, 1);
   }
 
-  public void build(final Posterior posterior, final float weight) {
+  public <T extends Posterior> T build(final T posterior, final float weight) {
     // Scale such that activation of the last principal component (may be
     // hypothetical, with relative weight 1) roughly has margins on either side of
     // the activation threshold (but cap the maximum at the default coefficient, and
@@ -54,5 +54,7 @@ public class ConjunctionJunction {
       assert coefficient <= Prior.DEFAULT_COEFFICIENT;
       component.prior().getPosteriors().getDistribution(posterior, component.profile()).add(coefficient, weight);
     }
+
+    return posterior;
   }
 }

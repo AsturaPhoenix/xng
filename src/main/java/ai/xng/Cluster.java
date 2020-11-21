@@ -40,6 +40,8 @@ public abstract class Cluster<T extends Node> implements Serializable {
 
   private void init() {
     rxActivations = PublishSubject.create();
+
+    // TODO: register cleanup task
   }
 
   private void writeObject(final ObjectOutputStream o) throws IOException {
@@ -58,7 +60,7 @@ public abstract class Cluster<T extends Node> implements Serializable {
     o.defaultReadObject();
 
     activations = new RecencyQueue<>();
-    // Nodes will be added as their links deserialize.
+    // Nodes will be re-added as they activate.
     o.readObject();
 
     init();
@@ -97,6 +99,7 @@ public abstract class Cluster<T extends Node> implements Serializable {
   }
 
   public void clean() {
+    // TODO: reverse this iterator (LRU heuristic)
     val it = activations.iterator();
     while (it.hasNext()) {
       if (it.next().get() == null) {

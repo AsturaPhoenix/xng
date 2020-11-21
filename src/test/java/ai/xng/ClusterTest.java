@@ -26,6 +26,26 @@ public class ClusterTest {
     assertThat(cluster.activations()).containsExactly(c, b, a);
   }
 
+  private static class SingleNodeCluster implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    final InputCluster cluster = new InputCluster();
+    final InputCluster.Node node = cluster.new Node();
+  }
+
+  @Test
+  public void testActivationsClearedAfterDeserialization() throws Exception {
+    val original = new SingleNodeCluster();
+    original.node.activate();
+
+    val deserialized = TestUtil.serialize(original);
+    assertThat(original.cluster.activations()).containsExactly(original.node);
+    assertThat(deserialized.cluster.activations()).isEmpty();
+
+    deserialized.node.activate();
+    assertThat(deserialized.cluster.activations()).containsExactly(deserialized.node);
+  }
+
   private static class GcTestClusters implements Serializable {
     private static final long serialVersionUID = 1L;
 

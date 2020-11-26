@@ -38,8 +38,6 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
         } else {
           throw e;
         }
-      } finally {
-        publish(this);
       }
     }
   }

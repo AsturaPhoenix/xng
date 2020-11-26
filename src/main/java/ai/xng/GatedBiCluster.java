@@ -40,7 +40,6 @@ public class GatedBiCluster {
       public final void activate() {
         link.promote();
         super.activate();
-        publish(this);
 
         if (gate.getIntegrator()
             .isActive()) {
@@ -76,7 +75,6 @@ public class GatedBiCluster {
       public final void activate() {
         link.promote();
         super.activate();
-        publish(this);
       }
     }
   }

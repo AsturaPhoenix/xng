@@ -9,40 +9,14 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.function.BiConsumer;
 
-import io.reactivex.Observable;
-import io.reactivex.subjects.PublishSubject;
-import io.reactivex.subjects.Subject;
 import lombok.val;
 
-public abstract class Cluster<T extends Node> implements Serializable {
+public class Cluster<T extends Node> implements Serializable {
   private static final long serialVersionUID = 1L;
 
   private transient RecencyQueue<WeakReference<T>> activations = new RecencyQueue<>();
 
-  private transient Subject<T> rxActivations;
-
-  public Observable<T> rxActivations() {
-    return rxActivations;
-  }
-
-  /**
-   * Publishes a node activation to {@link #rxActivations()}. This should
-   * generally be called after a node's superclass activation logic to ensure that
-   * the node's activation timestamp has been updated before being published.
-   */
-  protected void publish(final T node) {
-    rxActivations.onNext(node);
-  }
-
-  public Cluster() {
-    init();
-  }
-
-  private void init() {
-    rxActivations = PublishSubject.create();
-
-    // TODO: register cleanup task
-  }
+  // TODO: register cleanup task
 
   private void writeObject(final ObjectOutputStream o) throws IOException {
     o.defaultWriteObject();
@@ -62,8 +36,6 @@ public abstract class Cluster<T extends Node> implements Serializable {
     activations = new RecencyQueue<>();
     // Nodes will be re-added as they activate.
     o.readObject();
-
-    init();
   }
 
   protected class Link implements Serializable {

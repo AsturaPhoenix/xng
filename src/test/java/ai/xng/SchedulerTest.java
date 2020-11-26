@@ -401,7 +401,7 @@ public class SchedulerTest {
     val scheduler = new RealTimeScheduler(threadPool);
 
     val flag = new boolean[] { false };
-    for (int i = 0; i < 100000; ++i) {
+    for (int i = 0; i < 10000; ++i) {
       val flagResult = new CompletableFuture<Boolean>();
       scheduler.postTask(() -> flag[0] = true);
       scheduler.postTask(() -> flagResult.complete(flag[0]));

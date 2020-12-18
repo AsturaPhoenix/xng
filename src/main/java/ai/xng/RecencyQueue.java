@@ -62,13 +62,15 @@ public class RecencyQueue<T> implements Iterable<T> {
     }
   }
 
-  private class Iterator implements java.util.Iterator<T> {
+  private abstract class Iterator implements java.util.Iterator<T> {
     final Object version;
     Link prevLink, nextLink;
 
     Iterator() {
+      if (RecencyQueue.this.version == null) {
+        RecencyQueue.this.version = new Object();
+      }
       version = RecencyQueue.this.version;
-      nextLink = head;
     }
 
     @Override
@@ -87,9 +89,11 @@ public class RecencyQueue<T> implements Iterable<T> {
 
       final T nextItem = nextLink.value;
       prevLink = nextLink;
-      nextLink = nextLink.next;
+      advance();
       return nextItem;
     }
+
+    abstract void advance();
 
     @Override
     public void remove() {
@@ -103,10 +107,29 @@ public class RecencyQueue<T> implements Iterable<T> {
 
   @Override
   public java.util.Iterator<T> iterator() {
-    if (version == null) {
-      version = new Object();
-    }
-    return new Iterator();
+    return new Iterator() {
+      {
+        nextLink = head;
+      }
+
+      @Override
+      void advance() {
+        nextLink = nextLink.next;
+      }
+    };
+  }
+
+  public java.util.Iterator<T> reverseIterator() {
+    return new Iterator() {
+      {
+        nextLink = tail;
+      }
+
+      @Override
+      void advance() {
+        nextLink = nextLink.previous;
+      }
+    };
   }
 
   @Override

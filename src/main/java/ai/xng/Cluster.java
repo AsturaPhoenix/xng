@@ -71,12 +71,11 @@ public class Cluster<T extends Node> implements Serializable {
   }
 
   public void clean() {
-    // TODO: reverse this iterator (LRU heuristic)
-    val it = activations.iterator();
-    while (it.hasNext()) {
-      if (it.next().get() == null) {
-        it.remove();
-      }
+    // TODO: Guard against connected but rarely activated nodes blocking GC by
+    // thresholding this.
+    val it = activations.reverseIterator();
+    while (it.hasNext() && it.next().get() == null) {
+      it.remove();
     }
   }
 

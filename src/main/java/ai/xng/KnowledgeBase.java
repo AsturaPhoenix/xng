@@ -4,13 +4,11 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.lang.reflect.Method;
-import java.util.Arrays;
 import java.util.Objects;
 
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
-import lombok.val;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
   private static final long serialVersionUID = 2L;
@@ -34,38 +32,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
   @SuppressWarnings("unchecked")
-  public final ActionCluster.Node associate = actions.new Node(
-      () -> data.rxActivations()
-          .map(DataNode::getData)
-          .take(2)
-          .toList()
-          .subscribe(
-              args -> Cluster.associate(
-                  (Cluster<? extends Prior>) args.get(0),
-                  (Cluster<? extends Posterior>) args.get(1),
-                  Arrays.asList(IntegrationProfile.TRANSIENT)),
-              lastException::setData)),
-      disassociate = actions.new Node(() -> data.rxActivations()
-          .map(DataNode::getData)
-          .take(2)
-          .toList()
-          .subscribe(
-              args -> Cluster.disassociate(
-                  (Cluster<? extends Prior>) args.get(0),
-                  (Cluster<? extends Posterior>) args.get(1)),
-              lastException::setData)),
-      capture = actions.new Node(() -> data.rxActivations()
-          .map(DataNode::getData)
-          .take(2)
-          .toList()
-          .subscribe(
-              args -> {
-                val priorCluster = (Cluster<? extends Prior>) args.get(0);
-                val posteriorCluster = (NodeFactory) args.get(1);
-
-                Cluster.associate(priorCluster, posteriorCluster.createNode(),
-                    IntegrationProfile.COMMON, Scheduler.global.now(), 1);
-              }, lastException::setData)),
+  public final ActionCluster.Node disassociate = actions.new Node(() -> data.rxActivations()
+      .map(DataNode::getData)
+      .take(2)
+      .toList()
+      .subscribe(
+          args -> Cluster.disassociate(
+              (Cluster<? extends Prior>) args.get(0),
+              (Cluster<? extends Posterior>) args.get(1)),
+          lastException::setData)),
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()

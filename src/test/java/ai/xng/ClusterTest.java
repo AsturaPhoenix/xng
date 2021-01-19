@@ -74,7 +74,7 @@ public class ClusterTest {
       input.activate();
     }
 
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
 
     gc.assertNoGrowth(() -> {
       System.gc();

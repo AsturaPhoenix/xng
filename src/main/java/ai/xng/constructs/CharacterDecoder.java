@@ -1,9 +1,13 @@
 package ai.xng.constructs;
 
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Consumer;
 
 import ai.xng.ActionNode;
 import ai.xng.InputCluster;
+import ai.xng.Node;
 import ai.xng.util.SerializableSupplier;
 import lombok.val;
 
@@ -30,33 +34,105 @@ public class CharacterDecoder implements ActionNode.Action {
 
   private final Test[] tests;
 
+  private final InputCluster output;
+  private final Map<Integer, InputCluster.Node> oneHotEncoding = new HashMap<>();
+
   public CharacterDecoder(final SerializableSupplier<Integer> data, final InputCluster output) {
     this.data = data;
+    this.output = output;
     tests = new Test[] {
-        new Test(Character::isWhitespace, isWhitespace = output.new Node()),
-        new Test(Character::isJavaIdentifierStart, isJavaIdentifierStart = output.new Node()),
-        new Test(Character::isJavaIdentifierPart, isJavaIdentifierPart = output.new Node()),
-        new Test(Character::isDigit, isDigit = output.new Node()),
-        new Test(Character::isUpperCase, isUpperCase = output.new Node()),
-        new Test(Character::isLowerCase, isLowerCase = output.new Node()),
-        new Test(Character::isISOControl, isControl = output.new Node())
+        new Test(Character::isWhitespace, isWhitespace = output.new Node() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public String toString() {
+            return "isWhitespace";
+          }
+        }),
+        new Test(Character::isJavaIdentifierStart, isJavaIdentifierStart = output.new Node() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public String toString() {
+            return "isIdentifierStart";
+          }
+        }),
+        new Test(Character::isJavaIdentifierPart, isJavaIdentifierPart = output.new Node() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public String toString() {
+            return "isIdentifierPart";
+          }
+        }),
+        new Test(Character::isDigit, isDigit = output.new Node() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public String toString() {
+            return "isDigit";
+          }
+        }),
+        new Test(Character::isUpperCase, isUpperCase = output.new Node() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public String toString() {
+            return "isUpperCase";
+          }
+        }),
+        new Test(Character::isLowerCase, isLowerCase = output.new Node() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public String toString() {
+            return "isLowerCase";
+          }
+        }),
+        new Test(Character::isISOControl, isControl = output.new Node() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public String toString() {
+            return "isControl";
+          }
+        })
     };
 
-    isOther = output.new Node();
+    isOther = output.new Node() {
+      private static final long serialVersionUID = 1L;
+
+      @Override
+      public String toString() {
+        return "unknown character class";
+      }
+    };
   }
 
-  @Override
-  public void activate() {
-    final int codePoint = data.get();
+  public void forOutput(final int codePoint, final Consumer<? super InputCluster.Node> action) {
     boolean isClassified = false;
     for (val test : tests) {
       if (test.predicate().apply(codePoint)) {
-        test.output().activate();
+        action.accept(test.output());
         isClassified = true;
       }
     }
     if (!isClassified) {
-      isOther.activate();
+      action.accept(isOther);
     }
+
+    action.accept(oneHotEncoding.computeIfAbsent(Character.toLowerCase(codePoint), __ -> output.new Node() {
+      private static final long serialVersionUID = 1L;
+
+      @Override
+      public String toString() {
+        return new StringBuilder("'").appendCodePoint(codePoint).append('\'').toString();
+      }
+    }));
+  }
+
+  @Override
+  public void activate() {
+    forOutput(data.get(), Node::activate);
   }
 }

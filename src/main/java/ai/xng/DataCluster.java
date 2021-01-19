@@ -7,7 +7,7 @@ import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
-public class DataCluster extends PosteriorCluster<DataCluster.Node> implements NodeFactory {
+public class DataCluster extends PosteriorCluster<DataCluster.Node> {
   private static final long serialVersionUID = 1L;
 
   private transient Subject<Node> rxActivations;
@@ -78,11 +78,6 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> implements N
       container.data = value;
       onUpdate.activate();
     }
-  }
-
-  @Override
-  public Posterior createNode() {
-    return new MutableNode<>();
   }
 
   public DataCluster(final InputCluster updateCluster) {

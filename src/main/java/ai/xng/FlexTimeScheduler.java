@@ -17,11 +17,11 @@ import lombok.AllArgsConstructor;
 import lombok.val;
 
 /**
- * A sequential scheduler based on real time. Tasks are executed in a
+ * A sequential scheduler based mostly on real time. Tasks are executed in a
  * non-overlapping manner. While the task queue is empty, the thread is returned
  * to a common pool.
  */
-public class RealTimeScheduler extends Scheduler {
+public class FlexTimeScheduler extends Scheduler {
   @AllArgsConstructor
   private class Task implements Comparable<Task>, Disposable {
     final Disposable parent;
@@ -62,11 +62,13 @@ public class RealTimeScheduler extends Scheduler {
   private int pauseCount;
   private final Condition pauseCondition = lock.newCondition();
 
+  private long timeOffset;
+
   /**
    * Creates a scheduler that uses {@code threadPool} to run the dispatch loop. As
    * long as tasks are pending, this will hold onto a thread/task.
    */
-  public RealTimeScheduler(final Executor threadPool) {
+  public FlexTimeScheduler(final Executor threadPool) {
     this.threadPool = threadPool;
   }
 
@@ -168,7 +170,8 @@ public class RealTimeScheduler extends Scheduler {
             final long now = now();
             // Use deadline > now instead of delta > 0 for overflow robustness.
             if (head.deadline > now) {
-              delayCondition.await(head.deadline - now, TimeUnit.MILLISECONDS);
+              final long delta = head.deadline - now;
+              delayCondition.await(delta > 0 ? delta : Long.MAX_VALUE, TimeUnit.MILLISECONDS);
               continue;
             }
 
@@ -200,6 +203,61 @@ public class RealTimeScheduler extends Scheduler {
     } finally {
       lock.unlock();
     }
+  }
+
+  /**
+   * Drains the task queue, blocking until empty. Ignores pause. This should not
+   * be used while periodic tasks are in the queue.
+   */
+  @Override
+  public void fastForwardUntilIdle() {
+    lock.lock();
+    try {
+      while (!tasks.isEmpty()) {
+        final Task task = tasks.poll();
+        final long delta = task.deadline - now();
+        if (delta > 0) {
+          timeOffset += delta;
+        }
+
+        if (task.run != null) {
+          task.run.run();
+        }
+      }
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public void fastForwardUntil(final long time) {
+    lock.lock();
+    try {
+      if (time < now()) {
+        return;
+      }
+
+      long next;
+      while (!tasks.isEmpty() && (next = tasks.peek().deadline) <= time) {
+        final long delta = next - now();
+        if (delta > 0) {
+          timeOffset += delta;
+        }
+        tasks.poll().run.run();
+      }
+
+      final long targetOffset = time - System.currentTimeMillis();
+      if (targetOffset > timeOffset) {
+        timeOffset = targetOffset;
+      }
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public void fastForwardFor(final long dt) {
+    fastForwardUntil(now() + dt);
   }
 
   /**
@@ -297,7 +355,7 @@ public class RealTimeScheduler extends Scheduler {
 
   @Override
   public long now() {
-    return System.currentTimeMillis();
+    return System.currentTimeMillis() + timeOffset;
   }
 
   @Override

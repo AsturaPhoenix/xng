@@ -40,12 +40,12 @@ public class SchedulerTest {
 
   @Test
   public void testUnstartedIsNotOnThread() {
-    assertFalse(new RealTimeScheduler(threadPool).isOnThread());
+    assertFalse(new FlexTimeScheduler(threadPool).isOnThread());
   }
 
   @Test
   public void testIsOnThread() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val isOnThread = new CompletableFuture<Boolean>();
     scheduler.postTask(() -> isOnThread.complete(scheduler.isOnThread()));
@@ -56,7 +56,7 @@ public class SchedulerTest {
   @Test
   public void testDoesNotConsumeThreadBeforeTask() throws Exception {
     val singleThread = Executors.newSingleThreadExecutor();
-    new RealTimeScheduler(singleThread);
+    new FlexTimeScheduler(singleThread);
 
     val sync = new CountDownLatch(1);
     singleThread.execute(sync::countDown);
@@ -66,7 +66,7 @@ public class SchedulerTest {
   @Test
   public void testCedesThreadWhileInactive() throws Exception {
     val singleThread = Executors.newSingleThreadExecutor();
-    val scheduler = new RealTimeScheduler(singleThread);
+    val scheduler = new FlexTimeScheduler(singleThread);
 
     val sync = new Phaser(2);
     scheduler.postTask(sync::arrive);
@@ -80,7 +80,7 @@ public class SchedulerTest {
   public void testRejectionRecoveryOnDispatchStart() throws Exception {
     // single-threaded executor with no queue capacity
     val singleThread = new ThreadPoolExecutor(1, 1, 1, TimeUnit.SECONDS, new SynchronousQueue<>());
-    val scheduler = new RealTimeScheduler(singleThread);
+    val scheduler = new FlexTimeScheduler(singleThread);
 
     // Starve the thread pool before the scheduler requests a thread.
     val starve = new CountDownLatch(1);
@@ -106,7 +106,7 @@ public class SchedulerTest {
    */
   @Test
   public void testBlocking() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val blocking = new CountDownLatch(1);
     scheduler.postTask(unchecked(blocking::await));
@@ -120,7 +120,7 @@ public class SchedulerTest {
 
   @Test
   public void testDeferredOnCurrentThread() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val immediate = new CompletableFuture<Boolean>();
     scheduler.postTask(() -> {
@@ -132,7 +132,7 @@ public class SchedulerTest {
 
   @Test
   public void testFifo() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val reference = ContiguousSet.create(Range.closedOpen(0, 1000),
         DiscreteDomain.integers());
@@ -152,7 +152,7 @@ public class SchedulerTest {
 
   @Test
   public void testRealTimeDelay() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val sync = new CountDownLatch(1);
     final long start = System.currentTimeMillis();
@@ -163,7 +163,7 @@ public class SchedulerTest {
 
   @Test
   public void testPreEmptDelayed() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val longDelay = new CountDownLatch(1);
     final long start = System.currentTimeMillis();
@@ -181,7 +181,7 @@ public class SchedulerTest {
   @Test
   public void testOnThreadShutdown() throws Exception {
     val executor = Executors.newSingleThreadExecutor();
-    val scheduler = new RealTimeScheduler(executor);
+    val scheduler = new FlexTimeScheduler(executor);
     val sync = new Phaser(2);
     scheduler.postTask(unchecked(() -> {
       sync.arriveAndAwaitAdvance();
@@ -206,7 +206,7 @@ public class SchedulerTest {
 
   @Test
   public void testPauseDuringShutdown() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val sync = new CountDownLatch(1);
     scheduler.postTask(() -> {
@@ -222,7 +222,7 @@ public class SchedulerTest {
   @Test
   public void testThreadPoolShutdownPendingDelayed() throws Exception {
     val executor = Executors.newSingleThreadExecutor();
-    val scheduler = new RealTimeScheduler(executor);
+    val scheduler = new FlexTimeScheduler(executor);
 
     val sync = new CountDownLatch(1);
     scheduler.postTask(sync::countDown);
@@ -237,7 +237,7 @@ public class SchedulerTest {
   @Test
   public void testThreadPoolShutdownUnendingTasks() throws Exception {
     val executor = Executors.newSingleThreadExecutor();
-    val scheduler = new RealTimeScheduler(executor);
+    val scheduler = new FlexTimeScheduler(executor);
 
     val sync = new CountDownLatch(1);
     scheduler.postTask(sync::countDown);
@@ -259,7 +259,7 @@ public class SchedulerTest {
    */
   @Test
   public void testTaskDisposalContention() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val sync = new Phaser(2);
 
@@ -282,7 +282,7 @@ public class SchedulerTest {
 
   @Test
   public void testSameThreadDispatch() {
-    val scheduler = new RealTimeScheduler(MoreExecutors.directExecutor());
+    val scheduler = new FlexTimeScheduler(MoreExecutors.directExecutor());
 
     val thread = new Thread[1];
     scheduler.postTask(() -> thread[0] = Thread.currentThread());
@@ -295,7 +295,7 @@ public class SchedulerTest {
    */
   @Test
   public void testSameThreadSynchronization() throws Exception {
-    val scheduler = new RealTimeScheduler(MoreExecutors.directExecutor());
+    val scheduler = new FlexTimeScheduler(MoreExecutors.directExecutor());
 
     final int THREADS = 2, ITERATIONS = 5000;
 
@@ -315,7 +315,7 @@ public class SchedulerTest {
 
   @Test
   public void testPauseWhileActive() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val counter = new int[] { 0 };
     final int ITERATIONS = 5000;
@@ -337,7 +337,7 @@ public class SchedulerTest {
 
   @Test
   public void testPauseWhileIdle() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val counter = new int[] { 0 };
     scheduler.pause();
@@ -355,7 +355,7 @@ public class SchedulerTest {
 
   @Test
   public void testNestedPause() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val sync = new CountDownLatch(1);
     scheduler.pause();
@@ -369,7 +369,7 @@ public class SchedulerTest {
 
   @Test
   public void testPauseDelayed() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val delay = new CountDownLatch(1);
     scheduler.postTask(delay::countDown, scheduler.now() + 10 * DELAY);
@@ -383,7 +383,7 @@ public class SchedulerTest {
 
   @Test
   public void testPauseAndResumeFromDispatchThread() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val sync = new CountDownLatch(1);
 
@@ -398,7 +398,7 @@ public class SchedulerTest {
 
   @Test
   public void testColdOrdering() throws Exception {
-    val scheduler = new RealTimeScheduler(threadPool);
+    val scheduler = new FlexTimeScheduler(threadPool);
 
     val flag = new boolean[] { false };
     for (int i = 0; i < 10000; ++i) {

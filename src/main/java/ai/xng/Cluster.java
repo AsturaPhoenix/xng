@@ -6,8 +6,11 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.function.BiConsumer;
+
+import com.google.common.collect.ImmutableList;
 
 import lombok.val;
 
@@ -132,11 +135,50 @@ public class Cluster<T extends Node> implements Serializable {
     }
   }
 
-  public static void associate(final Cluster<? extends Prior> priorCluster, final Posterior posterior,
-      final Iterable<IntegrationProfile> profiles, final long t, final float weight) {
+  public static record PriorClusterProfile(Cluster<? extends Prior> cluster,
+      ImmutableList<IntegrationProfile> profiles) {
+
+    public PriorClusterProfile(final Cluster<? extends Prior> cluster, final IntegrationProfile... profiles) {
+      this(cluster, ImmutableList.copyOf(profiles));
+    }
+
+    public static class ListBuilder {
+      private final ImmutableList.Builder<PriorClusterProfile> backing = ImmutableList.builder();
+      private ImmutableList<IntegrationProfile> baseProfiles = IntegrationProfile.COMMON;
+
+      public ListBuilder baseProfiles(final IntegrationProfile... profiles) {
+        baseProfiles = ImmutableList.copyOf(profiles);
+        return this;
+      }
+
+      public ListBuilder addCluster(final Cluster<? extends Prior> cluster) {
+        backing.add(new PriorClusterProfile(cluster, baseProfiles));
+        return this;
+      }
+
+      public ListBuilder add(final Cluster<? extends Prior> cluster, final IntegrationProfile... additionalProfiles) {
+        backing.add(
+            new PriorClusterProfile(cluster,
+                ImmutableList.<IntegrationProfile>builder()
+                    .addAll(baseProfiles)
+                    .addAll(Arrays.asList(additionalProfiles))
+                    .build()));
+        return this;
+      }
+
+      public ImmutableList<PriorClusterProfile> build() {
+        return backing.build();
+      }
+    }
+  }
+
+  public static void associate(final Iterable<PriorClusterProfile> priors, final Posterior posterior,
+      final long t, final float weight) {
     val conjunction = new ConjunctionJunction();
-    for (val profile : profiles) {
-      forEachByTrace(priorCluster, profile, t, (node, trace) -> conjunction.add(node, profile, trace));
+    for (val prior : priors) {
+      for (val profile : prior.profiles) {
+        forEachByTrace(prior.cluster, profile, t, (node, trace) -> conjunction.add(node, profile, trace));
+      }
     }
     conjunction.build(posterior, weight);
   }
@@ -147,20 +189,25 @@ public class Cluster<T extends Node> implements Serializable {
    * active posteriors considered at the time this function executes are always
    * based on a {@link IntegrationProfile#TRANSIENT} window.
    */
-  public static void associate(final Cluster<? extends Prior> priorCluster,
-      final Cluster<? extends Posterior> posteriorCluster, final Iterable<IntegrationProfile> profiles) {
-    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
+  public static void associate(final Iterable<PriorClusterProfile> priors,
+      final Cluster<? extends Posterior> posteriorCluster, final long effectiveTime) {
+    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, effectiveTime,
         (posterior, posteriorTrace) -> {
           // For each posterior, connect all priors with timings that could have
           // contributed to the firing in a conjunctive way.
 
-          associate(priorCluster, posterior, profiles, posterior.getLastActivation().get(), posteriorTrace);
+          associate(priors, posterior, posterior.getLastActivation().get(), posteriorTrace);
         });
+  }
+
+  public static void associate(final Iterable<PriorClusterProfile> priors,
+      final Cluster<? extends Posterior> posteriorCluster) {
+    associate(priors, posteriorCluster, Scheduler.global.now());
   }
 
   public static void associate(final Cluster<? extends Prior> priorCluster,
       final Cluster<? extends Posterior> posteriorCluster) {
-    associate(priorCluster, posteriorCluster, IntegrationProfile.COMMON);
+    associate(Arrays.asList(new PriorClusterProfile(priorCluster, IntegrationProfile.COMMON)), posteriorCluster);
   }
 
   /**

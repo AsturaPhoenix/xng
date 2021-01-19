@@ -12,7 +12,13 @@ public class ConjunctionJunction {
   }
 
   private final List<Component> components = new ArrayList<>();
-  private float norm;
+  // Norm keeps a projected summation under the delay before posterior activation
+  // captured during training. However, this can be unrealistic if the maximum
+  // sum, which would actually trigger activation, occurs well earlier, leading to
+  // conjunctions that are too lenient. Keeping the max recorded component weight
+  // allows us to compensate for this by scaling the norm projection so that the
+  // max component effectively becomes 1.
+  private float norm, maxComponent;
 
   public ConjunctionJunction addAll(final Iterable<? extends Prior> priors) {
     for (val prior : priors) {
@@ -29,6 +35,9 @@ public class ConjunctionJunction {
     if (weight > 0) {
       components.add(new Component(prior, profile, weight));
       norm += weight * weight;
+      if (weight > maxComponent) {
+        maxComponent = weight;
+      }
     }
     return this;
   }
@@ -46,8 +55,9 @@ public class ConjunctionJunction {
     // The actual formulation of the above, (norm - 1) / (1 - .5 / norm), doesn't
     // work as well in the presence of less significant components as the below, as
     // it produces false positives.
-    final float normAdj = norm <= Prior.DEFAULT_COEFFICIENT ? 1
-        : Math.max(norm / Prior.DEFAULT_COEFFICIENT, norm - .5f / norm);
+    float normAdj = norm / maxComponent;
+    normAdj = normAdj <= Prior.DEFAULT_COEFFICIENT ? 1
+        : Math.max(normAdj / Prior.DEFAULT_COEFFICIENT, normAdj - .5f / normAdj);
 
     for (val component : components) {
       final float coefficient = component.weight() / normAdj;

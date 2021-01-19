@@ -66,7 +66,8 @@ public class TestScheduler extends Scheduler {
   /**
    * Runs up to and including the given time.
    */
-  public void runUntil(final long time) {
+  @Override
+  public void fastForwardUntil(final long time) {
     if (time < now) {
       return;
     }
@@ -82,11 +83,12 @@ public class TestScheduler extends Scheduler {
     now = time;
   }
 
-  public void runFor(final long dt) {
-    runUntil(now() + dt);
+  @Override
+  public void fastForwardFor(final long dt) {
+    fastForwardUntil(now() + dt);
   }
 
-  public void runUntilIdle() {
+  public void fastForwardUntilIdle() {
     Optional<Long> next;
     while ((next = step()).isPresent()) {
       now = Math.max(now, next.get());

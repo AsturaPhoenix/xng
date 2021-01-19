@@ -40,7 +40,7 @@ public class GatedBiClusterTest {
     stack.output.then(TestUtil.testNode(output, monitor));
 
     stack.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(bicluster.output.activations()).isEmpty();
     assertFalse(monitor.didEmit());
   }
@@ -59,14 +59,14 @@ public class GatedBiClusterTest {
     val gate = input.new Node();
     gate.then(bicluster.gate);
     gate.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
     val stack = bicluster.input.new Node();
     stack.output.then(TestUtil.testNode(output, monitor));
 
     stack.activate();
     assertThat(bicluster.output.activations()).containsExactly(stack.output);
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertTrue(monitor.didEmit());
   }
 
@@ -87,11 +87,11 @@ public class GatedBiClusterTest {
     stack.output.then(TestUtil.testNode(output, monitor));
 
     trigger.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
     bicluster.gate.activate();
     assertThat(bicluster.output.activations()).containsExactly(stack.output);
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertTrue(monitor.didEmit());
   }
 
@@ -109,13 +109,13 @@ public class GatedBiClusterTest {
     val gate = input.new Node();
     gate.then(bicluster.gate);
     gate.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.period());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
     val stack = bicluster.input.new Node();
     stack.output.then(TestUtil.testNode(output, monitor));
 
     stack.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(bicluster.output.activations()).isEmpty();
     assertFalse(monitor.didEmit());
   }
@@ -137,10 +137,10 @@ public class GatedBiClusterTest {
     stack.output.then(TestUtil.testNode(output, monitor));
 
     trigger.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.period());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
     bicluster.gate.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(bicluster.output.activations()).isEmpty();
     assertFalse(monitor.didEmit());
   }

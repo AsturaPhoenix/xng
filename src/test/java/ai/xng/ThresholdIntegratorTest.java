@@ -28,7 +28,7 @@ public class ThresholdIntegratorTest {
   @Test
   public void testShortPulse() {
     integrator.add(IntegrationProfile.fromEdges(1, 1), 1);
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(output).containsExactly(1L);
   }
 
@@ -37,7 +37,7 @@ public class ThresholdIntegratorTest {
     val profile = IntegrationProfile.fromEdges(INTERVAL, INTERVAL);
     integrator.add(profile, 1);
     integrator.add(profile, 1);
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(output).containsExactly(INTERVAL / 2);
   }
 
@@ -45,9 +45,9 @@ public class ThresholdIntegratorTest {
   public void testConjunction() {
     val profile = IntegrationProfile.fromEdges(INTERVAL, 2 * INTERVAL);
     integrator.add(profile, .5f);
-    scheduler.runUntil(INTERVAL);
+    scheduler.fastForwardUntil(INTERVAL);
     integrator.add(profile, .75f);
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(output).containsExactly(2 * INTERVAL);
   }
 
@@ -55,18 +55,18 @@ public class ThresholdIntegratorTest {
   public void testInhibition() {
     val profile = IntegrationProfile.fromEdges(INTERVAL, INTERVAL);
     integrator.add(profile, 1);
-    scheduler.runUntil(INTERVAL / 2);
+    scheduler.fastForwardUntil(INTERVAL / 2);
     integrator.add(profile, -1);
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(output).isEmpty();
   }
 
   @Test
   public void testPullDown() {
     integrator.add(IntegrationProfile.fromEdges(INTERVAL, INTERVAL), 2);
-    scheduler.runUntil(INTERVAL);
+    scheduler.fastForwardUntil(INTERVAL);
     integrator.add(IntegrationProfile.fromEdges(INTERVAL / 4, INTERVAL / 4), -1);
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(output).containsExactly(INTERVAL / 2, 3 * INTERVAL / 2);
   }
 }

@@ -15,7 +15,19 @@ public class LanguageTest {
     try (val kb = new KnowledgeBase()) {
       val language = new LanguageBootstrap(kb);
       kb.inputValue.setData("\"Hello, world!\"");
-      scheduler.runUntilIdle();
+      scheduler.fastForwardUntilIdle();
+      assertEquals("Hello, world!", language.literal.getData());
+    }
+  }
+
+  public void testSequenceCapture() {
+    val scheduler = new TestScheduler();
+    Scheduler.global = scheduler;
+
+    try (val kb = new KnowledgeBase()) {
+      val language = new LanguageBootstrap(kb);
+      kb.inputValue.setData("\"Hello, world!\"");
+      scheduler.fastForwardUntilIdle();
       assertEquals("Hello, world!", language.literal.getData());
     }
   }

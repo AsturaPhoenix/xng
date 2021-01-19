@@ -32,7 +32,7 @@ public class NodeTest {
     val posterior = TestUtil.testNode(new ActionCluster(), monitor);
     prior.then(posterior);
     prior.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertTrue(monitor.didEmit());
   }
 
@@ -47,7 +47,7 @@ public class NodeTest {
     and.conjunction(a, b);
     a.activate();
     b.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertTrue(monitor.didEmit());
   }
 
@@ -62,9 +62,9 @@ public class NodeTest {
     and.conjunction(a, b);
 
     a.activate();
-    scheduler.runUntil(IntegrationProfile.TRANSIENT.period());
+    scheduler.fastForwardUntil(IntegrationProfile.TRANSIENT.period());
     b.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }
 
@@ -83,13 +83,13 @@ public class NodeTest {
     b.activate();
     c.activate();
     d.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertTrue(monitor.didEmit());
 
     a.activate();
     b.activate();
     c.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }
 
@@ -124,12 +124,12 @@ public class NodeTest {
     val fixture = TestUtil.serialize(new AndFixture());
 
     fixture.a.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(fixture.monitor.didEmit());
 
     fixture.a.activate();
     fixture.b.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertTrue(fixture.monitor.didEmit());
   }
 
@@ -153,7 +153,7 @@ public class NodeTest {
     a.activate();
     b.activate();
     b.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertThat(monitor.emissions()).hasSize(1);
   }
 
@@ -171,7 +171,7 @@ public class NodeTest {
     up.activate();
     down.activate();
 
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }
 
@@ -194,6 +194,46 @@ public class NodeTest {
     gc.assertNoGrowth(() -> {
       System.gc();
       input.clean();
+      // Posteriors clean up on prior iteration.
+      val it = posterior.getPriors().iterator();
+      while (it.hasNext()) {
+        it.next();
+      }
     });
+  }
+
+  /**
+   * However, posteriors should still be aware of any priors that are not
+   * orphaned.
+   */
+  @Test
+  public void testPriorGcStability() throws Exception {
+    val input = new InputCluster();
+    val posterior = new ActionCluster().new Node(() -> {
+    });
+
+    val priors = new Prior[1000];
+    for (int i = 0; i < 1000; ++i) {
+      priors[i] = input.new Node();
+      priors[i].then(posterior);
+    }
+
+    val gc = new GcFixture(posterior);
+
+    for (int i = 0; i < 1000; ++i) {
+      input.new Node().then(posterior);
+    }
+
+    gc.assertNoGrowth(() -> {
+      System.gc();
+      input.clean();
+      // Posteriors clean up on prior iteration.
+      val it = posterior.getPriors().iterator();
+      while (it.hasNext()) {
+        it.next();
+      }
+    });
+
+    assertThat(posterior.getPriors()).size().isEqualTo(1000);
   }
 }

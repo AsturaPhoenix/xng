@@ -3,6 +3,8 @@ package ai.xng;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
+
 import org.junit.jupiter.api.Test;
 
 import lombok.val;
@@ -18,14 +20,14 @@ public class AssociationTest {
     val a = input.new Node(), out = TestUtil.testNode(output, monitor);
 
     out.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
     Cluster.associate(input, output);
 
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();
 
     a.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }
 
@@ -40,14 +42,14 @@ public class AssociationTest {
     TestUtil.testNode(output, monitor);
 
     a.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
     Cluster.associate(input, output);
 
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();
 
     a.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }
 
@@ -65,21 +67,21 @@ public class AssociationTest {
         in[i].activate();
       }
 
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
       monitor.reset();
 
       for (val i : in) {
         i.activate();
       }
-      scheduler.runUntilIdle();
+      scheduler.fastForwardUntilIdle();
       assertTrue(monitor.didEmit());
     }
   }
@@ -98,21 +100,21 @@ public class AssociationTest {
         in[i].activate();
       }
 
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
       monitor.reset();
 
       for (int i = 0; i < in.length - 1; ++i) {
         in[i].activate();
       }
-      scheduler.runUntilIdle();
+      scheduler.fastForwardUntilIdle();
       assertFalse(monitor.didEmit());
     }
   }
@@ -129,23 +131,23 @@ public class AssociationTest {
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
-        scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       }
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
+      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
       monitor.reset();
 
       for (val i : in) {
         i.activate();
-        scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       }
-      scheduler.runUntilIdle();
+      scheduler.fastForwardUntilIdle();
       assertTrue(monitor.didEmit(), String.format("Failed with %s priors.", n));
     }
   }
@@ -162,23 +164,23 @@ public class AssociationTest {
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
-        scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       }
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
+      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
       monitor.reset();
 
       for (int i = 0; i < in.length - 1; ++i) {
         in[i].activate();
-        scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       }
-      scheduler.runUntilIdle();
+      scheduler.fastForwardUntilIdle();
       assertFalse(monitor.didEmit(), String.format("Failed with %s priors.", n));
     }
   }
@@ -197,23 +199,23 @@ public class AssociationTest {
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
-        scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       }
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       Cluster.associate(input, output);
 
-      scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
+      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
       monitor.reset();
 
       for (int i = 1; i < in.length; ++i) {
         in[i].activate();
-        scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
       }
-      scheduler.runUntilIdle();
+      scheduler.fastForwardUntilIdle();
       assertFalse(monitor.didEmit(), String.format("Failed with %s priors.", n));
     }
   }
@@ -236,19 +238,19 @@ public class AssociationTest {
     }
 
     in.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
 
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
     out.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
     Cluster.associate(recog, output);
 
-    scheduler.runFor(IntegrationProfile.PERSISTENT.rampDown());
+    scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
     monitor.reset();
 
     in.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertTrue(monitor.didEmit());
   }
 
@@ -262,19 +264,19 @@ public class AssociationTest {
     final InputNode in = input.new Node();
     in.activate();
 
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
     out.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.period());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
     Cluster.associate(input, output);
 
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();
 
     in.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }
 
@@ -288,19 +290,52 @@ public class AssociationTest {
     final InputNode in = input.new Node();
     in.activate();
 
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
     out.activate();
-    scheduler.runFor(IntegrationProfile.TRANSIENT.period() - 1);
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period() - 1);
     Cluster.associate(input, output);
 
-    scheduler.runFor(IntegrationProfile.TRANSIENT.rampDown());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
     monitor.reset();
 
     in.activate();
-    scheduler.runUntilIdle();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
+  }
+
+  @Test
+  public void testDelayedAllButOne() {
+    val scheduler = new TestScheduler();
+    Scheduler.global = scheduler;
+
+    for (int n = 4; n <= 4; ++n) {
+      val input = new InputCluster(), output = new ActionCluster();
+
+      val in = new InputNode[n];
+      for (int i = 0; i < in.length; ++i) {
+        in[i] = input.new Node();
+        in[i].activate();
+      }
+
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp() + IntegrationProfile.TRANSIENT.period() / 3);
+
+      val monitor = new EmissionMonitor<Long>();
+      val out = TestUtil.testNode(output, monitor);
+      out.activate();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      Cluster.associate(Arrays.asList(new Cluster.PriorClusterProfile(input, IntegrationProfile.TRANSIENT)), output);
+
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
+      monitor.reset();
+
+      for (int i = 0; i < in.length - 1; ++i) {
+        in[i].activate();
+      }
+      scheduler.fastForwardUntilIdle();
+      assertFalse(monitor.didEmit());
+    }
   }
 }

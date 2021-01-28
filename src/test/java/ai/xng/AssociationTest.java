@@ -20,7 +20,7 @@ public class AssociationTest {
     val a = input.new Node(), out = TestUtil.testNode(output, monitor);
 
     out.activate();
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
     Cluster.associate(input, output);
 
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
@@ -42,7 +42,7 @@ public class AssociationTest {
     TestUtil.testNode(output, monitor);
 
     a.activate();
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
     Cluster.associate(input, output);
 
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
@@ -67,12 +67,12 @@ public class AssociationTest {
         in[i].activate();
       }
 
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       Cluster.associate(input, output);
 
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
@@ -100,12 +100,12 @@ public class AssociationTest {
         in[i].activate();
       }
 
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       Cluster.associate(input, output);
 
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
@@ -131,13 +131,13 @@ public class AssociationTest {
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
-        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       }
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       Cluster.associate(input, output);
 
       scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
@@ -145,7 +145,7 @@ public class AssociationTest {
 
       for (val i : in) {
         i.activate();
-        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       }
       scheduler.fastForwardUntilIdle();
       assertTrue(monitor.didEmit(), String.format("Failed with %s priors.", n));
@@ -164,13 +164,13 @@ public class AssociationTest {
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
-        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       }
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       Cluster.associate(input, output);
 
       scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
@@ -178,7 +178,7 @@ public class AssociationTest {
 
       for (int i = 0; i < in.length - 1; ++i) {
         in[i].activate();
-        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       }
       scheduler.fastForwardUntilIdle();
       assertFalse(monitor.didEmit(), String.format("Failed with %s priors.", n));
@@ -199,13 +199,13 @@ public class AssociationTest {
       for (int i = 0; i < in.length; ++i) {
         in[i] = input.new Node();
         in[i].activate();
-        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       }
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       Cluster.associate(input, output);
 
       scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
@@ -213,7 +213,7 @@ public class AssociationTest {
 
       for (int i = 1; i < in.length; ++i) {
         in[i].activate();
-        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+        scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       }
       scheduler.fastForwardUntilIdle();
       assertFalse(monitor.didEmit(), String.format("Failed with %s priors.", n));
@@ -243,7 +243,7 @@ public class AssociationTest {
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
     out.activate();
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
     Cluster.associate(recog, output);
 
     scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.rampDown());
@@ -264,7 +264,7 @@ public class AssociationTest {
     final InputNode in = input.new Node();
     in.activate();
 
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
 
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
@@ -290,7 +290,7 @@ public class AssociationTest {
     final InputNode in = input.new Node();
     in.activate();
 
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
 
     val monitor = new EmissionMonitor<Long>();
     val out = TestUtil.testNode(output, monitor);
@@ -320,12 +320,12 @@ public class AssociationTest {
         in[i].activate();
       }
 
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp() + IntegrationProfile.TRANSIENT.period() / 3);
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak() + IntegrationProfile.TRANSIENT.period() / 3);
 
       val monitor = new EmissionMonitor<Long>();
       val out = TestUtil.testNode(output, monitor);
       out.activate();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       Cluster.associate(Arrays.asList(new Cluster.PriorClusterProfile(input, IntegrationProfile.TRANSIENT)), output);
 
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());

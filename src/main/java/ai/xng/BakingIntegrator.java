@@ -16,8 +16,8 @@ public class BakingIntegrator {
   private final List<Segment> segments = new ArrayList<>();
 
   public void add(final long start, final IntegrationProfile profile, final float magnitude) {
-    final long peak = start + profile.rampUp();
-    segments.add(new Segment(start, peak, 0, magnitude / profile.rampUp()));
+    final long peak = start + profile.peak();
+    segments.add(new Segment(start + profile.delay(), peak, 0, magnitude / profile.rampUp()));
     segments.add(new Segment(peak, peak + profile.rampDown(), magnitude, -magnitude / profile.rampDown()));
   }
 

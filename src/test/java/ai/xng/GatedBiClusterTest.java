@@ -59,7 +59,7 @@ public class GatedBiClusterTest {
     val gate = input.new Node();
     gate.then(bicluster.gate);
     gate.activate();
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
 
     val stack = bicluster.input.new Node();
     stack.output.then(TestUtil.testNode(output, monitor));
@@ -87,7 +87,7 @@ public class GatedBiClusterTest {
     stack.output.then(TestUtil.testNode(output, monitor));
 
     trigger.activate();
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
 
     bicluster.gate.activate();
     assertThat(bicluster.output.activations()).containsExactly(stack.output);

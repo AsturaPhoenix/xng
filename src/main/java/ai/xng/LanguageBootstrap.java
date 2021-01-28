@@ -41,7 +41,7 @@ public class LanguageBootstrap {
   public Sequence timingChain(final long period) {
     val head = kb.timing.new Node();
     BiNode tail = head;
-    final long dt = IntegrationProfile.TRANSIENT.defaultDelay();
+    final long dt = IntegrationProfile.TRANSIENT.defaultInterval();
     for (long t = dt; t < period; t += dt) {
       tail = tail.then(kb.timing.new Node());
     }
@@ -109,7 +109,12 @@ public class LanguageBootstrap {
   public final DataCluster.MutableNode<Object> literal;
 
   private class RecognitionClass {
-    final BiCluster.Node character = kb.recognition.new Node();
+    final BiCluster.Node character = kb.recognition.new Node() {
+      @Override
+      public String toString() {
+        return "character";
+      }
+    };
 
     {
       // character recognition capture
@@ -119,7 +124,13 @@ public class LanguageBootstrap {
           .then(kb.timing.new Node())
           .then(kb.timing.new Node()) // recognition would trigger here
           .then(kb.actions.new Node(() -> {
-            val capture = kb.recognition.new Node();
+            final int cp = inputIterator.codePoint.getData();
+            val capture = kb.recognition.new Node() {
+              @Override
+              public String toString() {
+                return new StringBuilder("'").appendCodePoint(cp).append('\'').toString();
+              }
+            };
             Cluster.associate(
                 Arrays.asList(new Cluster.PriorClusterProfile(inputIterator.charCluster, IntegrationProfile.TRANSIENT)),
                 capture, Scheduler.global.now(), 1);
@@ -153,7 +164,12 @@ public class LanguageBootstrap {
       start.then(kb.actions.new Node(() -> literal.setData(new StringBuilder())));
       end.then(kb.actions.new Node(() -> literal.setData(((StringBuilder) literal.getData()).toString())));
 
-      val notQuote = kb.recognition.new Node();
+      val notQuote = kb.recognition.new Node() {
+        @Override
+        public String toString() {
+          return "notQuote";
+        }
+      };
       recognitionClass.character.then(notQuote);
       quote.inhibit(notQuote);
       append.conjunction(notQuote, isParsing.isTrue);
@@ -175,16 +191,25 @@ public class LanguageBootstrap {
    */
   private class RecognitionSequenceMemorizer {
     final Latch active = new Latch(kb.actions, kb.input);
+    int count = 0;
     final ActionNode captureRecognitionSequence = kb.actions.new Node(() -> {
-      val t = Scheduler.global.now();
-      val conjunction = new ConjunctionJunction();
-      BiConsumer<Cluster<? extends Prior>, IntegrationProfile> add = (priorCluster, profile) -> Cluster
-          .forEachByTrace(priorCluster, profile, t, (node, trace) -> conjunction.add(node, profile, trace));
-      add.accept(kb.recognition, IntegrationProfile.TRANSIENT);
-      add.accept(kb.recognition, IntegrationProfile.PERSISTENT);
-      val posterior = kb.recognition.new Node();
+      final int i = ++count;
+      val posterior = kb.recognition.new Node() {
+        @Override
+        public String toString() {
+          return "sqc " + i;
+        }
+      };
+      Cluster.associate(new Cluster.PriorClusterProfile.ListBuilder()
+          .baseProfiles(IntegrationProfile.TRANSIENT, IntegrationProfile.TWOGRAM)
+          .addCluster(kb.recognition).build(),
+          posterior, Scheduler.global.now(), 1);
+      posterior.then(kb.actions.new Node(
+          () -> System.out.println(new StringBuilder()
+              .append(Scheduler.global.now()).append('\n')
+              .append(i).append('\n')
+              .append(posterior.getPriors()))));
       posterior.activate();
-      conjunction.build(posterior, 1);
     });
 
     {
@@ -232,7 +257,6 @@ public class LanguageBootstrap {
           kb.actions.new Node(() -> {
             Cluster.associate(
                 new Cluster.PriorClusterProfile.ListBuilder()
-                    .baseProfiles(IntegrationProfile.TRANSIENT)
                     .addCluster(constructionStack)
                     .addCluster(kb.recognition)
                     .build(),
@@ -243,7 +267,7 @@ public class LanguageBootstrap {
       recognitionSequenceMemorizer.active.set.activate();
       kb.inputValue.setData("print");
       Scheduler.global.fastForwardUntilIdle();
-      Scheduler.global.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+      Scheduler.global.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
       Cluster.associate(Arrays.asList(new Cluster.PriorClusterProfile(kb.recognition, IntegrationProfile.TRANSIENT)),
           bindPrintEntrypoint, Scheduler.global.now(), 1);
       recognitionSequenceMemorizer.active.clear.activate();

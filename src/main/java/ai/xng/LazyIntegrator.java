@@ -17,9 +17,9 @@ public class LazyIntegrator {
     float value = 0;
     for (val sample : samples) {
       final long dt = t - sample.time();
-      if (dt > 0) {
-        if (dt < profile.rampUp()) {
-          value += sample.value() * dt / profile.rampUp();
+      if (dt > profile.delay()) {
+        if (dt < profile.peak()) {
+          value += sample.value() * (dt - profile.delay()) / profile.rampUp();
         } else if (dt < profile.period()) {
           value += sample.value() * (profile.period() - dt) / profile.rampDown();
         }

@@ -144,7 +144,7 @@ public class Cluster<T extends Node> implements Serializable {
 
     public static class ListBuilder {
       private final ImmutableList.Builder<PriorClusterProfile> backing = ImmutableList.builder();
-      private ImmutableList<IntegrationProfile> baseProfiles = IntegrationProfile.COMMON;
+      private ImmutableList<IntegrationProfile> baseProfiles = ImmutableList.of(IntegrationProfile.TRANSIENT);
 
       public ListBuilder baseProfiles(final IntegrationProfile... profiles) {
         baseProfiles = ImmutableList.copyOf(profiles);
@@ -207,7 +207,7 @@ public class Cluster<T extends Node> implements Serializable {
 
   public static void associate(final Cluster<? extends Prior> priorCluster,
       final Cluster<? extends Posterior> posteriorCluster) {
-    associate(Arrays.asList(new PriorClusterProfile(priorCluster, IntegrationProfile.COMMON)), posteriorCluster);
+    associate(Arrays.asList(new PriorClusterProfile(priorCluster, IntegrationProfile.TRANSIENT)), posteriorCluster);
   }
 
   /**

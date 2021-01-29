@@ -2,7 +2,6 @@ package ai.xng;
 
 import java.util.Arrays;
 import java.util.PrimitiveIterator;
-import java.util.function.BiConsumer;
 
 import ai.xng.constructs.BooleanDecoder;
 import ai.xng.constructs.CharacterDecoder;
@@ -72,9 +71,9 @@ public class LanguageBootstrap {
       kb.inputValue.onUpdate.then(getIterator);
 
       hasNextDecoder = new BooleanDecoder(() -> iterator.getData().hasNext(), kb.input);
-      val hasNext = kb.execution.new Node();
+      advance = kb.execution.new Node();
       iterator.onUpdate
-          .then(hasNext)
+          .then(advance)
           .then(kb.actions.new Node(hasNextDecoder));
 
       codePoint = kb.data.new MutableNode<>();
@@ -91,13 +90,10 @@ public class LanguageBootstrap {
               kb.actions.new Node(charDecoder),
               onNext);
 
-      advance = kb.execution.new Node();
-      val delay = timingChain(IntegrationProfile.TRANSIENT.period());
-      advance.then(delay.head);
-      delay.tail.then(hasNext);
-
       // Advance by default unless inhibited.
-      onNext.then(advance);
+      val delay = timingChain(IntegrationProfile.TRANSIENT.period());
+      next.then(delay.head);
+      delay.tail.then(advance);
     }
   }
 
@@ -159,7 +155,7 @@ public class LanguageBootstrap {
       conjunction.build(quote).then(recognitionClass.character);
       start.conjunction(quote, isParsing.isFalse);
       end.conjunction(quote, isParsing.isTrue);
-      inputIterator.onNext.then(kb.actions.new Node(isParsing));
+      recognitionClass.character.then(kb.actions.new Node(isParsing));
 
       start.then(kb.actions.new Node(() -> literal.setData(new StringBuilder())));
       end.then(kb.actions.new Node(() -> literal.setData(((StringBuilder) literal.getData()).toString())));
@@ -191,24 +187,12 @@ public class LanguageBootstrap {
    */
   private class RecognitionSequenceMemorizer {
     final Latch active = new Latch(kb.actions, kb.input);
-    int count = 0;
     final ActionNode captureRecognitionSequence = kb.actions.new Node(() -> {
-      final int i = ++count;
-      val posterior = kb.recognition.new Node() {
-        @Override
-        public String toString() {
-          return "sqc " + i;
-        }
-      };
+      val posterior = kb.recognition.new Node();
       Cluster.associate(new Cluster.PriorClusterProfile.ListBuilder()
           .baseProfiles(IntegrationProfile.TRANSIENT, IntegrationProfile.TWOGRAM)
           .addCluster(kb.recognition).build(),
           posterior, Scheduler.global.now(), 1);
-      posterior.then(kb.actions.new Node(
-          () -> System.out.println(new StringBuilder()
-              .append(Scheduler.global.now()).append('\n')
-              .append(i).append('\n')
-              .append(posterior.getPriors()))));
       posterior.activate();
     });
 

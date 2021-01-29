@@ -17,9 +17,12 @@ import lombok.AllArgsConstructor;
 import lombok.val;
 
 /**
- * A sequential scheduler based mostly on real time. Tasks are executed in a
- * non-overlapping manner. While the task queue is empty, the thread is returned
- * to a common pool.
+ * A sequential scheduler based on a combination of real and fake time. Tasks
+ * are executed in a non-overlapping manner. While the task queue is empty, the
+ * thread is returned to a common pool.
+ * <p>
+ * Time only advances while the task queue is empty, waiting for a task
+ * deadline, or the dispatch loop is not active.
  */
 public class FlexTimeScheduler extends Scheduler {
   @AllArgsConstructor
@@ -62,7 +65,24 @@ public class FlexTimeScheduler extends Scheduler {
   private int pauseCount;
   private final Condition pauseCondition = lock.newCondition();
 
-  private long timeOffset;
+  public enum TimeMode {
+    REAL,
+    FAKE
+  }
+
+  private long time;
+  private TimeMode timeMode = TimeMode.REAL;
+
+  private void setTimeMode(final TimeMode timeMode) {
+    if (this.timeMode != timeMode) {
+      if (timeMode == TimeMode.REAL) {
+        time -= System.currentTimeMillis();
+      } else {
+        time += System.currentTimeMillis();
+      }
+      this.timeMode = timeMode;
+    }
+  }
 
   /**
    * Creates a scheduler that uses {@code threadPool} to run the dispatch loop. As
@@ -100,6 +120,7 @@ public class FlexTimeScheduler extends Scheduler {
   }
 
   private void startDispatch() {
+    setTimeMode(TimeMode.FAKE);
     thread = new CompletableFuture<>();
     try {
       threadPool.execute(this::dispatch);
@@ -110,11 +131,14 @@ public class FlexTimeScheduler extends Scheduler {
       controller.dispose();
       controller = Disposables.empty();
       tasks.clear();
+      setTimeMode(TimeMode.REAL);
     }
   }
 
   private void dispatch() {
     thread.complete(Thread.currentThread());
+
+    setTimeMode(TimeMode.FAKE);
 
     Runnable task;
     // nextTask contains the synchronized mechanics of the dispatch loop.
@@ -127,7 +151,7 @@ public class FlexTimeScheduler extends Scheduler {
    * Waits for the next valid task to be up for execution.
    */
   private Runnable nextTask() {
-    // In handling itnerruption, we need to be careful of a pathological case where
+    // In handling interruption, we need to be careful of a pathological case where
     // a task executing during shutdown takes until a restart to complete. At that
     // point, we need to ensure that new tasks posted before we handle the
     // interruption are executed as expected.
@@ -171,7 +195,14 @@ public class FlexTimeScheduler extends Scheduler {
             // Use deadline > now instead of delta > 0 for overflow robustness.
             if (head.deadline > now) {
               final long delta = head.deadline - now;
+              // Getting a real/fake-time flip right here is very tricky because time may be
+              // queried while we're waiting and a new earlier task might pre-empt the one
+              // we're waiting for. Since this is not currently on a critical logical path,
+              // take the simple route of flipping to real time until the wait is over, and
+              // then flipping back naively.
+              setTimeMode(TimeMode.REAL);
               delayCondition.await(delta > 0 ? delta : Long.MAX_VALUE, TimeUnit.MILLISECONDS);
+              setTimeMode(TimeMode.FAKE);
               continue;
             }
 
@@ -192,6 +223,7 @@ public class FlexTimeScheduler extends Scheduler {
       } else if (tasks.isEmpty()) {
         // Indicate that we're ceding the thread while we're holding the lock.
         thread = null;
+        setTimeMode(TimeMode.REAL);
       } else {
         // Try to restart. If we're actually shutting down, we'll have cleared the
         // queue. Otherwise, we want to at least try to restart, to cover the case where
@@ -213,43 +245,42 @@ public class FlexTimeScheduler extends Scheduler {
   public void fastForwardUntilIdle() {
     lock.lock();
     try {
+      setTimeMode(TimeMode.FAKE);
       while (!tasks.isEmpty()) {
         final Task task = tasks.poll();
         final long delta = task.deadline - now();
         if (delta > 0) {
-          timeOffset += delta;
+          time += delta;
         }
 
         if (task.run != null) {
           task.run.run();
         }
       }
+      setTimeMode(TimeMode.REAL);
     } finally {
       lock.unlock();
     }
   }
 
   @Override
-  public void fastForwardUntil(final long time) {
+  public void fastForwardUntil(final long target) {
     lock.lock();
     try {
-      if (time < now()) {
-        return;
-      }
-
+      setTimeMode(TimeMode.FAKE);
       long next;
-      while (!tasks.isEmpty() && (next = tasks.peek().deadline) <= time) {
+      while (!tasks.isEmpty() && (next = tasks.peek().deadline) <= target) {
         final long delta = next - now();
         if (delta > 0) {
-          timeOffset += delta;
+          time += delta;
         }
         tasks.poll().run.run();
       }
 
-      final long targetOffset = time - System.currentTimeMillis();
-      if (targetOffset > timeOffset) {
-        timeOffset = targetOffset;
+      if (time < target) {
+        time = target;
       }
+      setTimeMode(TimeMode.REAL);
     } finally {
       lock.unlock();
     }
@@ -355,7 +386,12 @@ public class FlexTimeScheduler extends Scheduler {
 
   @Override
   public long now() {
-    return System.currentTimeMillis() + timeOffset;
+    lock.lock();
+    try {
+      return timeMode == TimeMode.REAL ? System.currentTimeMillis() + time : time;
+    } finally {
+      lock.unlock();
+    }
   }
 
   @Override

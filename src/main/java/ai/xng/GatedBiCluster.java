@@ -17,11 +17,7 @@ import lombok.val;
  */
 public class GatedBiCluster {
   public class InputCluster extends PosteriorCluster<InputCluster.Node> {
-    private static final long serialVersionUID = 1L;
-
     public class Node extends OutputNode {
-      private static final long serialVersionUID = 1L;
-
       private final Link link;
 
       public final OutputCluster.Node output;
@@ -50,11 +46,7 @@ public class GatedBiCluster {
   }
 
   public class OutputCluster extends PosteriorCluster<OutputCluster.Node> {
-    private static final long serialVersionUID = 1L;
-
     public class Node extends BiNode {
-      private static final long serialVersionUID = 1L;
-
       private final Link link;
 
       private Node() {

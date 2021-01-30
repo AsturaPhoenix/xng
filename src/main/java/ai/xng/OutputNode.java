@@ -3,8 +3,6 @@ package ai.xng;
 import java.util.Optional;
 
 public abstract class OutputNode implements Posterior {
-  private static final long serialVersionUID = 1L;
-
   private final Node.Trait node = new Node.Trait();
   private final Posterior.Trait input = new Posterior.Trait(this);
 

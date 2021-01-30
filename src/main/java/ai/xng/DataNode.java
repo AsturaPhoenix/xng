@@ -14,8 +14,6 @@ public interface DataNode extends Posterior {
   Object getData();
 
   class SerializableOrProxy<T> implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     @Getter
     private T data;
 
@@ -51,8 +49,6 @@ public interface DataNode extends Posterior {
   }
 
   class MaybeTransient<T> implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     public T data;
 
     private void writeObject(final ObjectOutputStream o) throws IOException {

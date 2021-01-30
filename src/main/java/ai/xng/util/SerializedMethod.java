@@ -4,8 +4,6 @@ import java.io.Serializable;
 import java.lang.reflect.Method;
 
 public class SerializedMethod implements Serializable {
-  private static final long serialVersionUID = 1L;
-
   private final Class<?> clazz;
   private final String name;
   private final Class<?>[] parameterTypes;

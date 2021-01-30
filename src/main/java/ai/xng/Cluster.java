@@ -15,8 +15,6 @@ import com.google.common.collect.ImmutableList;
 import lombok.val;
 
 public class Cluster<T extends Node> implements Serializable {
-  private static final long serialVersionUID = 1L;
-
   private transient RecencyQueue<WeakReference<T>> activations = new RecencyQueue<>();
 
   // TODO: register cleanup task
@@ -42,8 +40,6 @@ public class Cluster<T extends Node> implements Serializable {
   }
 
   protected class Link implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     private transient RecencyQueue<WeakReference<T>>.Link link;
 
     public Link(final T node) {

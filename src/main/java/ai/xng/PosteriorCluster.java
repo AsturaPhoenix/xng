@@ -3,8 +3,6 @@ package ai.xng;
 import lombok.Getter;
 
 public class PosteriorCluster<T extends Posterior> extends Cluster<T> {
-  private static final long serialVersionUID = 1L;
-
   public static final float DEFAULT_PLASTICITY = .1f;
 
   @Getter

@@ -12,14 +12,11 @@ import ai.xng.util.SerializableSupplier;
 import lombok.val;
 
 public class CharacterDecoder implements ActionNode.Action {
-  private static final long serialVersionUID = 1L;
-
   private static interface Predicate extends Serializable {
     boolean apply(final int codePoint);
   }
 
   private static record Test(Predicate predicate, InputCluster.Node output) implements Serializable {
-    private static final long serialVersionUID = 1L;
   }
 
   public final SerializableSupplier<Integer> data;
@@ -42,56 +39,42 @@ public class CharacterDecoder implements ActionNode.Action {
     this.output = output;
     tests = new Test[] {
         new Test(Character::isWhitespace, isWhitespace = output.new Node() {
-          private static final long serialVersionUID = 1L;
-
           @Override
           public String toString() {
             return "isWhitespace";
           }
         }),
         new Test(Character::isJavaIdentifierStart, isJavaIdentifierStart = output.new Node() {
-          private static final long serialVersionUID = 1L;
-
           @Override
           public String toString() {
             return "isIdentifierStart";
           }
         }),
         new Test(Character::isJavaIdentifierPart, isJavaIdentifierPart = output.new Node() {
-          private static final long serialVersionUID = 1L;
-
           @Override
           public String toString() {
             return "isIdentifierPart";
           }
         }),
         new Test(Character::isDigit, isDigit = output.new Node() {
-          private static final long serialVersionUID = 1L;
-
           @Override
           public String toString() {
             return "isDigit";
           }
         }),
         new Test(Character::isUpperCase, isUpperCase = output.new Node() {
-          private static final long serialVersionUID = 1L;
-
           @Override
           public String toString() {
             return "isUpperCase";
           }
         }),
         new Test(Character::isLowerCase, isLowerCase = output.new Node() {
-          private static final long serialVersionUID = 1L;
-
           @Override
           public String toString() {
             return "isLowerCase";
           }
         }),
         new Test(Character::isISOControl, isControl = output.new Node() {
-          private static final long serialVersionUID = 1L;
-
           @Override
           public String toString() {
             return "isControl";
@@ -100,8 +83,6 @@ public class CharacterDecoder implements ActionNode.Action {
     };
 
     isOther = output.new Node() {
-      private static final long serialVersionUID = 1L;
-
       @Override
       public String toString() {
         return "unknown character class";
@@ -122,8 +103,6 @@ public class CharacterDecoder implements ActionNode.Action {
     }
 
     action.accept(oneHotEncoding.computeIfAbsent(Character.toLowerCase(codePoint), __ -> output.new Node() {
-      private static final long serialVersionUID = 1L;
-
       @Override
       public String toString() {
         return new StringBuilder("'").appendCodePoint(codePoint).append('\'').toString();

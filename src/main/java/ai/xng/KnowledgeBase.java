@@ -11,8 +11,6 @@ import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
-  private static final long serialVersionUID = 2L;
-
   private transient Subject<String> rxOutput;
 
   public final InputCluster input = new InputCluster();

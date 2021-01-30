@@ -5,8 +5,6 @@ import ai.xng.InputCluster;
 import ai.xng.util.SerializableSupplier;
 
 public class BooleanDecoder implements ActionNode.Action {
-  private static final long serialVersionUID = 1L;
-
   public final SerializableSupplier<Boolean> data;
   public final InputCluster.Node isFalse, isTrue;
 

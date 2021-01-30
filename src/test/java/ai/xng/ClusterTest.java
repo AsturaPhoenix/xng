@@ -27,8 +27,6 @@ public class ClusterTest {
   }
 
   private static class SingleNodeCluster implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     final InputCluster cluster = new InputCluster();
     final InputCluster.Node node = cluster.new Node();
   }
@@ -47,8 +45,6 @@ public class ClusterTest {
   }
 
   private static class GcTestClusters implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     final InputCluster input = new InputCluster();
     final BiCluster intermediate = new BiCluster();
     final ActionCluster output = new ActionCluster();

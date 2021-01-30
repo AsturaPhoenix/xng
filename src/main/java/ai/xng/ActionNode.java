@@ -6,8 +6,6 @@ import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public abstract class ActionNode extends OutputNode {
-  private static final long serialVersionUID = 1L;
-
   /**
    * Convenience functional interface. Since each {@code ActionNode} is likely to
    * have a different {@code activate} implementation, this allows us to avoid

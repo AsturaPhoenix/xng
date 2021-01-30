@@ -6,8 +6,6 @@ import com.google.common.collect.ImmutableList;
 
 public record IntegrationProfile(long delay, long peak, long period) implements Serializable {
 
-  private static final long serialVersionUID = 1L;
-
   public static final IntegrationProfile TRANSIENT = new IntegrationProfile(0, 5, 50);
   public static final IntegrationProfile TWOGRAM = new IntegrationProfile(5, 50, 100);
   public static final IntegrationProfile PERSISTENT = new IntegrationProfile(50, 100, 3000);

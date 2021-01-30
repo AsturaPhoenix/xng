@@ -4,8 +4,6 @@ import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
-  private static final long serialVersionUID = 1L;
-
   public final DataCluster.MutableNode<? super Throwable> exceptionHandler;
 
   public ActionCluster() {
@@ -13,8 +11,6 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
   }
 
   public class Node extends ActionNode {
-    private static final long serialVersionUID = 1L;
-
     private final Link link;
 
     public Node(final Action onActivate) {

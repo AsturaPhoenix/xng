@@ -8,8 +8,6 @@ import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
 public class DataCluster extends PosteriorCluster<DataCluster.Node> {
-  private static final long serialVersionUID = 1L;
-
   private transient Subject<Node> rxActivations;
 
   public Observable<Node> rxActivations() {
@@ -19,8 +17,6 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
   private final InputCluster updateCluster;
 
   public abstract class Node extends OutputNode implements DataNode {
-    private static final long serialVersionUID = 1L;
-
     private final Link link = new Link(this);
 
     private Node() {
@@ -40,8 +36,6 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
   }
 
   public class FinalNode<T> extends Node {
-    private static final long serialVersionUID = 1L;
-
     private final SerializableOrProxy<T> container;
 
     @Override
@@ -55,8 +49,6 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
   }
 
   public class MutableNode<T> extends Node {
-    private static final long serialVersionUID = 1L;
-
     private final DataNode.MaybeTransient<T> container = new DataNode.MaybeTransient<>();
 
     /**

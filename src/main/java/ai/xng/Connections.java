@@ -22,12 +22,9 @@ public class Connections {
   }
 
   private static record Key<T extends Serializable> (T node, IntegrationProfile profile) implements Serializable {
-    private static final long serialVersionUID = 1L;
   }
 
   private static class WeakPrior implements Serializable {
-    static final long serialVersionUID = 1L;
-
     transient int hashCode;
     transient WeakReference<Prior> ref;
 
@@ -87,8 +84,6 @@ public class Connections {
 
   @RequiredArgsConstructor
   public static class Posteriors implements Serializable, Iterable<Entry<Posterior>> {
-    private static final long serialVersionUID = 1L;
-
     private final Prior owner;
     private final Map<Key<Posterior>, Distribution> backing = new HashMap<>();
 
@@ -133,8 +128,6 @@ public class Connections {
 
   @RequiredArgsConstructor
   public static class Priors implements Serializable, Iterable<Entry<Prior>> {
-    private static final long serialVersionUID = 1L;
-
     private final Posterior owner;
     private final Map<Key<WeakPrior>, Distribution> backing = new HashMap<>();
 

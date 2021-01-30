@@ -12,8 +12,6 @@ public interface Prior extends Node {
   Connections.Posteriors getPosteriors();
 
   class Trait implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     @Getter
     private final Connections.Posteriors posteriors;
 

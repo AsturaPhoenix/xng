@@ -5,8 +5,6 @@ import ai.xng.ActionNode;
 import ai.xng.InputCluster;
 
 public class Latch implements ActionNode.Action {
-  private static final long serialVersionUID = 1L;
-
   public final ActionCluster.Node set, clear;
   public final InputCluster.Node isTrue, isFalse;
 

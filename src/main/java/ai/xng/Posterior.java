@@ -17,8 +17,6 @@ public interface Posterior extends Node {
   Connections.Priors getPriors();
 
   class Trait implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     private final Posterior owner;
     @Getter
     private transient ThresholdIntegrator integrator;

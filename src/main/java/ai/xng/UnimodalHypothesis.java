@@ -12,7 +12,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * will degrade towards zero.
  */
 public class UnimodalHypothesis implements Distribution, Serializable {
-  private static final long serialVersionUID = -4582334729234682748L;
   /**
    * Spread basis with no evidence.
    */
@@ -20,7 +19,6 @@ public class UnimodalHypothesis implements Distribution, Serializable {
   private static final float CRITICAL_SUPPORT = .5f;
 
   private static class Bucket implements Serializable {
-    static final long serialVersionUID = 7305465527837682602L;
     float mean, weight;
 
     float distributeWeight(final float delta, final float min) {

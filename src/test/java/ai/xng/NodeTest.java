@@ -94,8 +94,6 @@ public class NodeTest {
   }
 
   private static class AndFixture implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     transient EmissionMonitor<Long> monitor = new EmissionMonitor<>();
     final InputCluster input = new InputCluster();
     final ActionCluster output = new ActionCluster();

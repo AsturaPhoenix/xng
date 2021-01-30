@@ -20,10 +20,7 @@ import lombok.val;
  * Binary decoder for unicode code points ([0, 0x10FFFF], 21 bits).
  */
 public class BinaryDecoder implements ActionNode.Action {
-  private static final long serialVersionUID = 1L;
-
   public static record BitPair(InputCluster.Node lo, InputCluster.Node hi) implements Serializable {
-    private static final long serialVersionUID = 1L;
   }
 
   public final SerializableSupplier<Integer> data;

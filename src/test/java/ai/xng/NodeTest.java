@@ -156,7 +156,7 @@ public class NodeTest {
   }
 
   @Test
-  public void testNearCoincidentInhibition() {
+  public void testInhibition() {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
@@ -171,6 +171,10 @@ public class NodeTest {
 
     scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
+
+    up.activate();
+    scheduler.fastForwardUntilIdle();
+    assertTrue(monitor.didEmit());
   }
 
   /**

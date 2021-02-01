@@ -46,6 +46,12 @@ public class ConjunctionJunction {
     return build(posterior, 1);
   }
 
+  /**
+   * Associates the added priors with the given posterior. The proposed weights
+   * are calculated conjunctively but added to the posterior disjunctively, so
+   * that priors already more strongly associated with the posterior are not
+   * weakened.
+   */
   public <T extends Posterior> T build(final T posterior, final float weight) {
     // Scale such that activation of the last principal component (may be
     // hypothetical, with relative weight 1) roughly has margins on either side of
@@ -55,14 +61,20 @@ public class ConjunctionJunction {
     // The actual formulation of the above, (norm - 1) / (1 - .5 / norm), doesn't
     // work as well in the presence of less significant components as the below, as
     // it produces false positives.
-    float normAdj = norm / maxComponent;
-    normAdj = normAdj <= Prior.DEFAULT_COEFFICIENT ? 1
-        : Math.max(normAdj / Prior.DEFAULT_COEFFICIENT, normAdj - .5f / normAdj);
+    float normAdj = norm / (maxComponent * maxComponent);
+    normAdj = (normAdj <= Prior.DEFAULT_COEFFICIENT ? 1
+        : Math.max(normAdj / Prior.DEFAULT_COEFFICIENT, normAdj - .5f / normAdj)) * maxComponent;
 
     for (val component : components) {
       final float coefficient = component.weight() / normAdj;
       assert coefficient <= Prior.DEFAULT_COEFFICIENT;
-      component.prior().getPosteriors().getDistribution(posterior, component.profile()).add(coefficient, weight);
+      val distribution = component.prior().getPosteriors().getDistribution(posterior, component.profile());
+      // This condition prevents association from ever making pre-existing connections
+      // more restrictive. This is specifically for association. In the naive
+      // conjunction case, there are no pre-existing condtions.
+      if (coefficient >= distribution.getMode()) {
+        distribution.add(coefficient, weight);
+      }
     }
 
     return posterior;

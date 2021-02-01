@@ -51,4 +51,9 @@ public class BakingIntegrator {
     }
     return next;
   }
+
+  @Override
+  public String toString() {
+    return segments.toString();
+  }
 }

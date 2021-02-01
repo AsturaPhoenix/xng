@@ -147,11 +147,6 @@ public class Cluster<T extends Node> implements Serializable {
         return this;
       }
 
-      public ListBuilder addCluster(final Cluster<? extends Prior> cluster) {
-        backing.add(new PriorClusterProfile(cluster, baseProfiles));
-        return this;
-      }
-
       public ListBuilder add(final Cluster<? extends Prior> cluster, final IntegrationProfile... additionalProfiles) {
         backing.add(
             new PriorClusterProfile(cluster,
@@ -168,7 +163,7 @@ public class Cluster<T extends Node> implements Serializable {
     }
   }
 
-  public static void associate(final Iterable<PriorClusterProfile> priors, final Posterior posterior,
+  private static void associate(final Iterable<PriorClusterProfile> priors, final Posterior posterior,
       final long t, final float weight) {
     val conjunction = new ConjunctionJunction();
     for (val prior : priors) {
@@ -189,9 +184,6 @@ public class Cluster<T extends Node> implements Serializable {
       final Cluster<? extends Posterior> posteriorCluster, final long effectiveTime) {
     forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, effectiveTime,
         (posterior, posteriorTrace) -> {
-          // For each posterior, connect all priors with timings that could have
-          // contributed to the firing in a conjunctive way.
-
           associate(priors, posterior, posterior.getLastActivation().get(), posteriorTrace);
         });
   }
@@ -228,6 +220,15 @@ public class Cluster<T extends Node> implements Serializable {
                 prior.distribution().reinforce(-prior.distribution().getWeight() * priorTrace * posteriorTrace);
               }
             }
+          }
+        });
+  }
+
+  public static void scalePosteriors(final Cluster<? extends Prior> priorCluster, final float factor) {
+    forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
+        (prior, trace) -> {
+          for (val entry : prior.getPosteriors()) {
+            entry.distribution().scale(factor * trace);
           }
         });
   }

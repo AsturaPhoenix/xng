@@ -13,6 +13,11 @@ public interface Distribution {
     add(getMode(), weight);
   }
 
+  /**
+   * This operation is intended to support stacks.
+   */
+  void scale(float factor);
+
   float generate();
 
   float getMax();

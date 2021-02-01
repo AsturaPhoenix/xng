@@ -20,12 +20,13 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final DataCluster.MutableNode<Throwable> lastException = data.new MutableNode<>();
   public final DataCluster.MutableNode<Object> returnValue = data.new MutableNode<>();
 
-  public final BiCluster recognition = new BiCluster(),
-      execution = new BiCluster(),
-      timing = new BiCluster();
+  public final BiCluster stateRecognition = new BiCluster(),
+      sequenceRecognition = new BiCluster(),
+      execution = new BiCluster();
   public final ActionCluster actions = new ActionCluster(lastException);
   public final SignalCluster signals = new SignalCluster();
   public final GatedBiCluster context = new GatedBiCluster(actions);
+  public final InhibitedBiCluster entrypoints = new InhibitedBiCluster(execution.new Node());
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 

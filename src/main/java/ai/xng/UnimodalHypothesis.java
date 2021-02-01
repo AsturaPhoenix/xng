@@ -16,7 +16,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
    * Spread basis with no evidence.
    */
   private static final float DEFAULT_SPREAD_BASIS = .2f;
-  private static final float CRITICAL_SUPPORT = .5f;
+  private static final float CRITICAL_SUPPORT = 1;
 
   private static class Bucket implements Serializable {
     float mean, weight;
@@ -37,16 +37,26 @@ public class UnimodalHypothesis implements Distribution, Serializable {
   private final ReadWriteLock lock = new ReentrantReadWriteLock(false);
 
   @Override
+  public void scale(final float factor) {
+    lock.writeLock().lock();
+    try {
+      lower.mean *= factor;
+      core.mean *= factor;
+      upper.mean *= factor;
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  @Override
   public String toString() {
-    lock.readLock()
-        .lock();
+    lock.readLock().lock();
     try {
       return String.format(
           "μ = %.4g, w = %.2f (left tail: μ = %.4g, w = %.2f; core: μ = %.4g, w = %.2f; right tail: μ = %.4g, w = %.2f)",
           getMode(), getWeight(), lower.mean, lower.weight, core.mean, core.weight, upper.mean, upper.weight);
     } finally {
-      lock.readLock()
-          .unlock();
+      lock.readLock().unlock();
     }
   }
 
@@ -96,8 +106,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
     if (weight == 0)
       return;
 
-    lock.writeLock()
-        .lock();
+    lock.writeLock().lock();
     try {
       final Bucket tail, counterTail;
       if (value < core.mean) {
@@ -108,7 +117,18 @@ public class UnimodalHypothesis implements Distribution, Serializable {
         counterTail = lower;
       }
 
-      final float ndev = tail.mean == core.mean ? 0 : Math.min((value - core.mean) / (tail.mean - core.mean), 1);
+      float ndev = tail.mean == core.mean ? 0 : Math.min((value - core.mean) / (tail.mean - core.mean), 1);
+
+      // Normally, if an incoming positive-weighted sample deviates far from the core,
+      // it is considered a counterexample and may decrease overall weight. However,
+      // as the incumbent weight falls below critical support and approaches 0, this
+      // behavior is pathological; weights should tend towards summation and means
+      // should tend toward a weighted average.
+      final float oldWeight = getWeight();
+      if (oldWeight < CRITICAL_SUPPORT) {
+        ndev *= oldWeight / CRITICAL_SUPPORT;
+      }
+
       final float tailWeightChange = ndev * weight;
 
       if (tailWeightChange > 0) {
@@ -123,7 +143,10 @@ public class UnimodalHypothesis implements Distribution, Serializable {
 
       if (weight > 0) {
         float weightToDistribute = core.distributeWeight(coreWeightChange, 0);
-        counterTail.distributeWeight(weightToDistribute, 0);
+        weightToDistribute = counterTail.distributeWeight(weightToDistribute, 0);
+        if (weightToDistribute < 0) {
+          tail.distributeWeight(-weightToDistribute, 0);
+        }
       } else if (coreWeightChange < 0) {
         float weightToDistribute = core.distributeWeight(coreWeightChange, 0);
         weightToDistribute = tail.distributeWeight(weightToDistribute, 0);
@@ -150,11 +173,10 @@ public class UnimodalHypothesis implements Distribution, Serializable {
         upper.mean = core.mean + DEFAULT_SPREAD_BASIS;
       }
 
-      assert core.mean > lower.mean && core.mean < upper.mean : String.format("%+.4g x %.2f to %s", value, weight,
-          this);
+      assert core.mean > lower.mean && core.mean < upper.mean
+          : String.format("%+.4g x %.2f to %s", value, weight, this);
     } finally {
-      lock.writeLock()
-          .unlock();
+      lock.writeLock().unlock();
     }
   }
 

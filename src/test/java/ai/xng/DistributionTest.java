@@ -17,6 +17,18 @@ public class DistributionTest {
             .isLessThanOrEqualTo(ThresholdIntegrator.THRESHOLD);
   }
 
+  /**
+   * Covers a failure case where adding samples to the "core" of an empty
+   * distribution would eat weight.
+   */
+  @Test
+  public void testAddToDefaultNearCore() {
+    val distribution = new UnimodalHypothesis();
+    distribution.add(.1f, 1);
+    assertEquals(.1f, distribution.getMode());
+    assertEquals(1, distribution.getWeight());
+  }
+
   @Test
   public void testBounding() {
     val distribution = new UnimodalHypothesis();

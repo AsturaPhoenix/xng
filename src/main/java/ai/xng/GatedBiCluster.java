@@ -14,6 +14,12 @@ import lombok.val;
  * direct calls to the gate node's {@link Node#activate()} method will only
  * trigger passthrough of input nodes active at that instant. Any longer
  * activation duration must be driven synaptically. The inputs behave similarly.
+ * <p>
+ * Also, although the input/output connection behaves as though it were
+ * conjuncted with the gate, it is not a true conjunction since that would scale
+ * linearly with the number of nodes. Instead, the gate is queried during
+ * propagation, and the recency queue is scanned on gate activation. This also
+ * protects the output layer against gate summation.
  */
 public class GatedBiCluster {
   public class InputCluster extends PosteriorCluster<InputCluster.Node> {

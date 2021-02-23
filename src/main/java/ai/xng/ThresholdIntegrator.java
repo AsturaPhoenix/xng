@@ -70,4 +70,9 @@ public abstract class ThresholdIntegrator {
     }, t), t))
         .orElse(null);
   }
+
+  @Override
+  public String toString() {
+    return integrator.evaluate(Scheduler.global.now()) + ": " + integrator.toString();
+  }
 }

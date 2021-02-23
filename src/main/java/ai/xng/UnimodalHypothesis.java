@@ -16,7 +16,7 @@ public class UnimodalHypothesis implements Distribution, Serializable {
    * Spread basis with no evidence.
    */
   private static final float DEFAULT_SPREAD_BASIS = .2f;
-  private static final float CRITICAL_SUPPORT = 1;
+  private static final float CRITICAL_SUPPORT = .5f;
 
   private static class Bucket implements Serializable {
     float mean, weight;

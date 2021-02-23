@@ -1,6 +1,6 @@
 package ai.xng;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
@@ -8,27 +8,22 @@ import lombok.val;
 
 public class LanguageTest {
   @Test
-  public void testStringLiteral() {
+  public void testHelloWorld() {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
     try (val kb = new KnowledgeBase()) {
-      val language = new LanguageBootstrap(kb);
-      kb.inputValue.setData("\"Hello, world!\"");
+      new LanguageBootstrap(kb);
+      val monitor = EmissionMonitor.fromObservable(kb.rxOutput());
+      kb.inputValue.setData("print(\"Hello, world!\")");
       scheduler.fastForwardUntilIdle();
-      assertEquals("Hello, world!", language.literal.getData());
-    }
-  }
+      assertThat(monitor.emissions()).containsExactly("Hello, world!");
 
-  public void testSequenceCapture() {
-    val scheduler = new TestScheduler();
-    Scheduler.global = scheduler;
+      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
 
-    try (val kb = new KnowledgeBase()) {
-      val language = new LanguageBootstrap(kb);
-      kb.inputValue.setData("\"Hello, world!\"");
+      kb.inputValue.setData("print(\"Goodnight, moon!\")");
       scheduler.fastForwardUntilIdle();
-      assertEquals("Hello, world!", language.literal.getData());
+      assertThat(monitor.emissions()).containsExactly("Goodnight, moon!");
     }
   }
 }

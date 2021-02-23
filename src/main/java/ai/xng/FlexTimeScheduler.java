@@ -238,13 +238,15 @@ public class FlexTimeScheduler extends Scheduler {
   }
 
   /**
-   * Drains the task queue, blocking until empty. Ignores pause. This should not
-   * be used while periodic tasks are in the queue.
+   * Drains the task queue, blocking until empty. Pauses the dispatch thread while
+   * active (and blocks until it cedes). This should not be used while periodic
+   * tasks are in the queue.
    */
   @Override
   public void fastForwardUntilIdle() {
     lock.lock();
     try {
+      pause();
       setTimeMode(TimeMode.FAKE);
       while (!tasks.isEmpty()) {
         final Task task = tasks.poll();
@@ -259,6 +261,7 @@ public class FlexTimeScheduler extends Scheduler {
       }
       setTimeMode(TimeMode.REAL);
     } finally {
+      resume();
       lock.unlock();
     }
   }
@@ -267,6 +270,7 @@ public class FlexTimeScheduler extends Scheduler {
   public void fastForwardUntil(final long target) {
     lock.lock();
     try {
+      pause();
       setTimeMode(TimeMode.FAKE);
       long next;
       while (!tasks.isEmpty() && (next = tasks.peek().deadline) <= target) {
@@ -274,7 +278,11 @@ public class FlexTimeScheduler extends Scheduler {
         if (delta > 0) {
           time += delta;
         }
-        tasks.poll().run.run();
+
+        final Task task = tasks.poll();
+        if (task.run != null) {
+          task.run.run();
+        }
       }
 
       if (time < target) {
@@ -282,6 +290,7 @@ public class FlexTimeScheduler extends Scheduler {
       }
       setTimeMode(TimeMode.REAL);
     } finally {
+      resume();
       lock.unlock();
     }
   }

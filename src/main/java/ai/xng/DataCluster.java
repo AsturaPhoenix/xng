@@ -39,12 +39,17 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
     private final SerializableOrProxy<T> container;
 
     @Override
-    public Object getData() {
+    public T getData() {
       return container.getData();
     }
 
     public FinalNode(final T value) {
       container = new SerializableOrProxy<>(value);
+    }
+
+    @Override
+    public String toString() {
+      return "final " + getData();
     }
   }
 
@@ -69,6 +74,11 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
     public void setData(final T value) {
       container.data = value;
       onUpdate.activate();
+    }
+
+    @Override
+    public String toString() {
+      return "mutable " + getData();
     }
   }
 

@@ -5,13 +5,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
-import ai.xng.ActionNode;
+import ai.xng.ActionCluster;
+import ai.xng.DataCluster;
 import ai.xng.InputCluster;
 import ai.xng.Node;
-import ai.xng.util.SerializableSupplier;
 import lombok.val;
 
-public class CharacterDecoder implements ActionNode.Action {
+public class CharacterDecoder extends Decoder {
   private static interface Predicate extends Serializable {
     boolean apply(final int codePoint);
   }
@@ -19,7 +19,6 @@ public class CharacterDecoder implements ActionNode.Action {
   private static record Test(Predicate predicate, InputCluster.Node output) implements Serializable {
   }
 
-  public final SerializableSupplier<Integer> data;
   public final InputCluster.Node isWhitespace,
       isJavaIdentifierStart,
       isJavaIdentifierPart,
@@ -34,8 +33,8 @@ public class CharacterDecoder implements ActionNode.Action {
   private final InputCluster output;
   private final Map<Integer, InputCluster.Node> oneHotEncoding = new HashMap<>();
 
-  public CharacterDecoder(final SerializableSupplier<Integer> data, final InputCluster output) {
-    this.data = data;
+  public CharacterDecoder(final ActionCluster actionCluster, final DataCluster input, final InputCluster output) {
+    super(actionCluster, input);
     this.output = output;
     tests = new Test[] {
         new Test(Character::isWhitespace, isWhitespace = output.new Node() {
@@ -111,7 +110,9 @@ public class CharacterDecoder implements ActionNode.Action {
   }
 
   @Override
-  public void activate() {
-    forOutput(data.get(), Node::activate);
+  protected void decode(final Object data) {
+    if (data instanceof Integer codePoint) {
+      forOutput(codePoint, Node::activate);
+    }
   }
 }

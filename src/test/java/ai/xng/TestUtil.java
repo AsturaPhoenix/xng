@@ -27,7 +27,6 @@ public class TestUtil {
     return bout.size();
   }
 
-  @SuppressWarnings("unchecked")
   public static <T extends Serializable> T serialize(final T object) throws IOException, ClassNotFoundException {
     final ByteArrayOutputStream bout = new ByteArrayOutputStream();
     try (final ObjectOutputStream oout = new ObjectOutputStream(bout)) {

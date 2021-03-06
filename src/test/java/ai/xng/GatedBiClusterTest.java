@@ -12,18 +12,18 @@ public class GatedBiClusterTest {
   @Test
   public void testEmptyGated() {
     val control = new ActionCluster();
-    val bicluster = new GatedBiCluster(control);
-    bicluster.gate.activate();
-    assertThat(bicluster.output.activations()).isEmpty();
+    val gated = new GatedBiCluster(control);
+    gated.gate.activate();
+    assertThat(gated.output.activations()).isEmpty();
   }
 
   @Test
   public void test0Gated() {
     val control = new ActionCluster();
-    val bicluster = new GatedBiCluster(control);
-    bicluster.input.new Node();
-    bicluster.gate.activate();
-    assertThat(bicluster.output.activations()).isEmpty();
+    val gated = new GatedBiCluster(control);
+    gated.input.new Node();
+    gated.gate.activate();
+    assertThat(gated.output.activations()).isEmpty();
   }
 
   @Test
@@ -32,16 +32,16 @@ public class GatedBiClusterTest {
     Scheduler.global = scheduler;
 
     val control = new ActionCluster();
-    val bicluster = new GatedBiCluster(control);
+    val gated = new GatedBiCluster(control);
     val output = new ActionCluster();
     val monitor = new EmissionMonitor<Long>();
 
-    val stack = bicluster.input.new Node();
+    val stack = gated.input.new Node();
     stack.output.then(TestUtil.testNode(output, monitor));
 
     stack.activate();
     scheduler.fastForwardUntilIdle();
-    assertThat(bicluster.output.activations()).isEmpty();
+    assertThat(gated.output.activations()).isEmpty();
     assertFalse(monitor.didEmit());
   }
 
@@ -52,20 +52,20 @@ public class GatedBiClusterTest {
 
     val control = new ActionCluster();
     val input = new InputCluster();
-    val bicluster = new GatedBiCluster(control);
+    val gated = new GatedBiCluster(control);
     val output = new ActionCluster();
     val monitor = new EmissionMonitor<Long>();
 
     val gate = input.new Node();
-    gate.then(bicluster.gate);
+    gate.then(gated.gate);
     gate.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
 
-    val stack = bicluster.input.new Node();
+    val stack = gated.input.new Node();
     stack.output.then(TestUtil.testNode(output, monitor));
 
     stack.activate();
-    assertThat(bicluster.output.activations()).containsExactly(stack.output);
+    assertThat(gated.output.activations()).containsExactly(stack.output);
     scheduler.fastForwardUntilIdle();
     assertTrue(monitor.didEmit());
   }
@@ -77,21 +77,20 @@ public class GatedBiClusterTest {
 
     val control = new ActionCluster();
     val input = new InputCluster();
-    val bicluster = new GatedBiCluster(control);
+    val gated = new GatedBiCluster(control);
     val output = new ActionCluster();
     val monitor = new EmissionMonitor<Long>();
 
     val trigger = input.new Node();
-    val stack = bicluster.input.new Node();
+    val stack = gated.input.new Node();
     trigger.then(stack);
     stack.output.then(TestUtil.testNode(output, monitor));
+    trigger.then(new BiCluster().new Node())
+        .then(gated.gate);
 
     trigger.activate();
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
-
-    bicluster.gate.activate();
-    assertThat(bicluster.output.activations()).containsExactly(stack.output);
     scheduler.fastForwardUntilIdle();
+    assertThat(gated.output.activations()).containsExactly(stack.output);
     assertTrue(monitor.didEmit());
   }
 
@@ -102,21 +101,21 @@ public class GatedBiClusterTest {
 
     val control = new ActionCluster();
     val input = new InputCluster();
-    val bicluster = new GatedBiCluster(control);
+    val gated = new GatedBiCluster(control);
     val output = new ActionCluster();
     val monitor = new EmissionMonitor<Long>();
 
     val gate = input.new Node();
-    gate.then(bicluster.gate);
+    gate.then(gated.gate);
     gate.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
-    val stack = bicluster.input.new Node();
+    val stack = gated.input.new Node();
     stack.output.then(TestUtil.testNode(output, monitor));
 
     stack.activate();
     scheduler.fastForwardUntilIdle();
-    assertThat(bicluster.output.activations()).isEmpty();
+    assertThat(gated.output.activations()).isEmpty();
     assertFalse(monitor.didEmit());
   }
 
@@ -127,21 +126,51 @@ public class GatedBiClusterTest {
 
     val control = new ActionCluster();
     val input = new InputCluster();
-    val bicluster = new GatedBiCluster(control);
+    val gated = new GatedBiCluster(control);
     val output = new ActionCluster();
     val monitor = new EmissionMonitor<Long>();
 
     val trigger = input.new Node();
-    val stack = bicluster.input.new Node();
+    val stack = gated.input.new Node();
     trigger.then(stack);
     stack.output.then(TestUtil.testNode(output, monitor));
 
     trigger.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
-    bicluster.gate.activate();
+    val gate = input.new Node();
+    gate.then(gated.gate);
+    gate.activate();
+
     scheduler.fastForwardUntilIdle();
-    assertThat(bicluster.output.activations()).isEmpty();
+    assertThat(gated.output.activations()).isEmpty();
+    assertFalse(monitor.didEmit());
+  }
+
+  /**
+   * Covers a bug where an output coincident with gate activation but processed
+   * before (or in some cases even after) gate activation can be triggered twice.
+   */
+  @Test
+  public void testNoDoubleActivation() {
+    val scheduler = new TestScheduler();
+    Scheduler.global = scheduler;
+
+    val executionCluster = new BiCluster();
+    val actionCluster = new ActionCluster();
+    val biCluster = new GatedBiCluster(actionCluster);
+
+    val input = biCluster.input.new Node();
+
+    val monitor = new EmissionMonitor<Long>();
+    input.output.getPosteriors()
+        .getDistribution(TestUtil.testNode(actionCluster, monitor), IntegrationProfile.TRANSIENT).set(.8f);
+
+    val trigger = executionCluster.new Node();
+    // The ordering here is Heisenbuggy.
+    trigger.then(biCluster.gate, input);
+    trigger.activate();
+    scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }
 }

@@ -43,8 +43,8 @@ public class GatedBiCluster {
         link.promote();
         super.activate();
 
-        if (gate.getIntegrator()
-            .isActive()) {
+        val integrator = gate.getIntegrator();
+        if (!integrator.isPending() && integrator.isActive()) {
           output.activate();
         }
       }
@@ -84,6 +84,10 @@ public class GatedBiCluster {
     final long now = Scheduler.global.now();
 
     for (val recent : input.activations()) {
+      if (recent.getIntegrator().isPending()) {
+        // This case will be handled by the Node.activate override.
+        continue;
+      }
       if (recent.getLastActivation().get() < now - IntegrationProfile.PERSISTENT.period()) {
         // This assumes that PERSISTENT is an upper bound on integration curve periods.
         break;

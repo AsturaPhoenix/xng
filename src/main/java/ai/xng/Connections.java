@@ -73,7 +73,12 @@ public class Connections {
     for (val profileEntry : Multimaps.index(connections, Entry::profile).asMap().entrySet()) {
       sb.append(profileEntry.getKey()).append('\n');
       for (val nodeEntry : profileEntry.getValue()) {
-        sb.append(nodeEntry.node()).append(": ").append(nodeEntry.distribution().getMode()).append('\n');
+        val mode = nodeEntry.distribution().getMode();
+        sb.append(nodeEntry.node()).append(": ").append(mode);
+        if (mode >= 1) {
+          sb.append("*");
+        }
+        sb.append('\n');
       }
     }
     if (sb.length() > 0) {
@@ -123,6 +128,14 @@ public class Connections {
     @Override
     public String toString() {
       return Connections.toString(this);
+    }
+
+    public void clear() {
+      val it = iterator();
+      while (it.hasNext()) {
+        it.next();
+        it.remove();
+      }
     }
   }
 
@@ -179,5 +192,85 @@ public class Connections {
     public String toString() {
       return Connections.toString(this);
     }
+  }
+
+  private static final String INDENT = "  ";
+
+  private static void debugPriors(final StringBuilder sb, final Posterior node, final String indent) {
+    sb.append(indent).append('[');
+    val it = node.getPriors().iterator();
+    while (it.hasNext()) {
+      val prior = it.next();
+      sb.append(prior.node()).append(": ").append(prior.distribution().getMode()).append('@').append(prior.profile());
+      if (it.hasNext()) {
+        sb.append(", ");
+      }
+    }
+    sb.append("] -> ");
+  }
+
+  private static void debugPosteriors(final StringBuilder sb, final Prior node, final String indent,
+      final int maxDepth) {
+    val it = node.getPosteriors().iterator();
+
+    if (maxDepth == 0) {
+      if (it.hasNext()) {
+        sb.append('\n').append(indent).append("...");
+      }
+      return;
+    }
+
+    while (it.hasNext()) {
+      val posterior = it.next();
+      sb.append('\n');
+      debugPriors(sb, posterior.node(), indent);
+      sb.append(posterior.node());
+      if (posterior.node() instanceof Prior prior) {
+        debugPosteriors(sb, prior, indent + INDENT, maxDepth - 1);
+      }
+    }
+  }
+
+  public static String debugGraph(final Node node, final int maxDepth) {
+    val sb = new StringBuilder();
+
+    if (node instanceof Posterior posterior) {
+      debugPriors(sb, posterior, "");
+    }
+    sb.append(node);
+    if (node instanceof Prior prior) {
+      debugPosteriors(sb, prior, INDENT, maxDepth);
+    }
+
+    return sb.toString();
+  }
+
+  public static String debugPriors(final Posterior node) {
+    final long t = Scheduler.global.now();
+    val sb = new StringBuilder();
+    val it = Multimaps.index(node.getPriors(), Entry<Prior>::node).asMap().entrySet().iterator();
+    while (it.hasNext()) {
+      val entry = it.next();
+      sb.append(entry.getKey())
+          .append(": ");
+      val curveIt = entry.getValue().iterator();
+      while (curveIt.hasNext()) {
+        val curve = curveIt.next();
+        sb.append(entry.getKey().getTrace().evaluate(t, curve.profile()))
+            .append(" x ")
+            .append(curve.distribution().getMode())
+            .append('@')
+            .append(curve.profile());
+
+        if (curveIt.hasNext()) {
+          sb.append(", ");
+        }
+      }
+
+      if (it.hasNext()) {
+        sb.append('\n');
+      }
+    }
+    return sb.toString();
   }
 }

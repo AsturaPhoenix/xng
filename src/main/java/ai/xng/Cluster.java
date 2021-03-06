@@ -52,7 +52,6 @@ public class Cluster<T extends Node> implements Serializable {
           .get());
     }
 
-    @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
       o.defaultReadObject();
       link = activations.new Link(new WeakReference<>((T) o.readObject()));
@@ -198,6 +197,10 @@ public class Cluster<T extends Node> implements Serializable {
     associate(Arrays.asList(new PriorClusterProfile(priorCluster, IntegrationProfile.TRANSIENT)), posteriorCluster);
   }
 
+  private static float tolerance(final float raw) {
+    return Math.min(1, raw * (1 + Prior.THRESHOLD_MARGIN));
+  }
+
   /**
    * Breaks associations between the given prior cluster and posterior cluster.
    * The active posteriors considered at the time this function executes are
@@ -217,7 +220,8 @@ public class Cluster<T extends Node> implements Serializable {
               final float priorTrace = prior.node().getTrace()
                   .evaluate(posterior.getLastActivation().get(), prior.profile());
               if (priorTrace > 0) {
-                prior.distribution().reinforce(-prior.distribution().getWeight() * priorTrace * posteriorTrace);
+                prior.distribution().reinforce(
+                    -prior.distribution().getWeight() * tolerance(priorTrace * posteriorTrace));
               }
             }
           }
@@ -228,7 +232,7 @@ public class Cluster<T extends Node> implements Serializable {
     forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (prior, trace) -> {
           for (val entry : prior.getPosteriors()) {
-            entry.distribution().scale(factor * trace);
+            entry.distribution().scale(factor * tolerance(trace));
           }
         });
   }

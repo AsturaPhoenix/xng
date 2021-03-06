@@ -22,15 +22,15 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public final BiCluster stateRecognition = new BiCluster(),
       sequenceRecognition = new BiCluster(),
+      naming = new BiCluster(),
       entrypoint = new BiCluster(),
       execution = new BiCluster();
   public final ActionCluster actions = new ActionCluster(lastException);
   public final SignalCluster signals = new SignalCluster();
-  public final GatedBiCluster context = new GatedBiCluster(actions);
+  public final GatedBiCluster gated = new GatedBiCluster(actions);
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
-  @SuppressWarnings("unchecked")
   public final ActionCluster.Node disassociate = actions.new Node(() -> data.rxActivations()
       .map(DataNode::getData)
       .take(2)

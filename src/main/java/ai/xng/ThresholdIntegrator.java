@@ -13,6 +13,20 @@ public abstract class ThresholdIntegrator {
 
   private TimeSeries<Disposable> nextThreshold;
 
+  /**
+   * Gets the timestamp of the currently scheduled next threshold.
+   */
+  public Optional<Long> nextThreshold() {
+    return Optional.ofNullable(nextThreshold).map(TimeSeries::time);
+  }
+
+  /**
+   * Returns whether there is currently a due threshold processing task scheduled.
+   */
+  public boolean isPending() {
+    return nextThreshold().map(t -> t <= Scheduler.global.now()).orElse(false);
+  }
+
   protected abstract void onThreshold();
 
   public void add(final IntegrationProfile profile, final float magnitude) {

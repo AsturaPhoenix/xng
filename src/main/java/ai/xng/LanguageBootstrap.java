@@ -1,15 +1,21 @@
 package ai.xng;
 
 import java.util.Arrays;
-import java.util.PrimitiveIterator;
+import java.util.Iterator;
+import java.util.Optional;
+
+import com.google.common.collect.ImmutableList;
 
 import ai.xng.constructs.BooleanDecoder;
 import ai.xng.constructs.CharacterDecoder;
+import ai.xng.constructs.Decoder;
 import ai.xng.constructs.Latch;
 import lombok.AllArgsConstructor;
 import lombok.val;
 
 public class LanguageBootstrap {
+  public static final float STACK_FACTOR = .5f;
+
   private final KnowledgeBase kb;
 
   private <H extends Prior> Sequence<H> asSequence(final H start) {
@@ -21,18 +27,12 @@ public class LanguageBootstrap {
     H head;
     Prior tail;
 
-    public Sequence<H> then(final Posterior next) {
-      tail = tail.then(kb.execution.new Node());
-      tail.then(next);
-      return this;
-    }
-
     public Sequence<H> thenDirect(final BiNode next) {
       tail.then(next);
       return new Sequence<>(head, next);
     }
 
-    public Sequence<H> thenSequential(final Posterior... s) {
+    public Sequence<H> then(final Posterior... s) {
       for (val e : s) {
         tail = tail.then(kb.execution.new Node());
         if (e != null) {
@@ -68,7 +68,59 @@ public class LanguageBootstrap {
     }
   }
 
-  private class InputIterator {
+  private class Spawn {
+    final ActionCluster.Node gated = kb.actions.new Node(() -> kb.gated.input.new Node().activate()),
+        stateRecognition = kb.actions.new Node(() -> kb.stateRecognition.new Node().activate()),
+        sequenceRecognition = kb.actions.new Node(() -> kb.sequenceRecognition.new Node().activate()),
+        data = kb.actions.new Node(() -> kb.data.new MutableNode<>().activate());
+  }
+
+  private final Spawn spawn;
+
+  private class Control {
+    final ImmutableList<Cluster.PriorClusterProfile> frameFieldPriors = new Cluster.PriorClusterProfile.ListBuilder()
+        .add(kb.gated.output)
+        .add(kb.naming)
+        .build();
+
+    final StmCluster stackFrame = new StmCluster(),
+        returnValue = new StmCluster(),
+        cxt = new StmCluster(),
+        tmp = new StmCluster();
+    final BiCluster.Node invocation = kb.naming.new Node(),
+        arg1 = kb.naming.new Node(),
+        returnTo = kb.naming.new Node();
+    final BiCluster.Node execute = kb.entrypoint.new Node(),
+        doReturn = kb.entrypoint.new Node();
+
+    {
+      // TODO: consider inheriting more from static frames and creating an instance
+      // differentiator here so that we can allocate new data onto static frames (or
+      // leaving that as a caller responsibility).
+      asSequence(execute)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              stackFrame.address,
+              invocation,
+              kb.gated.gate);
+
+      asSequence(doReturn)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(stackFrame.address)
+          .thenParallel(
+              returnTo,
+              kb.actions.new Node(() -> Cluster.scalePosteriors(stackFrame, 1 / STACK_FACTOR)))
+          .thenParallel(
+              kb.actions.new Node(() -> Cluster.disassociate(stackFrame, kb.gated.output)),
+              kb.actions.new Node(() -> Cluster.disassociate(stackFrame, kb.naming)))
+          .then(kb.gated.gate);
+    }
+  }
+
+  private final Control control;
+
+  private class StringIterator {
+    final BiNode create;
     /**
      * Node activated once a code point has been decoded.
      */
@@ -77,44 +129,80 @@ public class LanguageBootstrap {
      * Node that should be called once a longer processing operation is ready to
      * advance the iterator. It can also be inhibited by paths that are not ready to
      * proceed.
-     * <p>
-     * This also needs to be called by the parser after it is finished setting up
-     * the top-level stack frame.
      */
     final BiNode advance;
     final BooleanDecoder hasNextDecoder;
-    final DataCluster.MutableNode<Integer> codePoint;
+    final BiNode codePoint;
     final CharacterDecoder charDecoder;
     final InputCluster charCluster;
 
     {
-      val iterator = kb.data.new MutableNode<PrimitiveIterator.OfInt>();
-      val getIterator = kb.execution.new Node();
-      getIterator.then(kb.actions.new Node(() -> iterator.setData(
-          kb.inputValue.getData().codePoints().iterator())));
-      kb.inputValue.onUpdate.then(getIterator);
-
-      hasNextDecoder = new BooleanDecoder(() -> iterator.getData().hasNext(), kb.input);
+      val iterator = kb.naming.new Node();
+      codePoint = kb.naming.new Node();
+      create = kb.execution.new Node();
       advance = kb.execution.new Node();
-      advance.then(kb.actions.new Node(hasNextDecoder));
 
-      codePoint = kb.data.new MutableNode<>();
+      asSequence(create)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.stackFrame.address,
+              iterator,
+              spawn.data,
+              kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.data)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              kb.actions.new Node(() -> kb.data.rxActivations().take(2).toList()
+                  .subscribe(data -> ((DataCluster.MutableNode<Object>) data.get(1)).setData(
+                      (((String) data.get(0).getData()).codePoints().iterator())))),
+              control.stackFrame.address,
+              control.arg1)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.stackFrame.address,
+              iterator)
+
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .then(codePoint)
+          .then(spawn.data)
+          .then(kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.data)))
+
+          .then(advance);
+
+      hasNextDecoder = new BooleanDecoder(kb.actions, kb.data, kb.input,
+          data -> data instanceof Iterator<?>i ? Optional.of(i.hasNext()) : Optional.empty());
+      asSequence(advance)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .then(iterator)
+          .then(hasNextDecoder.node);
+
       charCluster = new InputCluster();
-      charDecoder = new CharacterDecoder(codePoint::getData, charCluster);
+      charDecoder = new CharacterDecoder(kb.actions, kb.data, charCluster);
       onNext = kb.execution.new Node();
 
       asSequence(hasNextDecoder.isTrue)
-          .thenSequential(
-              kb.actions.new Node(() -> codePoint.setData(iterator.getData().next())),
-              kb.actions.new Node(charDecoder),
-              onNext)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(kb.actions.new Node(() -> kb.data.rxActivations().take(2).toList()
+              .subscribe(data -> ((DataCluster.MutableNode<Integer>) data.get(1)).setData(
+                  ((Iterator<Integer>) ((DataNode) data.get(0)).getData()).next()))))
+          .then(control.stackFrame.address)
+          .then(iterator)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .then(codePoint)
+          .thenDelay()
+          .then(charDecoder.node)
+          .then(onNext)
+          // TODO: We might consider binding codePoint to a register first to avoid
+          // polluted state during recognition.
           // Advance by default unless inhibited.
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .thenDirect(advance);
     }
   }
 
-  private final InputIterator inputIterator;
+  private final StringIterator stringIterator;
 
   private class RecognitionClass {
     final BiCluster.Node character = kb.stateRecognition.new Node();
@@ -123,7 +211,7 @@ public class LanguageBootstrap {
       // character recognition capture
       // We expect recognized characters to trigger a recognition tag two nodes deep,
       // with the first being the capture itself.
-      val captureDispatch = inputIterator.onNext
+      val captureDispatch = stringIterator.onNext
           .then(kb.execution.new Node())
           .then(kb.execution.new Node()) // recognition would trigger here
           .then(kb.execution.new Node());
@@ -136,7 +224,7 @@ public class LanguageBootstrap {
       captureDispatch
           .then(kb.execution.new Node())
           .then(kb.actions.new Node(() -> Cluster.associate(
-              Arrays.asList(new Cluster.PriorClusterProfile(inputIterator.charCluster, IntegrationProfile.TRANSIENT)),
+              Arrays.asList(new Cluster.PriorClusterProfile(stringIterator.charCluster, IntegrationProfile.TRANSIENT)),
               kb.stateRecognition)));
     }
   }
@@ -153,151 +241,338 @@ public class LanguageBootstrap {
    * binding.
    */
   private class RecognitionSequenceMemorizer {
-    final Latch active = new Latch(kb.actions, kb.input);
+    final BiNode invocation;
 
     {
+      invocation = kb.entrypoint.new Node();
+      val gatedInvocation = kb.gated.input.new Node();
+      invocation.then(gatedInvocation);
+      asSequence(gatedInvocation.output)
+          // TODO: It may be more idiomatic to create the capture later, but with current
+          // limitations that would not allow us to bind to STM while also binding to the
+          // captured sequence.
+          .then(control.returnValue.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.disassociate(control.returnValue, kb.stateRecognition)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.returnValue.address)
+          .then(spawn.stateRecognition)
+          .then(kb.actions.new Node(() -> Cluster.associate(control.returnValue, kb.stateRecognition)))
+          .then(stringIterator.create);
+
+      // This is shared with String LiteralBuilder
+      recognitionClass.character.then(control.stackFrame.address, control.invocation);
+
       // Hook sequence capture up after character capture to avoid dealing with the
       // input conjunction directly. Furthermore, some character types may change the
       // latch state.
-      recognitionClass.character.then(kb.actions.new Node(active));
-      asSequence(active.isTrue)
-          .thenSequential(
-              kb.actions.new Node(() -> {
-                val posterior = kb.sequenceRecognition.new Node();
-                posterior.activate();
-              }),
+      val capture = kb.execution.new Node();
+      capture.conjunction(recognitionClass.character, invocation);
+      asSequence(capture)
+          .then(
+              spawn.sequenceRecognition,
               kb.actions.new Node(() -> Cluster.associate(
                   new Cluster.PriorClusterProfile.ListBuilder()
                       .add(kb.sequenceRecognition, IntegrationProfile.TWOGRAM)
                       .add(kb.stateRecognition).build(),
                   kb.sequenceRecognition)));
+
+      val captureReturn = kb.execution.new Node();
+      stringIterator.hasNextDecoder.isFalse.then(control.invocation);
+      captureReturn.conjunction(stringIterator.hasNextDecoder.isFalse, invocation);
+      asSequence(captureReturn)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.returnValue.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.associate(new Cluster.PriorClusterProfile.ListBuilder()
+              .baseProfiles(IntegrationProfile.TWOGRAM)
+              .add(kb.sequenceRecognition)
+              .build(), kb.stateRecognition)))
+          .then(control.doReturn);
     }
   }
 
   public final RecognitionSequenceMemorizer recognitionSequenceMemorizer;
 
-  private static final float STACK_FACTOR = .7f;
+  private class Parse {
+    final BiNode invocation = kb.entrypoint.new Node();
 
-  private class Parser {
-    // Stack-like pointer to the context node for the stack frame currently being
-    // constructed.
-    //
-    // Additionally, this is conjuncted as a parse context to obviate the need to
-    // clear context-specific fields.
-    //
-    // TODO: This doesn't generalize well since it's likely registers will need to
-    // be used multiple times in the same context, which would be better served with
-    // actual clearing.
-    final StmCluster constructionStack = new StmCluster(),
-        writePointer = new StmCluster();
-    final BiCluster.Node entrypoint = kb.stateRecognition.new Node(),
-        arg1 = kb.stateRecognition.new Node();
+    final BiCluster.Node constructionPointer = kb.naming.new Node(),
+        writePointer = kb.naming.new Node();
 
     {
+      val gatedInvocation = kb.gated.input.new Node();
       // One of the first things we should do when we begin parsing something is start
-      // a stack frame. We need to bind this to the construction stack. Eventually
-      // we'll also want to handle the case where the construction stack is
-      // nonempty. In preparation for that, let's do a push operation.
-      asSequence(kb.inputValue.onUpdate)
-          .thenSequential(
-              constructionStack.address,
-              kb.actions.new Node(() -> Cluster.scalePosteriors(constructionStack, STACK_FACTOR)),
-              kb.actions.new Node(() -> kb.stateRecognition.new Node().activate()),
-              kb.actions.new Node(() -> Cluster.associate(constructionStack, kb.stateRecognition)))
+      // constructing a stack frame.
+      //
+      // We create it as a gated node so that we can flip it into a register for
+      // unambiguous writing while it itself is scoped to the stack frame invoking
+      // parse. However, during use, it need not be gated so we can put the output
+      // node on the actual stack.
+      invocation.then(gatedInvocation);
+      asSequence(gatedInvocation.output)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(inputIterator.advance);
-
-      // "print" entrypoint binding. To bind, we need to activate the stack frame
-      // context and the entrypoint field identifier, and capture the conjunction with
-      // the "print" entrypoint node.
-      val printEntrypoint = kb.context.input.new Node();
-      asSequence(printEntrypoint.output)
+          .then(
+              control.stackFrame.address,
+              constructionPointer,
+              spawn.gated,
+              kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.gated.input)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .thenParallel(kb.print, constructionStack.address)
-          .then(arg1);
+          .then(stringIterator.create);
 
-      val bindPrint = kb.entrypoint.new Node();
-      bindPrint.inhibit(inputIterator.advance);
+      val printInvocation = kb.gated.input.new Node();
+      asSequence(printInvocation.output)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .thenParallel(kb.print, control.stackFrame.address)
+          .then(control.arg1);
+
+      val bindPrintEntrypoint = kb.entrypoint.new Node();
+      // TODO: this timing is super fragile
+      bindPrintEntrypoint.then(control.stackFrame.address, control.invocation);
+
+      val bindPrint = kb.execution.new Node();
+      bindPrint.conjunction(bindPrintEntrypoint, invocation);
+      bindPrint.inhibit(stringIterator.advance);
       asSequence(bindPrint)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .thenSequential(constructionStack.address, entrypoint, printEntrypoint)
-          .then(kb.actions.new Node(() -> Cluster.associate(kb.stateRecognition, kb.context.input)))
-
+          .then(control.cxt.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.output)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .thenSequential(
-              constructionStack.address,
-              writePointer.address,
-              arg1,
-              kb.actions.new Node(() -> Cluster.associate(
-                  new Cluster.PriorClusterProfile.ListBuilder()
-                      .add(kb.stateRecognition)
-                      .add(writePointer)
-                      .build(),
-                  kb.stateRecognition)))
-          .then(inputIterator.advance);
-
-      recognitionSequenceMemorizer.active.set.activate();
-      kb.inputValue.setData("print(");
-      Scheduler.global.fastForwardUntilIdle();
-      asSequence(kb.execution.new Node())
-          .thenSequential(
-              bindPrint,
-              kb.actions.new Node(() -> Cluster.associate(kb.sequenceRecognition, kb.entrypoint)),
-              recognitionSequenceMemorizer.active.clear).head.activate();
-      Scheduler.global.fastForwardUntilIdle();
-
-      asSequence(inputIterator.hasNextDecoder.isFalse)
+          .then(control.stackFrame.address)
+          .thenParallel(constructionPointer, control.cxt.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.input)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .thenSequential(
-              // TODO: This will need to get more sophisticated as soon as we introduce
-              // multi-stage computations.
-              constructionStack.address,
-              entrypoint,
-              kb.context.gate);
+          .then(
+              control.cxt.address,
+              kb.gated.gate)
+          .thenParallel(
+              kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.input)),
+              kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.output)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.cxt.address,
+              control.invocation,
+              printInvocation)
+          .then(kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.gated.input)))
+
+          // In the future we might like to scope the write pointer per construction
+          // frame, but that story is not fleshed out yet so let's keep it simple for now.
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.stackFrame.address,
+              writePointer,
+              control.arg1,
+              kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.naming)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(stringIterator.advance);
+
+      val returnParseFrame = kb.execution.new Node();
+      // shared with recognition sequence memorizer
+      stringIterator.hasNextDecoder.isFalse.then(control.invocation);
+      returnParseFrame.conjunction(stringIterator.hasNextDecoder.isFalse, invocation);
+      asSequence(returnParseFrame)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.returnValue.address,
+              null,
+              kb.actions.new Node(() -> Cluster.disassociate(control.returnValue, kb.gated.input)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .thenParallel(constructionPointer, control.returnValue.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.associate(control.returnValue, kb.gated.input)))
+          .then(control.doReturn);
+
+      {
+        val call = kb.gated.input.new Node().output;
+        recognitionSequenceMemorizer.invocation.conjunction(call, control.invocation);
+        kb.data.new FinalNode<>("print(").conjunction(call, control.arg1);
+        val bindBindPrint = kb.execution.new Node();
+        bindBindPrint.conjunction(call, control.returnTo);
+        asSequence(bindBindPrint)
+            .then(control.returnValue.address)
+            .thenDelay()
+            .thenParallel(
+                bindPrintEntrypoint,
+                kb.actions.new Node(() -> Cluster.disassociate(control.returnValue, kb.stateRecognition)))
+            .then(kb.actions.new Node(() -> Cluster.associate(kb.stateRecognition, kb.entrypoint)));
+        control.stackFrame.address.then(call);
+        control.execute.activate();
+        Scheduler.global.fastForwardUntilIdle();
+        Scheduler.global.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      }
     }
   }
 
-  private final Parser parser;
+  private final Parse parse;
+
+  // Eval parses the argument and executes the resulting construct.
+  private class Eval {
+    final GatedBiCluster.InputCluster.Node invocation = kb.gated.input.new Node();
+
+    {
+      val returnFrom = kb.gated.input.new Node();
+      asSequence(returnFrom.output)
+          .then(control.doReturn);
+
+      val executeParsed = kb.gated.input.new Node();
+      asSequence(executeParsed.output)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.stackFrame.address,
+              kb.actions.new Node(() -> Cluster.scalePosteriors(control.stackFrame, STACK_FACTOR)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .thenParallel(control.stackFrame.address, control.returnValue.address)
+          .then(kb.gated.gate)
+          .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.stackFrame.address,
+              control.returnTo,
+              returnFrom,
+              kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.gated.input)),
+              control.execute);
+
+      asSequence(invocation.output)
+          // We're burning through *a lot* of timing nodes... It may be time to leverage a
+          // dedicated profile or some other mechanism. If we go with a dedicated profile,
+          // we might want to use a dedicated cluster and implement intra/intercluster
+          // default profiles.
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          // Additionally, it may be worthwhile to create a dedicated bind/push mechanism.
+          .then(
+              control.cxt.address,
+              null,
+              kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.output)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .thenParallel(control.cxt.address, kb.gated.gate)
+          .then(spawn.gated)
+          .then(kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.output)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.cxt.address)
+          .then(control.invocation)
+          .then(parse.invocation)
+          .then(kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.entrypoint)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.tmp.address,
+              null,
+              kb.actions.new Node(() -> Cluster.disassociate(control.tmp, kb.data)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .thenParallel(control.arg1, control.tmp.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.associate(control.tmp, kb.data)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.cxt.address)
+          .thenParallel(control.arg1, control.tmp.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.data)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.cxt.address,
+              control.returnTo,
+              executeParsed,
+              kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.gated.input)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.stackFrame.address,
+              kb.actions.new Node(() -> Cluster.scalePosteriors(control.stackFrame, STACK_FACTOR)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .thenParallel(control.stackFrame.address, control.cxt.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
+          .then(control.execute);
+    }
+  }
+
+  private final Eval eval;
 
   private class StringLiteralBuilder {
     final Latch isParsing;
-    final DataCluster.MutableNode<StringBuilder> builder;
 
     {
       isParsing = new Latch(kb.actions, kb.input);
-      builder = kb.data.new MutableNode<>();
+      val builder = new StringBuilder();
 
-      val start = kb.execution.new Node(), append = kb.execution.new Node(), end = kb.execution.new Node();
+      val start = kb.execution.new Node(),
+          append = kb.execution.new Node(),
+          end = kb.execution.new Node();
       start.then(isParsing.set);
       end.then(isParsing.clear);
 
       val quote = kb.stateRecognition.new Node();
+      val quoteDelayed = quote
+          .then(kb.execution.new Node())
+          .then(kb.execution.new Node());
       val conjunction = new ConjunctionJunction();
-      inputIterator.charDecoder.forOutput('"', conjunction::add);
+      stringIterator.charDecoder.forOutput('"', conjunction::add);
       conjunction.build(quote).then(recognitionClass.character);
-      start.conjunction(quote, isParsing.isFalse);
-      end.conjunction(quote, isParsing.isTrue);
-      recognitionClass.character.then(kb.actions.new Node(isParsing));
+      start.conjunction(quoteDelayed, isParsing.isFalse);
+      end.conjunction(quoteDelayed, isParsing.isTrue);
+      recognitionClass.character.then(control.invocation);
 
-      start.then(kb.actions.new Node(() -> builder.setData(new StringBuilder())));
-      end.inhibit(inputIterator.advance);
+      // TODO: simple conjunction, once timing is more robust
+      val queryIsParsing = kb.actions.new Node(isParsing);
+      recognitionClass.character.getPosteriors().getDistribution(queryIsParsing, IntegrationProfile.TRANSIENT).set(.7f);
+      parse.invocation.getPosteriors().getDistribution(queryIsParsing, IntegrationProfile.TRANSIENT).set(.7f);
+
+      start.then(kb.actions.new Node(() -> builder.setLength(0)));
+      end.inhibit(stringIterator.advance);
       asSequence(end)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.cxt.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.output)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .thenParallel(parse.constructionPointer, control.cxt.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.input)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(
+              control.cxt.address,
+              kb.gated.gate)
           .thenParallel(
-              parser.constructionStack.address,
-              parser.writePointer.address)
-          .thenDelay() // indirection delay
-          .thenSequential(
-              kb.actions.new Node(
-                  () -> kb.data.new FinalNode<>(builder.getData().toString()).activate()),
-              kb.actions.new Node(() -> Cluster.associate(kb.stateRecognition, kb.data)),
-              inputIterator.advance);
+              kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.input)),
+              kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.output)))
+
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.tmp.address)
+          .thenDelay()
+          .then(kb.actions.new Node(() -> Cluster.disassociate(control.tmp, kb.naming)))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .thenParallel(control.tmp.address, parse.writePointer)
+          .then(kb.actions.new Node(() -> Cluster.associate(control.tmp, kb.naming)))
+
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .thenParallel(control.tmp.address, control.cxt.address)
+          .thenDelay()
+          .then(
+              kb.actions.new Node(() -> kb.data.new FinalNode<>(builder.toString()).activate()),
+              kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.data)),
+              stringIterator.advance);
 
       val notQuote = kb.stateRecognition.new Node();
       recognitionClass.character.then(notQuote).inhibitor(quote);
       append.conjunction(notQuote, isParsing.isTrue);
-      append.then(kb.actions.new Node(() -> builder.getData()
-          .appendCodePoint(inputIterator.codePoint.getData())));
+      append.inhibit(stringIterator.advance);
+      asSequence(append)
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .then(stringIterator.codePoint)
+          .then(new Decoder(kb.actions, kb.data) {
+            @Override
+            protected void decode(final Object data) {
+              if (data instanceof Integer codePoint) {
+                builder.appendCodePoint(codePoint);
+              }
+            }
+          }.node)
+          .then(stringIterator.advance);
     }
   }
 
@@ -306,10 +581,37 @@ public class LanguageBootstrap {
   public LanguageBootstrap(final KnowledgeBase kb) {
     this.kb = kb;
 
-    inputIterator = new InputIterator();
+    spawn = new Spawn();
+    control = new Control();
+    stringIterator = new StringIterator();
     recognitionClass = new RecognitionClass();
     recognitionSequenceMemorizer = new RecognitionSequenceMemorizer();
-    parser = new Parser();
+    parse = new Parse();
+    eval = new Eval();
     stringLiteralBuilder = new StringLiteralBuilder();
+
+    // When the input changes, we need to construct an eval call.
+    asSequence(kb.inputValue.onUpdate)
+        .then(
+            control.stackFrame.address,
+            kb.actions.new Node(() -> Cluster.scalePosteriors(control.stackFrame, STACK_FACTOR)))
+        .thenDelay(IntegrationProfile.TRANSIENT.period())
+        .thenParallel(control.stackFrame.address, kb.gated.gate)
+        .then(spawn.gated)
+        .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
+        .thenDelay(IntegrationProfile.TRANSIENT.period())
+        .then(
+            control.stackFrame.address,
+            control.invocation,
+            eval.invocation,
+            kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.gated.input)))
+        .thenDelay(IntegrationProfile.TRANSIENT.period())
+        .then(
+            control.stackFrame.address,
+            control.arg1,
+            kb.inputValue,
+            kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.data)))
+        .thenDelay(IntegrationProfile.TRANSIENT.period())
+        .then(control.execute);
   }
 }

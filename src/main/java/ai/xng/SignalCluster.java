@@ -1,6 +1,10 @@
 package ai.xng;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+
 import io.reactivex.Observable;
+import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 
 public class SignalCluster extends PosteriorCluster<SignalCluster.Node> {
@@ -8,6 +12,19 @@ public class SignalCluster extends PosteriorCluster<SignalCluster.Node> {
 
   public Observable<Node> rxActivations() {
     return rxActivations;
+  }
+
+  public SignalCluster() {
+    init();
+  }
+
+  private void init() {
+    rxActivations = PublishSubject.create();
+  }
+
+  private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
+    o.defaultReadObject();
+    init();
   }
 
   public class Node extends OutputNode {

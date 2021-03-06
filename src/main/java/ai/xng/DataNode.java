@@ -35,7 +35,6 @@ public interface DataNode extends Posterior {
       }
     }
 
-    @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
       data = (T) o.readObject();
       if (data instanceof SerializedMethod proxy) {
@@ -61,7 +60,6 @@ public interface DataNode extends Posterior {
       }
     }
 
-    @SuppressWarnings("unchecked")
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
       data = (T) o.readObject();
       if (data instanceof SerializedMethod proxy) {

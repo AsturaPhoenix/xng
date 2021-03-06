@@ -13,6 +13,11 @@ public class LazyIntegrator {
     samples.add(new TimeSeries<>(magnitude, start));
   }
 
+  /**
+   * Evaluates the integrator at time {@code t} where the time series encoded in
+   * this integrator is interpreted as spikes of the given {@code profile}. Each
+   * spike begins (with possible delay) at each time series point.
+   */
   public float evaluate(final long t, final IntegrationProfile profile) {
     float value = 0;
     for (val sample : samples) {

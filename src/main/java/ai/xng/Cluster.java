@@ -12,10 +12,22 @@ import java.util.function.BiConsumer;
 
 import com.google.common.collect.ImmutableList;
 
+import io.reactivex.Observable;
+import io.reactivex.subjects.PublishSubject;
+import io.reactivex.subjects.Subject;
 import lombok.val;
 
 public class Cluster<T extends Node> implements Serializable {
-  private transient RecencyQueue<WeakReference<T>> activations = new RecencyQueue<>();
+  private transient RecencyQueue<WeakReference<T>> activations;
+  private transient Subject<T> rxActivations;
+
+  public Observable<T> rxActivations() {
+    return rxActivations;
+  }
+
+  public Cluster() {
+    init();
+  }
 
   // TODO: register cleanup task
 
@@ -33,10 +45,14 @@ public class Cluster<T extends Node> implements Serializable {
 
   private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
     o.defaultReadObject();
-
-    activations = new RecencyQueue<>();
+    init();
     // Nodes will be re-added as they activate.
     o.readObject();
+  }
+
+  private void init() {
+    activations = new RecencyQueue<>();
+    rxActivations = PublishSubject.create();
   }
 
   protected class Link implements Serializable {
@@ -48,8 +64,7 @@ public class Cluster<T extends Node> implements Serializable {
 
     private void writeObject(final ObjectOutputStream o) throws IOException {
       o.defaultWriteObject();
-      o.writeObject(link.get()
-          .get());
+      o.writeObject(link.get().get());
     }
 
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
@@ -65,6 +80,7 @@ public class Cluster<T extends Node> implements Serializable {
      */
     public void promote() {
       link.promote();
+      rxActivations.onNext(link.get().get());
     }
   }
 

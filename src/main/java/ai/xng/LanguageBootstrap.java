@@ -400,10 +400,8 @@ public class LanguageBootstrap {
       val executeParsed = kb.gated.input.new Node();
       asSequence(executeParsed.output)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.stackFrame.address)
-          .then(kb.actions.new Node(() -> Cluster.scalePosteriors(control.stackFrame, STACK_FACTOR)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.stackFrame.address, control.returnValue.address)
+          .then(control.stackFrame.address, control.returnValue.address, kb.suppressPosteriors,
+              control.stackFrame.getClusterIdentifier())
           .then(kb.gated.gate)
           .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
@@ -452,10 +450,8 @@ public class LanguageBootstrap {
           .then(executeParsed)
           .then(kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.gated.input)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.stackFrame.address)
-          .then(kb.actions.new Node(() -> Cluster.scalePosteriors(control.stackFrame, STACK_FACTOR)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.stackFrame.address, control.cxt.address)
+          .then(control.stackFrame.address, control.cxt.address, kb.suppressPosteriors,
+              control.stackFrame.getClusterIdentifier())
           .thenDelay()
           .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
           .then(control.execute);
@@ -564,10 +560,8 @@ public class LanguageBootstrap {
 
     // When the input changes, we need to construct an eval call.
     asSequence(kb.inputValue.onUpdate)
-        .then(control.stackFrame.address)
-        .then(kb.actions.new Node(() -> Cluster.scalePosteriors(control.stackFrame, STACK_FACTOR)))
-        .thenDelay(IntegrationProfile.TRANSIENT.period())
-        .then(control.stackFrame.address, kb.gated.gate)
+        .then(control.stackFrame.address, kb.gated.gate, kb.suppressPosteriors,
+            control.stackFrame.getClusterIdentifier())
         .then(spawn.gated)
         .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
         .thenDelay(IntegrationProfile.TRANSIENT.period())

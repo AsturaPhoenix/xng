@@ -2,7 +2,7 @@ package ai.xng;
 
 import lombok.Getter;
 
-public class PosteriorCluster<T extends Posterior> extends Cluster<T> {
+public abstract class PosteriorCluster<T extends Posterior> extends Cluster<T> {
   public static final float DEFAULT_PLASTICITY = .1f;
 
   @Getter

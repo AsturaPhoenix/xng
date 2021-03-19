@@ -1,5 +1,7 @@
 package ai.xng;
 
+import static ai.xng.KnowledgeBase.STACK_FACTOR;
+
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Optional;
@@ -14,8 +16,6 @@ import lombok.AllArgsConstructor;
 import lombok.val;
 
 public class LanguageBootstrap {
-  public static final float STACK_FACTOR = .5f;
-
   private final KnowledgeBase kb;
 
   private <H extends Prior> Sequence<H> asSequence(final H start) {
@@ -73,10 +73,10 @@ public class LanguageBootstrap {
         .add(kb.naming)
         .build();
 
-    final StmCluster stackFrame = new StmCluster(),
-        returnValue = new StmCluster(),
-        cxt = new StmCluster(),
-        tmp = new StmCluster();
+    final StmCluster stackFrame = new StmCluster(kb.data),
+        returnValue = new StmCluster(kb.data),
+        cxt = new StmCluster(kb.data),
+        tmp = new StmCluster(kb.data);
     final BiCluster.Node invocation = kb.naming.new Node(),
         arg1 = kb.naming.new Node(),
         returnTo = kb.naming.new Node();
@@ -163,7 +163,7 @@ public class LanguageBootstrap {
           .then(iterator)
           .then(hasNextDecoder.node);
 
-      charCluster = new InputCluster();
+      charCluster = new InputCluster(kb.data);
       charDecoder = new CharacterDecoder(kb.actions, kb.data, charCluster);
       onNext = kb.execution.new Node();
 

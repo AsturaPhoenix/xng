@@ -397,7 +397,7 @@ public class AssociationTest {
 
       testStack.activate();
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
-      Cluster.scalePosteriors(priorCluster, LanguageBootstrap.STACK_FACTOR);
+      Cluster.scalePosteriors(priorCluster, KnowledgeBase.STACK_FACTOR);
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
       testStack.activate();
@@ -414,7 +414,7 @@ public class AssociationTest {
       val item = refStack.pop();
       testStack.activate();
       scheduler.fastForwardFor(2 * IntegrationProfile.TRANSIENT.defaultInterval());
-      Cluster.scalePosteriors(priorCluster, 1 / LanguageBootstrap.STACK_FACTOR);
+      Cluster.scalePosteriors(priorCluster, 1 / KnowledgeBase.STACK_FACTOR);
       Cluster.disassociate(priorCluster, posteriorCluster);
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
       assertThat(monitor.emissions()).containsExactly(item);
@@ -454,7 +454,7 @@ public class AssociationTest {
 
     prior.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
-    Cluster.scalePosteriors(priorCluster, (float) Math.pow(1 / LanguageBootstrap.STACK_FACTOR, 32));
+    Cluster.scalePosteriors(priorCluster, (float) Math.pow(1 / KnowledgeBase.STACK_FACTOR, 32));
     scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
 
     monitor.reset();

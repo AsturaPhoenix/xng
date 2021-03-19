@@ -17,9 +17,11 @@ import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.val;
 
-public class Cluster<T extends Node> implements Serializable {
+public abstract class Cluster<T extends Node> implements Serializable {
   private transient RecencyQueue<WeakReference<T>> activations;
   private transient Subject<T> rxActivations;
+
+  public abstract DataCluster.FinalNode<? extends Cluster<T>> getClusterIdentifier();
 
   public Observable<T> rxActivations() {
     return rxActivations;

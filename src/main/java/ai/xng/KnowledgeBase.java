@@ -6,40 +6,61 @@ import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.Objects;
 
+import ai.xng.constructs.CoincidentEffect;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import lombok.val;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
+  public static final float STACK_FACTOR = .5f;
+
   private transient Subject<String> rxOutput;
 
-  public final InputCluster input = new InputCluster();
+  public final DataCluster data = new DataCluster(this::updateNodeFactory);
 
-  public final DataCluster data = new DataCluster(input);
+  private InputCluster.Node updateNodeFactory() {
+    return input.new Node();
+  }
+
+  public final InputCluster input = new InputCluster(data);
   public final DataCluster.MutableNode<String> inputValue = data.new MutableNode<>();
   public final DataCluster.MutableNode<Throwable> lastException = data.new MutableNode<>();
   public final DataCluster.MutableNode<Object> returnValue = data.new MutableNode<>();
 
-  public final BiCluster stateRecognition = new BiCluster(),
-      sequenceRecognition = new BiCluster(),
-      naming = new BiCluster(),
-      entrypoint = new BiCluster(),
-      execution = new BiCluster();
+  public final BiCluster stateRecognition = new BiCluster(data),
+      sequenceRecognition = new BiCluster(data),
+      naming = new BiCluster(data),
+      entrypoint = new BiCluster(data),
+      execution = new BiCluster(data);
   public final ActionCluster actions = new ActionCluster(lastException);
-  public final SignalCluster signals = new SignalCluster();
+  public final SignalCluster signals = new SignalCluster(data);
   public final GatedBiCluster gated = new GatedBiCluster(actions);
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
-  public final ActionCluster.Node disassociate = actions.new Node(() -> data.rxActivations()
-      .map(DataNode::getData)
-      .take(2)
-      .toList()
-      .subscribe(
-          args -> Cluster.disassociate(
-              (Cluster<? extends Prior>) args.get(0),
-              (Cluster<? extends Posterior>) args.get(1)),
-          lastException::setData)),
+  public final ActionCluster.Node suppressPosteriors = new CoincidentEffect<Posterior>(actions) {
+    @Override
+    protected void apply(final Posterior node) {
+      if (node instanceof DataNode data && data.getData() instanceof PosteriorCluster<?>cluster) {
+        addCluster(cluster);
+      } else if (node instanceof BiNode prior) {
+        val cluster = prior.getCluster();
+        assert cluster != data;
+        if (!cluster.getClusterIdentifier().getIntegrator().isActive()) {
+          removeCluster(cluster);
+        } else {
+          final float coincidence = prior.getIntegrator().getNormalizedCappedValue();
+          for (final Connections.Entry<Posterior> entry : prior.getPosteriors()) {
+            val old = entry.distribution().getMode();
+            entry.distribution().scale(STACK_FACTOR * coincidence);
+            val delta = entry.distribution().getMode() - old;
+            entry.node().getIntegrator().add(entry.profile(), delta);
+          }
+        }
+      }
+    }
+  }.addCluster(data).node,
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()

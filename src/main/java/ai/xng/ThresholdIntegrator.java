@@ -27,6 +27,15 @@ public abstract class ThresholdIntegrator {
     return nextThreshold().map(t -> t <= Scheduler.global.now()).orElse(false);
   }
 
+  private float getValue() {
+    return integrator.evaluate(Scheduler.global.now()).value();
+  }
+
+  public float getNormalizedCappedValue() {
+    val value = getValue();
+    return value >= THRESHOLD ? 1 : value / THRESHOLD;
+  }
+
   protected abstract void onThreshold();
 
   public void add(final IntegrationProfile profile, final float magnitude) {
@@ -68,8 +77,7 @@ public abstract class ThresholdIntegrator {
   }
 
   public boolean isActive() {
-    return integrator.evaluate(Scheduler.global.now())
-        .value() >= THRESHOLD;
+    return getValue() >= THRESHOLD;
   }
 
   private void evict() {

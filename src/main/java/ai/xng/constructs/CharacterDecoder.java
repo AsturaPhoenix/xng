@@ -7,11 +7,12 @@ import java.util.function.Consumer;
 
 import ai.xng.ActionCluster;
 import ai.xng.DataCluster;
+import ai.xng.DataNode;
 import ai.xng.InputCluster;
 import ai.xng.Node;
 import lombok.val;
 
-public class CharacterDecoder extends Decoder {
+public class CharacterDecoder implements Serializable {
   private static interface Predicate extends Serializable {
     boolean apply(final int codePoint);
   }
@@ -33,8 +34,9 @@ public class CharacterDecoder extends Decoder {
   private final InputCluster output;
   private final Map<Integer, InputCluster.Node> oneHotEncoding = new HashMap<>();
 
+  public final ActionCluster.Node node;
+
   public CharacterDecoder(final ActionCluster actionCluster, final DataCluster input, final InputCluster output) {
-    super(actionCluster, input);
     this.output = output;
     tests = new Test[] {
         new Test(Character::isWhitespace, isWhitespace = output.new Node() {
@@ -87,6 +89,15 @@ public class CharacterDecoder extends Decoder {
         return "unknown character class";
       }
     };
+
+    node = new CoincidentEffect<DataNode>(actionCluster) {
+      @Override
+      protected void apply(final DataNode node) {
+        if (node.getData() instanceof Integer codePoint) {
+          forOutput(codePoint, Node::activate);
+        }
+      }
+    }.addCluster(input).node;
   }
 
   public void forOutput(final int codePoint, final Consumer<? super InputCluster.Node> action) {
@@ -107,12 +118,5 @@ public class CharacterDecoder extends Decoder {
         return new StringBuilder("'").appendCodePoint(codePoint).append('\'').toString();
       }
     }));
-  }
-
-  @Override
-  protected void decode(final Object data) {
-    if (data instanceof Integer codePoint) {
-      forOutput(codePoint, Node::activate);
-    }
   }
 }

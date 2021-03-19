@@ -1,32 +1,34 @@
 package ai.xng.constructs;
 
+import java.io.Serializable;
 import java.util.Optional;
 import java.util.function.Function;
 
 import ai.xng.ActionCluster;
 import ai.xng.DataCluster;
+import ai.xng.DataNode;
 import ai.xng.InputCluster;
 
-public class BooleanDecoder extends Decoder {
+public class BooleanDecoder implements Serializable {
   public final InputCluster.Node isFalse, isTrue;
-  private final Function<Object, Optional<Boolean>> extractor;
+  public final ActionCluster.Node node;
 
   public BooleanDecoder(final ActionCluster actionCluster, final DataCluster input, final InputCluster output,
-      Function<Object, Optional<Boolean>> extractor) {
-    super(actionCluster, input);
+      final Function<Object, Optional<Boolean>> extractor) {
     isFalse = output.new Node();
     isTrue = output.new Node();
-    this.extractor = extractor;
-  }
 
-  @Override
-  protected void decode(final Object data) {
-    extractor.apply(data).ifPresent(b -> {
-      if (b) {
-        isTrue.activate();
-      } else {
-        isFalse.activate();
+    node = new CoincidentEffect<DataNode>(actionCluster) {
+      @Override
+      protected void apply(final DataNode node) {
+        extractor.apply(node.getData()).ifPresent(b -> {
+          if (b) {
+            isTrue.activate();
+          } else {
+            isFalse.activate();
+          }
+        });
       }
-    });
+    }.addCluster(input).node;
   }
 }

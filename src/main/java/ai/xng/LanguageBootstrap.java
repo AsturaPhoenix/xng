@@ -8,7 +8,7 @@ import com.google.common.collect.ImmutableList;
 
 import ai.xng.constructs.BooleanDecoder;
 import ai.xng.constructs.CharacterDecoder;
-import ai.xng.constructs.Decoder;
+import ai.xng.constructs.CoincidentEffect;
 import ai.xng.constructs.Latch;
 import lombok.AllArgsConstructor;
 import lombok.val;
@@ -536,14 +536,14 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(stringIterator.codePoint)
-          .then(new Decoder(kb.actions, kb.data) {
+          .then(new CoincidentEffect<DataNode>(kb.actions) {
             @Override
-            protected void decode(final Object data) {
-              if (data instanceof Integer codePoint) {
+            protected void apply(final DataNode data) {
+              if (data.getData() instanceof Integer codePoint) {
                 builder.appendCodePoint(codePoint);
               }
             }
-          }.node)
+          }.addCluster(kb.data).node)
           .then(stringIterator.advance);
     }
   }

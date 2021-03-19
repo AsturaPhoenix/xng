@@ -1,6 +1,6 @@
 package ai.xng;
 
-import lombok.val;
+import ai.xng.constructs.CoincidentEffect;
 
 /**
  * This cluster contains input and output sub-clusters gated by an external
@@ -42,11 +42,6 @@ public class GatedBiCluster {
       public final void activate() {
         link.promote();
         super.activate();
-
-        val integrator = gate.getIntegrator();
-        if (!integrator.isPending() && integrator.isActive()) {
-          output.activate();
-        }
       }
     }
   }
@@ -77,25 +72,11 @@ public class GatedBiCluster {
   public final OutputCluster output = new OutputCluster();
 
   public GatedBiCluster(final ActionCluster gateCluster) {
-    gate = gateCluster.new Node(this::firePending);
-  }
-
-  private void firePending() {
-    final long now = Scheduler.global.now();
-
-    for (val recent : input.activations()) {
-      if (recent.getIntegrator().isPending()) {
-        // This case will be handled by the Node.activate override.
-        continue;
-      }
-      if (recent.getLastActivation().get() < now - IntegrationProfile.PERSISTENT.period()) {
-        // This assumes that PERSISTENT is an upper bound on integration curve periods.
-        break;
-      }
-
-      if (recent.getIntegrator().isActive()) {
-        recent.output.activate();
-      }
-    }
+    gate = new CoincidentEffect<InputCluster.Node>(gateCluster) {
+      @Override
+      protected void apply(final InputCluster.Node node) {
+        node.output.activate();
+      };
+    }.addCluster(input).node;
   }
 }

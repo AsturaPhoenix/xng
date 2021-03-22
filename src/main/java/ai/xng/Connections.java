@@ -200,8 +200,7 @@ public class Connections {
     sb.append(indent).append('[');
     val it = node.getPriors().iterator();
     while (it.hasNext()) {
-      val prior = it.next();
-      sb.append(prior.node()).append(": ").append(prior.distribution().getMode()).append('@').append(prior.profile());
+      debugPrior(sb, it.next());
       if (it.hasNext()) {
         sb.append(", ");
       }
@@ -245,8 +244,17 @@ public class Connections {
     return sb.toString();
   }
 
+  private static void debugPrior(final StringBuilder sb, final Entry<Prior> prior) {
+    sb.append(prior.node())
+        .append(": ")
+        .append(prior.node().getTrace().evaluate(Scheduler.global.now(), prior.profile()))
+        .append("/")
+        .append(prior.distribution().getMode())
+        .append('@')
+        .append(prior.profile());
+  }
+
   public static String debugPriors(final Posterior node) {
-    final long t = Scheduler.global.now();
     val sb = new StringBuilder();
     val it = Multimaps.index(node.getPriors(), Entry<Prior>::node).asMap().entrySet().iterator();
     while (it.hasNext()) {
@@ -255,12 +263,7 @@ public class Connections {
           .append(": ");
       val curveIt = entry.getValue().iterator();
       while (curveIt.hasNext()) {
-        val curve = curveIt.next();
-        sb.append(entry.getKey().getTrace().evaluate(t, curve.profile()))
-            .append(" x ")
-            .append(curve.distribution().getMode())
-            .append('@')
-            .append(curve.profile());
+        debugPrior(sb, curveIt.next());
 
         if (curveIt.hasNext()) {
           sb.append(", ");

@@ -26,22 +26,21 @@ public interface Prior extends Node {
       while (it.hasNext()) {
         val posterior = it.next();
         // LTD due to reverse STDP
-        posterior.distribution()
-            .reinforce(-posterior.node().getTrace().evaluate(now, posterior.profile())
+        posterior.edge().distribution
+            .reinforce(-posterior.node().getTrace().evaluate(now, posterior.edge().profile)
                 * posterior.node().getCluster().getPlasticity());
 
-        if (posterior.distribution().getWeight() == 0) {
+        if (posterior.edge().distribution.getWeight() == 0) {
           it.remove();
         } else {
-          final float sample = posterior.distribution().generate();
-          posterior.node().getIntegrator().add(posterior.profile(), sample);
+          posterior.edge().activate();
         }
       }
     }
   }
 
   default <T extends Posterior> T then(final T posterior) {
-    getPosteriors().getDistribution(posterior, IntegrationProfile.TRANSIENT).set(DEFAULT_COEFFICIENT);
+    getPosteriors().getEdge(posterior, IntegrationProfile.TRANSIENT).distribution.set(DEFAULT_COEFFICIENT);
     return posterior;
   }
 
@@ -52,6 +51,6 @@ public interface Prior extends Node {
   }
 
   default void inhibit(final Posterior posterior) {
-    getPosteriors().getDistribution(posterior, IntegrationProfile.TRANSIENT).set(-1);
+    getPosteriors().getEdge(posterior, IntegrationProfile.TRANSIENT).distribution.set(-1);
   }
 }

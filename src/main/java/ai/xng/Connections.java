@@ -5,20 +5,89 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 import com.google.common.collect.Multimaps;
 
+import ai.xng.ThresholdIntegrator.Spike;
 import lombok.RequiredArgsConstructor;
 import lombok.val;
 import lombok.experimental.UtilityClass;
 
 @UtilityClass
 public class Connections {
-  public static record Entry<T> (T node, IntegrationProfile profile, Distribution distribution) {
+  public static class Edge implements Serializable {
+    public final Distribution distribution;
+    private final Posterior posterior;
+    public final IntegrationProfile profile;
+
+    private transient List<Spike> spikes;
+
+    private Edge(final Posterior posterior, final IntegrationProfile profile) {
+      init();
+      distribution = new UnimodalHypothesis() {
+        @Override
+        public void set(float value, float weight) {
+          super.set(value, weight);
+          invalidate();
+        }
+
+        @Override
+        public void add(float value, float weight) {
+          super.add(value, weight);
+          invalidate();
+        }
+
+        @Override
+        public void scale(float factor) {
+          super.scale(factor);
+          invalidate();
+        }
+      };
+      this.posterior = posterior;
+      this.profile = profile;
+    }
+
+    private void init() {
+      spikes = new ArrayList<>();
+    }
+
+    private void evict() {
+      val now = Scheduler.global.now();
+      spikes.removeIf(spike -> spike.end() <= now);
+    }
+
+    private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
+      init();
+      o.defaultReadObject();
+    }
+
+    private void invalidate() {
+      if (spikes.isEmpty()) {
+        return;
+      }
+
+      evict();
+      final float newRate = distribution.getMode() / profile.rampUp();
+      for (val spike : spikes) {
+        spike.adjustRampUp(newRate);
+        // Since these are all adjustments to the same integrator, we could actually
+        // defer the invalidation, but we expect the size of this loop to be 1 so it's
+        // premature optimization.
+      }
+    }
+
+    public void activate() {
+      spikes.add(posterior.getIntegrator().add(profile, distribution.generate()));
+    }
+  }
+
+  public static record Entry<T> (T node, Edge edge) {
   }
 
   private static record Key<T extends Serializable> (T node, IntegrationProfile profile) implements Serializable {
@@ -70,12 +139,12 @@ public class Connections {
 
   private static <T> String toString(final Iterable<Entry<T>> connections) {
     val sb = new StringBuilder();
-    for (val profileEntry : Multimaps.index(connections, Entry::profile).asMap().entrySet()) {
+    for (val profileEntry : Multimaps.index(connections, e -> e.edge().profile).asMap().entrySet()) {
       sb.append(profileEntry.getKey()).append('\n');
       for (val nodeEntry : profileEntry.getValue()) {
-        val mode = nodeEntry.distribution().getMode();
-        sb.append(nodeEntry.node()).append(": ").append(mode);
-        if (mode >= 1) {
+        val coefficient = nodeEntry.edge().distribution.getMode();
+        sb.append(nodeEntry.node()).append(": ").append(coefficient);
+        if (coefficient >= 1) {
           sb.append("*");
         }
         sb.append('\n');
@@ -90,13 +159,13 @@ public class Connections {
   @RequiredArgsConstructor
   public static class Posteriors implements Serializable, Iterable<Entry<Posterior>> {
     private final Prior owner;
-    private final Map<Key<Posterior>, Distribution> backing = new HashMap<>();
+    private final Map<Key<Posterior>, Edge> backing = new HashMap<>();
 
     @Override
     public Iterator<Entry<Posterior>> iterator() {
       val backing = this.backing.entrySet().iterator();
       return new Iterator<Entry<Posterior>>() {
-        Map.Entry<Key<Posterior>, Distribution> current;
+        Map.Entry<Key<Posterior>, Edge> current;
 
         @Override
         public boolean hasNext() {
@@ -106,7 +175,7 @@ public class Connections {
         @Override
         public Entry<Posterior> next() {
           current = backing.next();
-          return new Entry<>(current.getKey().node(), current.getKey().profile(), current.getValue());
+          return new Entry<>(current.getKey().node(), current.getValue());
         }
 
         @Override
@@ -117,11 +186,11 @@ public class Connections {
       };
     }
 
-    public Distribution getDistribution(final Posterior posterior, final IntegrationProfile profile) {
+    public Edge getEdge(final Posterior posterior, final IntegrationProfile profile) {
       return backing.computeIfAbsent(new Key<>(posterior, profile), (__) -> {
-        val distribution = new UnimodalHypothesis();
-        posterior.getPriors().backing.put(new Key<>(new WeakPrior(owner), profile), distribution);
-        return distribution;
+        val edge = new Edge(posterior, profile);
+        posterior.getPriors().backing.put(new Key<>(new WeakPrior(owner), profile), edge);
+        return edge;
       });
     }
 
@@ -142,7 +211,7 @@ public class Connections {
   @RequiredArgsConstructor
   public static class Priors implements Serializable, Iterable<Entry<Prior>> {
     private final Posterior owner;
-    private final Map<Key<WeakPrior>, Distribution> backing = new HashMap<>();
+    private final Map<Key<WeakPrior>, Edge> backing = new HashMap<>();
 
     @Override
     public Iterator<Entry<Prior>> iterator() {
@@ -170,7 +239,7 @@ public class Connections {
         private void advance() {
           while (backing.hasNext()) {
             val candidate = backing.next();
-            next = new Entry<>(candidate.getKey().node().ref.get(), candidate.getKey().profile(), candidate.getValue());
+            next = new Entry<>(candidate.getKey().node().ref.get(), candidate.getValue());
             if (next.node == null) {
               backing.remove();
             } else {
@@ -182,7 +251,7 @@ public class Connections {
 
         @Override
         public void remove() {
-          current.node().getPosteriors().backing.remove(new Key<>(owner, current.profile()));
+          current.node().getPosteriors().backing.remove(new Key<>(owner, current.edge().profile));
           backing.remove();
         }
       };
@@ -247,11 +316,11 @@ public class Connections {
   private static void debugPrior(final StringBuilder sb, final Entry<Prior> prior) {
     sb.append(prior.node())
         .append(": ")
-        .append(prior.node().getTrace().evaluate(Scheduler.global.now(), prior.profile()))
+        .append(prior.node().getTrace().evaluate(Scheduler.global.now(), prior.edge().profile))
         .append("/")
-        .append(prior.distribution().getMode())
+        .append(prior.edge().distribution.getMode())
         .append('@')
-        .append(prior.profile());
+        .append(prior.edge().profile);
   }
 
   public static String debugPriors(final Posterior node) {

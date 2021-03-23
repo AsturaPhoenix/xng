@@ -164,7 +164,7 @@ public class GatedBiClusterTest {
 
     val monitor = new EmissionMonitor<Long>();
     input.output.getPosteriors()
-        .getDistribution(TestUtil.testNode(actionCluster, monitor), IntegrationProfile.TRANSIENT).set(.8f);
+        .getEdge(TestUtil.testNode(actionCluster, monitor), IntegrationProfile.TRANSIENT).distribution.set(.8f);
 
     val trigger = executionCluster.new Node();
     // The ordering here is Heisenbuggy.

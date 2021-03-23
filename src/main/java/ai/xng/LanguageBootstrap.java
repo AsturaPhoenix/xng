@@ -486,8 +486,9 @@ public class LanguageBootstrap {
 
       // TODO: simple conjunction, once timing is more robust
       val queryIsParsing = kb.actions.new Node(isParsing);
-      recognitionClass.character.getPosteriors().getDistribution(queryIsParsing, IntegrationProfile.TRANSIENT).set(.7f);
-      parse.invocation.getPosteriors().getDistribution(queryIsParsing, IntegrationProfile.TRANSIENT).set(.7f);
+      recognitionClass.character.getPosteriors().getEdge(queryIsParsing, IntegrationProfile.TRANSIENT).distribution
+          .set(.7f);
+      parse.invocation.getPosteriors().getEdge(queryIsParsing, IntegrationProfile.TRANSIENT).distribution.set(.7f);
 
       start.then(kb.actions.new Node(() -> builder.setLength(0)));
       end.inhibit(stringIterator.advance);

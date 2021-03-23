@@ -2,12 +2,45 @@ package ai.xng;
 
 import java.util.Optional;
 
+import ai.xng.BakingIntegrator.Segment;
 import ai.xng.util.TimeSeries;
 import io.reactivex.disposables.Disposable;
 import lombok.val;
 
 public abstract class ThresholdIntegrator {
   public static final float THRESHOLD = 1;
+
+  public class Spike {
+    private final Segment rampUp, rampDown;
+
+    private Spike(final IntegrationProfile profile, final float magnitude) {
+      final long now = Scheduler.global.now();
+      rampUp = new Segment(now + profile.delay(), now + profile.peak(), 0, magnitude / profile.rampUp());
+      rampDown = new Segment(rampUp.t1, now + profile.period(), magnitude, -magnitude / profile.rampDown());
+    }
+
+    /**
+     * Modifies the spike to use a new ramp-up rate. If a ramp-up is already in
+     * progress, the ramp-up segment is moved to begin at its current coordinate.
+     * There is no effect if the peak has already passed.
+     */
+    public void adjustRampUp(final float newRate) {
+      final long now = Scheduler.global.now();
+      if (now < rampUp.t1) {
+        if (now > rampUp.t0) {
+          rampUp.v0 = rampUp.evaluate(now);
+        }
+        rampUp.rate = newRate;
+        rampDown.v0 = rampUp.evaluate(rampUp.t1);
+        rampDown.rate = -rampDown.v0 / rampDown.duration();
+        invalidate();
+      }
+    }
+
+    public long end() {
+      return rampDown.t1;
+    }
+  }
 
   private final BakingIntegrator integrator = new BakingIntegrator();
 
@@ -38,12 +71,17 @@ public abstract class ThresholdIntegrator {
 
   protected abstract void onThreshold();
 
-  public void add(final IntegrationProfile profile, final float magnitude) {
+  public Spike add(final IntegrationProfile profile, final float magnitude) {
     evict();
-    integrator.add(Scheduler.global.now(), profile, magnitude);
+    val spike = new Spike(profile, magnitude);
+    integrator.add(spike.rampUp);
+    integrator.add(spike.rampDown);
+    invalidate();
+    return spike;
+  }
 
+  private void invalidate() {
     final Optional<Long> updatedNextThreshold = nextThreshold(Scheduler.global.now());
-
     if (nextThreshold == null || updatedNextThreshold.map(t -> t != nextThreshold.time())
         .orElse(true)) {
       if (nextThreshold != null) {

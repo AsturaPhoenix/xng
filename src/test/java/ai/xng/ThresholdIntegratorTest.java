@@ -1,6 +1,7 @@
 package ai.xng;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,5 +69,31 @@ public class ThresholdIntegratorTest {
     integrator.add(IntegrationProfile.fromEdges(INTERVAL / 4, INTERVAL / 4), -1);
     scheduler.fastForwardUntilIdle();
     assertThat(output).containsExactly(INTERVAL / 2, 3 * INTERVAL / 2);
+  }
+
+  @Test
+  public void testAdjust() {
+    val spike = integrator.add(IntegrationProfile.fromEdges(INTERVAL, INTERVAL), 1);
+    spike.adjustRampUp(.75f / INTERVAL);
+    scheduler.fastForwardUntil(INTERVAL);
+    assertEquals(.75f, integrator.getNormalizedCappedValue());
+  }
+
+  @Test
+  public void testAdjustAtPeak() {
+    val spike = integrator.add(IntegrationProfile.fromEdges(INTERVAL, INTERVAL), 1);
+    scheduler.fastForwardUntil(INTERVAL);
+    spike.adjustRampUp(.75f / INTERVAL);
+    assertEquals(1, integrator.getNormalizedCappedValue());
+  }
+
+  @Test
+  public void testAdjustBeforeCurve() {
+    val spike = integrator.add(new IntegrationProfile(INTERVAL, 2 * INTERVAL, 3 * INTERVAL), 1);
+    spike.adjustRampUp(.75f / INTERVAL);
+    scheduler.fastForwardFor(INTERVAL);
+    assertEquals(0, integrator.getNormalizedCappedValue());
+    scheduler.fastForwardFor(INTERVAL);
+    assertEquals(.75f, integrator.getNormalizedCappedValue());
   }
 }

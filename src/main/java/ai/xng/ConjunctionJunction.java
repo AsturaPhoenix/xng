@@ -68,7 +68,7 @@ public class ConjunctionJunction {
     for (val component : components) {
       final float coefficient = component.weight() / normAdj;
       assert coefficient <= Prior.DEFAULT_COEFFICIENT;
-      val distribution = component.prior().getPosteriors().getDistribution(posterior, component.profile());
+      val distribution = component.prior().getPosteriors().getEdge(posterior, component.profile()).distribution;
       // This condition prevents association from ever making pre-existing connections
       // more restrictive. This is specifically for association. In the naive
       // conjunction case, there are no pre-existing condtions.

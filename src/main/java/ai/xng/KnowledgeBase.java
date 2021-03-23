@@ -52,10 +52,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
         } else {
           final float coincidence = prior.getIntegrator().getNormalizedCappedValue();
           for (final Connections.Entry<Posterior> entry : prior.getPosteriors()) {
-            val old = entry.distribution().getMode();
-            entry.distribution().scale(STACK_FACTOR * coincidence);
-            val delta = entry.distribution().getMode() - old;
-            entry.node().getIntegrator().add(entry.profile(), delta);
+            entry.edge().distribution.scale(STACK_FACTOR * coincidence);
           }
         }
       }

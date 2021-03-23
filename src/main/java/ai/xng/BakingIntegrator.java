@@ -4,10 +4,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import lombok.AllArgsConstructor;
 import lombok.val;
 
 public class BakingIntegrator {
-  private static record Segment(long t0, long t1, float v0, float rate) {
+  @AllArgsConstructor
+  public static class Segment {
+    public long t0, t1;
+    public float v0, rate;
+
+    public float evaluate(final long t) {
+      return v0 + rate * (t - t0);
+    }
+
+    public long duration() {
+      return t1 - t0;
+    }
   }
 
   public static record Ray(float value, float rate) {
@@ -15,21 +27,19 @@ public class BakingIntegrator {
 
   private final List<Segment> segments = new ArrayList<>();
 
-  public void add(final long start, final IntegrationProfile profile, final float magnitude) {
-    final long peak = start + profile.peak();
-    segments.add(new Segment(start + profile.delay(), peak, 0, magnitude / profile.rampUp()));
-    segments.add(new Segment(peak, peak + profile.rampDown(), magnitude, -magnitude / profile.rampDown()));
+  public void add(final Segment segment) {
+    segments.add(segment);
   }
 
   public void evict(final long t) {
-    segments.removeIf(s -> s.t1() <= t);
+    segments.removeIf(s -> s.t1 <= t);
   }
 
   public Ray evaluate(final long t) {
     float vt = 0, rate = 0;
     for (val s : segments) {
       if (s.t0 <= t && t < s.t1) {
-        vt += s.v0 + s.rate * (t - s.t0);
+        vt += s.evaluate(t);
         rate += s.rate;
       }
     }

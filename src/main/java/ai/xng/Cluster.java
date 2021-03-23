@@ -236,10 +236,10 @@ public abstract class Cluster<T extends Node> implements Serializable {
           for (val prior : posterior.getPriors()) {
             if (prior.node().getCluster() == priorCluster) {
               final float priorTrace = prior.node().getTrace()
-                  .evaluate(posterior.getLastActivation().get(), prior.profile());
+                  .evaluate(posterior.getLastActivation().get(), prior.edge().profile);
               if (priorTrace > 0) {
-                prior.distribution().reinforce(
-                    -prior.distribution().getWeight() * tolerance(priorTrace * posteriorTrace));
+                prior.edge().distribution.reinforce(
+                    -prior.edge().distribution.getWeight() * tolerance(priorTrace * posteriorTrace));
               }
             }
           }
@@ -250,7 +250,7 @@ public abstract class Cluster<T extends Node> implements Serializable {
     forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (prior, trace) -> {
           for (val entry : prior.getPosteriors()) {
-            entry.distribution().scale(factor * tolerance(trace));
+            entry.edge().distribution.scale(factor * tolerance(trace));
           }
         });
   }

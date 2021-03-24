@@ -37,11 +37,6 @@ public class KnowledgeBaseTest {
       trigger.activate();
       scheduler.fastForwardUntilIdle();
       assertFalse(monitor.didEmit());
-
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
-      prior.address.activate();
-      scheduler.fastForwardUntilIdle();
-      assertFalse(monitor.didEmit());
     }
   }
 

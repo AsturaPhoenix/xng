@@ -39,7 +39,11 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
+  public final DataCluster.FinalNode<Float> pushFactor = data.new FinalNode<>(STACK_FACTOR),
+      popFactor = data.new FinalNode<>(1 / STACK_FACTOR);
+
   public final ActionCluster.Node suppressPosteriors,
+      scalePosteriors,
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()
@@ -88,12 +92,25 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
             suppressor.addContingent(cluster, clusterIdentifier, prior -> {
               final float coincidence = prior.getIntegrator().getNormalizedCappedValue();
               for (final Connections.Entry<Posterior> entry : prior.getPosteriors()) {
-                entry.edge().distribution.scale(STACK_FACTOR * coincidence);
+                entry.edge().suppress(coincidence);
               }
             });
           }
         });
     suppressPosteriors = suppressor.node;
+
+    val scaler = new CoincidentEffects(actions);
+    scaler.add(data,
+        clusterIdentifier -> {
+          if (clusterIdentifier.getData() instanceof Cluster<?>cluster) {
+            suppressor.addContingent(data, clusterIdentifier, factorNode -> {
+              if (factorNode.getData() instanceof Number factor) {
+                Cluster.scalePosteriors((Cluster<? extends Prior>) cluster, factor.floatValue());
+              }
+            });
+          }
+        });
+    scalePosteriors = scaler.node;
   }
 
   private void init() {

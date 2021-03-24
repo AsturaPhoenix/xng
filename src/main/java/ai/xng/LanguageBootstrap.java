@@ -402,7 +402,7 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address, control.returnValue.address, kb.suppressPosteriors,
               control.stackFrame.getClusterIdentifier())
-          .then(kb.gated.gate)
+          .then(kb.gated.gate, kb.scalePosteriors, kb.pushFactor)
           .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
@@ -452,7 +452,7 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address, control.cxt.address, kb.suppressPosteriors,
               control.stackFrame.getClusterIdentifier())
-          .thenDelay()
+          .then(kb.scalePosteriors, kb.pushFactor)
           .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
           .then(control.execute);
     }
@@ -561,7 +561,7 @@ public class LanguageBootstrap {
     asSequence(kb.inputValue.onUpdate)
         .then(control.stackFrame.address, kb.gated.gate, kb.suppressPosteriors,
             control.stackFrame.getClusterIdentifier())
-        .then(spawn.gated)
+        .then(spawn.gated, kb.scalePosteriors, kb.pushFactor)
         .then(kb.actions.new Node(() -> Cluster.associate(control.stackFrame, kb.gated.output)))
         .thenDelay(IntegrationProfile.TRANSIENT.period())
         .then(control.stackFrame.address)

@@ -26,7 +26,14 @@ public class Connections {
     private final Posterior posterior;
     public final IntegrationProfile profile;
 
-    private transient List<Spike> spikes;
+    private transient List<Spike> activations;
+    private transient List<Suppression> suppressions;
+
+    @RequiredArgsConstructor
+    private static class Suppression {
+      final float factor;
+      final Spike spike;
+    }
 
     private Edge(final Posterior posterior, final IntegrationProfile profile) {
       init();
@@ -54,12 +61,14 @@ public class Connections {
     }
 
     private void init() {
-      spikes = new ArrayList<>();
+      activations = new ArrayList<>();
+      suppressions = new ArrayList<>();
     }
 
     private void evict() {
       val now = Scheduler.global.now();
-      spikes.removeIf(spike -> spike.end() <= now);
+      activations.removeIf(spike -> spike.end() <= now);
+      suppressions.removeIf(suppression -> suppression.spike.end() <= now);
     }
 
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
@@ -68,22 +77,30 @@ public class Connections {
     }
 
     private void invalidate() {
-      if (spikes.isEmpty()) {
+      if (activations.isEmpty() && suppressions.isEmpty()) {
         return;
       }
 
       evict();
       final float newRate = distribution.getMode() / profile.rampUp();
-      for (val spike : spikes) {
+      // Since these are all adjustments to the same integrator, we could actually
+      // defer the invalidation, but we expect the size of this loop to be 1 so it's
+      // premature optimization.
+      for (val spike : activations) {
         spike.adjustRampUp(newRate);
-        // Since these are all adjustments to the same integrator, we could actually
-        // defer the invalidation, but we expect the size of this loop to be 1 so it's
-        // premature optimization.
+      }
+      for (val suppression : suppressions) {
+        suppression.spike.adjustRampUp(-suppression.factor * newRate);
       }
     }
 
     public void activate() {
-      spikes.add(posterior.getIntegrator().add(profile, distribution.generate()));
+      activations.add(posterior.getIntegrator().add(profile, distribution.generate()));
+    }
+
+    public void suppress(final float factor) {
+      suppressions.add(new Suppression(factor,
+          posterior.getIntegrator().add(profile, -factor * distribution.generate())));
     }
   }
 

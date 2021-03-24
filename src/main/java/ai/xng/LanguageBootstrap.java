@@ -97,8 +97,7 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(stackFrame.address)
           .then(
-              returnTo,
-              kb.actions.new Node(() -> Cluster.scalePosteriors(stackFrame, 1 / STACK_FACTOR)))
+              returnTo, kb.scalePosteriors, stackFrame.getClusterIdentifier(), kb.popFactor)
           .then(
               kb.actions.new Node(() -> Cluster.disassociate(stackFrame, kb.gated.output)),
               kb.actions.new Node(() -> Cluster.disassociate(stackFrame, kb.naming)))

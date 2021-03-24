@@ -40,7 +40,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
   public final DataCluster.FinalNode<Float> pushFactor = data.new FinalNode<>(STACK_FACTOR),
-      popFactor = data.new FinalNode<>(1 / STACK_FACTOR);
+      popFactor = data.new FinalNode<>(1 / STACK_FACTOR),
+      zeroF = data.new FinalNode<>(0f);
 
   public final ActionCluster.Node suppressPosteriors,
       scalePosteriors,
@@ -103,7 +104,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
     scaler.add(data,
         clusterIdentifier -> {
           if (clusterIdentifier.getData() instanceof Cluster<?>cluster) {
-            suppressor.addContingent(data, clusterIdentifier, factorNode -> {
+            scaler.addContingent(data, clusterIdentifier, factorNode -> {
               if (factorNode.getData() instanceof Number factor) {
                 Cluster.scalePosteriors((Cluster<? extends Prior>) cluster, factor.floatValue());
               }

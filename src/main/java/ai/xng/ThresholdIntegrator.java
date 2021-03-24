@@ -81,7 +81,12 @@ public abstract class ThresholdIntegrator {
   }
 
   private void invalidate() {
-    final Optional<Long> updatedNextThreshold = nextThreshold(Scheduler.global.now());
+    val now = Scheduler.global.now();
+    if (nextThreshold != null && nextThreshold.time() == now) {
+      return;
+    }
+
+    final Optional<Long> updatedNextThreshold = nextThreshold(now);
     if (nextThreshold == null || updatedNextThreshold.map(t -> t != nextThreshold.time())
         .orElse(true)) {
       if (nextThreshold != null) {

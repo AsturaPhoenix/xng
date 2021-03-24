@@ -96,4 +96,18 @@ public class ThresholdIntegratorTest {
     scheduler.fastForwardFor(INTERVAL);
     assertEquals(.75f, integrator.getNormalizedCappedValue());
   }
+
+  /**
+   * Exercises a previous failure case where an update just as the integrator
+   * crosses the threshold but before the scheduled handler can execute will clear
+   * the handler and not schedule a new one.
+   */
+  @Test
+  public void testUpdateAtThreshold() {
+    val profile = IntegrationProfile.fromEdges(INTERVAL, INTERVAL);
+    scheduler.postTask(() -> integrator.add(profile, 0), INTERVAL);
+    integrator.add(profile, 1);
+    scheduler.fastForwardUntilIdle();
+    assertThat(output).containsExactly(INTERVAL);
+  }
 }

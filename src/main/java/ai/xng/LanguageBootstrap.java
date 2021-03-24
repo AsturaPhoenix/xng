@@ -1,7 +1,5 @@
 package ai.xng;
 
-import static ai.xng.KnowledgeBase.STACK_FACTOR;
-
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Optional;
@@ -139,7 +137,7 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(kb.actions.new Node(() -> kb.data.rxActivations().take(2).toList()
               .subscribe(data -> ((DataCluster.MutableNode<Object>) data.get(1)).setData(
-                  (((String) data.get(0).getData()).codePoints().iterator())))))
+                  (((String) data.get(0).getData()).codePoints().iterator())), kb.lastException::setData)))
           .then(control.stackFrame.address)
           .then(control.arg1)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
@@ -170,7 +168,7 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(kb.actions.new Node(() -> kb.data.rxActivations().take(2).toList()
               .subscribe(data -> ((DataCluster.MutableNode<Integer>) data.get(1)).setData(
-                  ((Iterator<Integer>) ((DataNode) data.get(0)).getData()).next()))))
+                  ((Iterator<Integer>) ((DataNode) data.get(0)).getData()).next()), kb.lastException::setData)))
           .then(control.stackFrame.address)
           .then(iterator)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
@@ -236,12 +234,8 @@ public class LanguageBootstrap {
           // TODO: It may be more idiomatic to create the capture later, but with current
           // limitations that would not allow us to bind to STM while also binding to the
           // captured sequence.
-          .then(control.returnValue.address)
-          .thenDelay()
-          .then(kb.actions.new Node(() -> Cluster.disassociate(control.returnValue, kb.stateRecognition)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.returnValue.address)
-          .then(spawn.stateRecognition)
+          .then(control.returnValue.address, kb.suppressPosteriors, control.returnValue.getClusterIdentifier())
+          .then(spawn.stateRecognition, kb.scalePosteriors, kb.zeroF)
           .then(kb.actions.new Node(() -> Cluster.associate(control.returnValue, kb.stateRecognition)))
           .then(stringIterator.create);
 
@@ -318,13 +312,9 @@ public class LanguageBootstrap {
       bindPrint.inhibit(stringIterator.advance);
       asSequence(bindPrint)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.cxt.address)
-          .thenDelay()
-          .then(kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.output)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
-          .then(constructionPointer, control.cxt.address)
-          .thenDelay()
+          .then(constructionPointer, control.cxt.address, kb.suppressPosteriors, control.cxt.getClusterIdentifier())
+          .then(kb.scalePosteriors, kb.zeroF)
           .then(kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.input)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.cxt.address)
@@ -354,13 +344,10 @@ public class LanguageBootstrap {
       returnParseFrame.conjunction(stringIterator.hasNextDecoder.isFalse, invocation);
       asSequence(returnParseFrame)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.returnValue.address)
-          .thenDelay()
-          .then(kb.actions.new Node(() -> Cluster.disassociate(control.returnValue, kb.gated.input)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
-          .then(constructionPointer, control.returnValue.address)
-          .thenDelay()
+          .then(constructionPointer, control.returnValue.address, kb.suppressPosteriors,
+              control.returnValue.getClusterIdentifier())
+          .then(kb.scalePosteriors, kb.zeroF)
           .then(kb.actions.new Node(() -> Cluster.associate(control.returnValue, kb.gated.input)))
           .then(control.doReturn);
 
@@ -373,9 +360,7 @@ public class LanguageBootstrap {
         asSequence(bindBindPrint)
             .then(control.returnValue.address)
             .thenDelay()
-            .then(
-                bindPrintEntrypoint,
-                kb.actions.new Node(() -> Cluster.disassociate(control.returnValue, kb.stateRecognition)))
+            .then(bindPrintEntrypoint)
             .then(kb.actions.new Node(() -> Cluster.associate(kb.stateRecognition, kb.entrypoint)));
         control.stackFrame.address.then(call);
         control.execute.activate();
@@ -416,13 +401,8 @@ public class LanguageBootstrap {
           // we might want to use a dedicated cluster and implement intra/intercluster
           // default profiles.
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          // Additionally, it may be worthwhile to create a dedicated bind/push mechanism.
-          .then(control.cxt.address)
-          .thenDelay()
-          .then(kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.output)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.cxt.address, kb.gated.gate)
-          .then(spawn.gated)
+          .then(control.cxt.address, kb.gated.gate, kb.suppressPosteriors, control.cxt.getClusterIdentifier())
+          .then(spawn.gated, kb.scalePosteriors, kb.zeroF)
           .then(kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.output)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.cxt.address)
@@ -431,8 +411,7 @@ public class LanguageBootstrap {
           .then(kb.actions.new Node(() -> Cluster.associate(control.frameFieldPriors, kb.entrypoint)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.tmp.address)
-          .thenDelay()
-          .then(kb.actions.new Node(() -> Cluster.disassociate(control.tmp, kb.data)))
+          .then(kb.scalePosteriors, control.tmp.getClusterIdentifier(), kb.zeroF)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(control.arg1, control.tmp.address)
@@ -515,6 +494,7 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(control.tmp.address, parse.writePointer)
+          .thenDelay()
           .then(kb.actions.new Node(() -> Cluster.associate(control.tmp, kb.naming)))
 
           .thenDelay(IntegrationProfile.TRANSIENT.period())

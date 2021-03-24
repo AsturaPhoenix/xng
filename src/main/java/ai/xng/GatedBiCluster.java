@@ -1,6 +1,6 @@
 package ai.xng;
 
-import ai.xng.constructs.CoincidentEffect;
+import ai.xng.constructs.CoincidentEffects;
 import lombok.val;
 
 /**
@@ -100,11 +100,6 @@ public class GatedBiCluster {
     input = new InputCluster(identifierCluster);
     output = new OutputCluster(identifierCluster);
 
-    gate = new CoincidentEffect<InputCluster.Node>(gateCluster) {
-      @Override
-      protected void apply(final InputCluster.Node node) {
-        node.output.activate();
-      };
-    }.addCluster(input).node;
+    gate = new CoincidentEffects(gateCluster).add(input, node -> node.output.activate()).node;
   }
 }

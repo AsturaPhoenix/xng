@@ -4,26 +4,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;
 
-import ai.xng.constructs.CoincidentEffect;
+import ai.xng.constructs.CoincidentEffects;
 import lombok.val;
 
-public class CoincidentEffectTest {
-  private static class TestEffect extends CoincidentEffect<Posterior> {
+public class CoincidentsEffectTest {
+  private static class TestEffects extends CoincidentEffects {
     final BiCluster.Node trigger;
     final OutputNode input;
     int incidents = 0;
 
-    TestEffect() {
+    TestEffects() {
       super(new ActionCluster());
       trigger = new BiCluster().new Node();
       trigger.then(node);
       input = new SignalCluster().new Node();
-      addCluster(input.getCluster());
-    }
-
-    @Override
-    public void apply(final Posterior node) {
-      ++incidents;
+      add(input.getCluster(), node -> ++incidents);
     }
   }
 
@@ -32,7 +27,7 @@ public class CoincidentEffectTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val effect = new TestEffect();
+    val effect = new TestEffects();
     effect.trigger.then(effect.input);
     effect.trigger.activate();
     scheduler.fastForwardUntilIdle();
@@ -48,7 +43,7 @@ public class CoincidentEffectTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val effect = new TestEffect();
+    val effect = new TestEffects();
     effect.input.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
@@ -63,7 +58,7 @@ public class CoincidentEffectTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val effect = new TestEffect();
+    val effect = new TestEffects();
     effect.trigger.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
@@ -77,7 +72,7 @@ public class CoincidentEffectTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val effect = TestUtil.serialize(new TestEffect());
+    val effect = TestUtil.serialize(new TestEffects());
     effect.trigger.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
 
@@ -91,7 +86,7 @@ public class CoincidentEffectTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    val effect = new TestEffect();
+    val effect = new TestEffects();
     effect.trigger.activate();
     scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 

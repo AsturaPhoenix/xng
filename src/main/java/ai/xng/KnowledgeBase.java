@@ -6,7 +6,7 @@ import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.Objects;
 
-import ai.xng.constructs.CoincidentEffect;
+import ai.xng.constructs.CoincidentEffects;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
@@ -39,25 +39,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
-  public final ActionCluster.Node suppressPosteriors = new CoincidentEffect<Posterior>(actions) {
-    @Override
-    protected void apply(final Posterior node) {
-      if (node instanceof DataNode data && data.getData() instanceof PosteriorCluster<?>cluster) {
-        addCluster(cluster);
-      } else if (node instanceof BiNode prior) {
-        val cluster = prior.getCluster();
-        assert cluster != data;
-        if (!cluster.getClusterIdentifier().getIntegrator().isActive()) {
-          removeCluster(cluster);
-        } else {
-          final float coincidence = prior.getIntegrator().getNormalizedCappedValue();
-          for (final Connections.Entry<Posterior> entry : prior.getPosteriors()) {
-            entry.edge().distribution.scale(STACK_FACTOR * coincidence);
-          }
-        }
-      }
-    }
-  }.addCluster(data).node,
+  public final ActionCluster.Node suppressPosteriors,
       print = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()
@@ -98,6 +80,20 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public KnowledgeBase() {
     init();
+
+    val suppressor = new CoincidentEffects(actions);
+    suppressor.add(data,
+        clusterIdentifier -> {
+          if (clusterIdentifier.getData() instanceof BiCluster cluster) {
+            suppressor.addContingent(cluster, clusterIdentifier, prior -> {
+              final float coincidence = prior.getIntegrator().getNormalizedCappedValue();
+              for (final Connections.Entry<Posterior> entry : prior.getPosteriors()) {
+                entry.edge().distribution.scale(STACK_FACTOR * coincidence);
+              }
+            });
+          }
+        });
+    suppressPosteriors = suppressor.node;
   }
 
   private void init() {

@@ -215,8 +215,9 @@ public abstract class Cluster<T extends Node> implements Serializable {
     associate(Arrays.asList(new PriorClusterProfile(priorCluster, IntegrationProfile.TRANSIENT)), posteriorCluster);
   }
 
-  private static float tolerance(final float raw) {
-    return Math.min(1, raw * (1 + Prior.THRESHOLD_MARGIN));
+  private static float weightByTrace(final float value, final float identity, final float trace) {
+    final float tolerantTrace = Math.min(1, trace * (1 + Prior.THRESHOLD_MARGIN));
+    return identity + (value - identity) * tolerantTrace;
   }
 
   /**
@@ -238,8 +239,8 @@ public abstract class Cluster<T extends Node> implements Serializable {
               final float priorTrace = prior.node().getTrace()
                   .evaluate(posterior.getLastActivation().get(), prior.edge().profile);
               if (priorTrace > 0) {
-                prior.edge().distribution.reinforce(
-                    -prior.edge().distribution.getWeight() * tolerance(priorTrace * posteriorTrace));
+                prior.edge().distribution.reinforce(weightByTrace(
+                    -prior.edge().distribution.getWeight(), 0, priorTrace * posteriorTrace));
               }
             }
           }
@@ -250,7 +251,7 @@ public abstract class Cluster<T extends Node> implements Serializable {
     forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (prior, trace) -> {
           for (val entry : prior.getPosteriors()) {
-            entry.edge().distribution.scale(factor * tolerance(trace));
+            entry.edge().distribution.scale(weightByTrace(factor, 1, trace));
           }
         });
   }

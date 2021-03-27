@@ -1,6 +1,6 @@
 package ai.xng;
 
-import ai.xng.constructs.CoincidentEffects;
+import ai.xng.constructs.CoincidentEffect;
 import lombok.val;
 
 /**
@@ -35,14 +35,23 @@ public class GatedBiCluster {
       clusterIdentifier = identifierCluster != null ? identifierCluster.new FinalNode<>(this) : null;
     }
 
+    @Override
+    public String toString() {
+      return GatedBiCluster.this.comment != null ? GatedBiCluster.this.comment + " (input)" : super.toString();
+    }
+
     public class Node extends OutputNode {
       private final Link link;
 
       public final OutputCluster.Node output;
 
       public Node() {
+        this(null);
+      }
+
+      public Node(final String comment) {
         link = new Link(this);
-        output = GatedBiCluster.this.output.new Node();
+        output = GatedBiCluster.this.output.new Node(comment);
       }
 
       @Override
@@ -54,6 +63,11 @@ public class GatedBiCluster {
       public final void activate() {
         link.promote();
         super.activate();
+      }
+
+      @Override
+      public String toString() {
+        return GatedBiCluster.this + "/" + output.comment + " (input)";
       }
     }
   }
@@ -70,11 +84,18 @@ public class GatedBiCluster {
       clusterIdentifier = identifierCluster != null ? identifierCluster.new FinalNode<>(this) : null;
     }
 
+    @Override
+    public String toString() {
+      return GatedBiCluster.this.comment != null ? GatedBiCluster.this.comment + " (output)" : super.toString();
+    }
+
     public class Node extends BiNode {
       private final Link link;
+      private final String comment;
 
-      private Node() {
+      private Node(final String comment) {
         link = new Link(this);
+        this.comment = comment != null ? comment : Integer.toHexString(hashCode());
       }
 
       @Override
@@ -87,6 +108,11 @@ public class GatedBiCluster {
         link.promote();
         super.activate();
       }
+
+      @Override
+      public String toString() {
+        return GatedBiCluster.this + "/" + comment + " (output)";
+      }
     }
   }
 
@@ -94,12 +120,29 @@ public class GatedBiCluster {
   public final OutputCluster output;
   public final ActionCluster.Node gate;
 
+  private final String comment;
+
   public GatedBiCluster(final ActionCluster gateCluster) {
+    this(gateCluster, null);
+  }
+
+  public GatedBiCluster(final ActionCluster gateCluster, final String comment) {
     val actionClusterAddress = gateCluster.getClusterIdentifier();
     val identifierCluster = actionClusterAddress != null ? actionClusterAddress.getCluster() : null;
     input = new InputCluster(identifierCluster);
     output = new OutputCluster(identifierCluster);
 
-    gate = new CoincidentEffects(gateCluster).add(input, node -> node.output.activate()).node;
+    gate = new CoincidentEffect<>(gateCluster, input) {
+      @Override
+      protected void apply(final InputCluster.Node node) {
+        node.output.activate();
+      }
+    }.node;
+    this.comment = comment;
+  }
+
+  @Override
+  public String toString() {
+    return comment != null ? comment : super.toString();
   }
 }

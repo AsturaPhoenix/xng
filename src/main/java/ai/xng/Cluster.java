@@ -247,6 +247,16 @@ public abstract class Cluster<T extends Node> implements Serializable {
         });
   }
 
+  public static void disassociateAll(final Cluster<? extends Prior> priorCluster) {
+    forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
+        (prior, trace) -> {
+          for (val entry : prior.getPosteriors()) {
+            entry.edge().distribution
+                .reinforce(weightByTrace(-entry.edge().distribution.getWeight(), 0, trace));
+          }
+        });
+  }
+
   public static void scalePosteriors(final Cluster<? extends Prior> priorCluster, final float factor) {
     forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (prior, trace) -> {

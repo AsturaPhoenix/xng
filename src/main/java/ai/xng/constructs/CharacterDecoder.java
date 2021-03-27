@@ -7,6 +7,7 @@ import java.util.function.Consumer;
 
 import ai.xng.ActionCluster;
 import ai.xng.DataCluster;
+import ai.xng.DataNode;
 import ai.xng.InputCluster;
 import ai.xng.Node;
 import lombok.val;
@@ -89,12 +90,14 @@ public class CharacterDecoder implements Serializable {
       }
     };
 
-    node = new CoincidentEffects(actionCluster).add(input,
-        node -> {
-          if (node.getData() instanceof Integer codePoint) {
-            forOutput(codePoint, Node::activate);
-          }
-        }).node;
+    node = new CoincidentEffect<DataNode>(actionCluster, input) {
+      @Override
+      protected void apply(final DataNode node) {
+        if (node.getData() instanceof Integer codePoint) {
+          forOutput(codePoint, Node::activate);
+        }
+      }
+    }.node;
   }
 
   public void forOutput(final int codePoint, final Consumer<? super InputCluster.Node> action) {

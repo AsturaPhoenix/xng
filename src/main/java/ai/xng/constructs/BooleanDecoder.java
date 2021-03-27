@@ -6,6 +6,7 @@ import java.util.function.Function;
 
 import ai.xng.ActionCluster;
 import ai.xng.DataCluster;
+import ai.xng.DataNode;
 import ai.xng.InputCluster;
 
 public class BooleanDecoder implements Serializable {
@@ -17,13 +18,17 @@ public class BooleanDecoder implements Serializable {
     isFalse = output.new Node();
     isTrue = output.new Node();
 
-    node = new CoincidentEffects(actionCluster).add(input,
-        node -> extractor.apply(node.getData()).ifPresent(b -> {
+    node = new CoincidentEffect<DataNode>(actionCluster, input) {
+      @Override
+      protected void apply(final DataNode node) {
+        extractor.apply(node.getData()).ifPresent(b -> {
           if (b) {
             isTrue.activate();
           } else {
             isFalse.activate();
           }
-        })).node;
+        });
+      }
+    }.node;
   }
 }

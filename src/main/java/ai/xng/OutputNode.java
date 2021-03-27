@@ -7,6 +7,9 @@ public abstract class OutputNode implements Posterior {
   private final Posterior.Trait input = new Posterior.Trait(this);
 
   @Override
+  public abstract PosteriorCluster<? extends OutputNode> getCluster();
+
+  @Override
   public LazyIntegrator getTrace() {
     return node.getTrace();
   }

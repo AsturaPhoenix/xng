@@ -1,7 +1,6 @@
 package ai.xng;
 
 import ai.xng.constructs.CoincidentEffect;
-import lombok.val;
 
 /**
  * This cluster contains input and output sub-clusters gated by an external
@@ -24,17 +23,6 @@ import lombok.val;
  */
 public class GatedBiCluster {
   public class InputCluster extends PosteriorCluster<InputCluster.Node> {
-    private final DataCluster.FinalNode<InputCluster> clusterIdentifier;
-
-    @Override
-    public DataCluster.FinalNode<InputCluster> getClusterIdentifier() {
-      return clusterIdentifier;
-    }
-
-    private InputCluster(final DataCluster identifierCluster) {
-      clusterIdentifier = identifierCluster != null ? identifierCluster.new FinalNode<>(this) : null;
-    }
-
     @Override
     public String toString() {
       return GatedBiCluster.this.comment != null ? GatedBiCluster.this.comment + " (input)" : super.toString();
@@ -73,17 +61,6 @@ public class GatedBiCluster {
   }
 
   public class OutputCluster extends PosteriorCluster<OutputCluster.Node> {
-    private final DataCluster.FinalNode<OutputCluster> clusterIdentifier;
-
-    @Override
-    public DataCluster.FinalNode<OutputCluster> getClusterIdentifier() {
-      return clusterIdentifier;
-    }
-
-    private OutputCluster(final DataCluster identifierCluster) {
-      clusterIdentifier = identifierCluster != null ? identifierCluster.new FinalNode<>(this) : null;
-    }
-
     @Override
     public String toString() {
       return GatedBiCluster.this.comment != null ? GatedBiCluster.this.comment + " (output)" : super.toString();
@@ -116,8 +93,8 @@ public class GatedBiCluster {
     }
   }
 
-  public final InputCluster input;
-  public final OutputCluster output;
+  public final InputCluster input = new InputCluster();
+  public final OutputCluster output = new OutputCluster();
   public final ActionCluster.Node gate;
 
   private final String comment;
@@ -127,11 +104,6 @@ public class GatedBiCluster {
   }
 
   public GatedBiCluster(final ActionCluster gateCluster, final String comment) {
-    val actionClusterAddress = gateCluster.getClusterIdentifier();
-    val identifierCluster = actionClusterAddress != null ? actionClusterAddress.getCluster() : null;
-    input = new InputCluster(identifierCluster);
-    output = new OutputCluster(identifierCluster);
-
     gate = new CoincidentEffect<>(gateCluster, input) {
       @Override
       protected void apply(final InputCluster.Node node) {

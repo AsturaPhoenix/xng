@@ -1,23 +1,13 @@
 package ai.xng;
 
-import ai.xng.DataCluster.FinalNode;
-
 public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
-  private final DataCluster.FinalNode<ActionCluster> clusterIdentifier;
   public final DataCluster.MutableNode<? super Throwable> exceptionHandler;
 
-  @Override
-  public FinalNode<ActionCluster> getClusterIdentifier() {
-    return clusterIdentifier;
-  }
-
   public ActionCluster() {
-    clusterIdentifier = null;
-    exceptionHandler = null;
+    this(null);
   }
 
   public ActionCluster(final DataCluster.MutableNode<? super Throwable> exceptionHandler) {
-    clusterIdentifier = exceptionHandler.getCluster().new FinalNode<>(this);
     this.exceptionHandler = exceptionHandler;
   }
 

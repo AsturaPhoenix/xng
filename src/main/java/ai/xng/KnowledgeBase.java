@@ -18,24 +18,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   private transient Subject<String> rxOutput;
 
-  public final DataCluster data = new DataCluster(this::updateNodeFactory);
-
-  private InputCluster.Node updateNodeFactory() {
-    return input.new Node();
-  }
-
-  public final InputCluster input = new InputCluster(data);
+  public final InputCluster input = new InputCluster();
+  public final DataCluster data = new DataCluster(input);
   public final DataCluster.MutableNode<String> inputValue = data.new MutableNode<>();
   public final DataCluster.MutableNode<Throwable> lastException = data.new MutableNode<>();
   public final DataCluster.MutableNode<Object> returnValue = data.new MutableNode<>();
 
-  public final BiCluster stateRecognition = new BiCluster(data, "stateRecognition"),
-      sequenceRecognition = new BiCluster(data, "sequenceRecognition"),
-      naming = new BiCluster(data, "naming"),
-      entrypoint = new BiCluster(data, "entrypoint"),
-      execution = new BiCluster(data, "execution");
+  public final BiCluster stateRecognition = new BiCluster("stateRecognition"),
+      sequenceRecognition = new BiCluster("sequenceRecognition"),
+      naming = new BiCluster("naming"),
+      entrypoint = new BiCluster("entrypoint"),
+      execution = new BiCluster("execution");
   public final ActionCluster actions = new ActionCluster(lastException);
-  public final SignalCluster signals = new SignalCluster(data);
+  public final SignalCluster signals = new SignalCluster();
   public final GatedBiCluster gated = new GatedBiCluster(actions, "gated");
 
   public final SignalCluster.Node variadicEnd = signals.new Node();

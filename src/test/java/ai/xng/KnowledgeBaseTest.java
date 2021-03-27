@@ -26,7 +26,7 @@ public class KnowledgeBaseTest {
     Scheduler.global = scheduler;
 
     try (val kb = new KnowledgeBase()) {
-      val prior = new StmCluster(kb.data);
+      val prior = new StmCluster();
       val monitor = new EmissionMonitor<Long>();
       val posterior = TestUtil.testNode(kb.actions, monitor);
       prior.address.then(posterior);

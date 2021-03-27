@@ -74,10 +74,10 @@ public class LanguageBootstrap {
         .add(kb.naming)
         .build();
 
-    final StmCluster stackFrame = new StmCluster(kb.data, "stackFrame"),
-        returnValue = new StmCluster(kb.data, "returnValue"),
-        cxt = new StmCluster(kb.data, "cxt"),
-        tmp = new StmCluster(kb.data, "tmp");
+    final StmCluster stackFrame = new StmCluster("stackFrame"),
+        returnValue = new StmCluster("returnValue"),
+        cxt = new StmCluster("cxt"),
+        tmp = new StmCluster("tmp");
     final BiCluster.Node invocation = kb.naming.new Node("invocation"),
         arg1 = kb.naming.new Node("arg1"),
         returnTo = kb.naming.new Node("returnTo");
@@ -162,7 +162,7 @@ public class LanguageBootstrap {
           .then(iterator)
           .then(hasNextDecoder.node);
 
-      charCluster = new InputCluster(kb.data);
+      charCluster = new InputCluster();
       charDecoder = new CharacterDecoder(kb.actions, kb.data, charCluster);
       onNext = kb.execution.new Node();
 

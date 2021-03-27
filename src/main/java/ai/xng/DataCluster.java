@@ -1,15 +1,7 @@
 package ai.xng;
 
-import java.util.function.Supplier;
-
 public class DataCluster extends PosteriorCluster<DataCluster.Node> {
-  private final Supplier<InputCluster.Node> updateNodeFactory;
-  private final FinalNode<DataCluster> clusterIdentifier;
-
-  @Override
-  public FinalNode<DataCluster> getClusterIdentifier() {
-    return clusterIdentifier;
-  }
+  private final InputCluster updateCluster;
 
   public abstract class Node extends OutputNode implements DataNode {
     private final Link link = new Link(this);
@@ -58,7 +50,7 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
      * summation. Conjunctions and other posteriors sensitive to temporal summation
      * should buffer with an intermediary node. .
      */
-    public final InputCluster.Node onUpdate = updateNodeFactory.get();
+    public final InputCluster.Node onUpdate = updateCluster.new Node();
 
     @Override
     public T getData() {
@@ -76,8 +68,7 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
     }
   }
 
-  public DataCluster(final Supplier<InputCluster.Node> updateNodeFactory) {
-    this.updateNodeFactory = updateNodeFactory;
-    clusterIdentifier = new FinalNode<>(this);
+  public DataCluster(final InputCluster updateCluster) {
+    this.updateCluster = updateCluster;
   }
 }

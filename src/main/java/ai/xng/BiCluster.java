@@ -3,21 +3,13 @@ package ai.xng;
 import lombok.val;
 
 public class BiCluster extends PosteriorCluster<BiCluster.Node> {
-  private final DataCluster.FinalNode<BiCluster> clusterIdentifier;
   private final String comment;
 
-  @Override
-  public DataCluster.FinalNode<BiCluster> getClusterIdentifier() {
-    return clusterIdentifier;
-  }
-
   public BiCluster() {
-    clusterIdentifier = null;
-    comment = null;
+    this(null);
   }
 
-  public BiCluster(final DataCluster identifierCluster, final String comment) {
-    clusterIdentifier = identifierCluster.new FinalNode<>(this);
+  public BiCluster(final String comment) {
     this.comment = comment;
   }
 

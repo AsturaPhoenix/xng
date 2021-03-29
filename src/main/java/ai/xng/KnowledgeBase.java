@@ -7,7 +7,11 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
+import com.google.common.collect.ImmutableSet;
+
+import ai.xng.Cluster.PriorClusterProfile;
 import ai.xng.constructs.CoincidentEffect;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
@@ -101,6 +105,24 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public ActionCluster.Node clearPosteriors(final Cluster<? extends Prior> cluster) {
     return clearPosteriors.computeIfAbsent(cluster, key -> actions.new Node(() -> Cluster.disassociateAll(key)));
+  }
+
+  private static record AssociateKey(Set<PriorClusterProfile> priors, PosteriorCluster<?> posteriorCluster)
+      implements Serializable {
+  }
+
+  private final Map<AssociateKey, ActionCluster.Node> associate = new HashMap<>();
+
+  public ActionCluster.Node associate(final Cluster<? extends Prior> priorCluster,
+      final PosteriorCluster<?> posteriorCluster) {
+    return associate(ImmutableSet.of(new PriorClusterProfile(priorCluster, IntegrationProfile.TRANSIENT)),
+        posteriorCluster);
+  }
+
+  public ActionCluster.Node associate(final Iterable<PriorClusterProfile> priors,
+      final PosteriorCluster<?> posteriorCluster) {
+    return associate.computeIfAbsent(new AssociateKey(ImmutableSet.copyOf(priors), posteriorCluster),
+        key -> actions.new Node(() -> Cluster.associate(key.priors, key.posteriorCluster)));
   }
 
   private static record DisassociateKey(Cluster<? extends Prior> priorCluster, PosteriorCluster<?> posteriorCluster)

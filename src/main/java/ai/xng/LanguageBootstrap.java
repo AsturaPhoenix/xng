@@ -130,6 +130,9 @@ public class LanguageBootstrap {
       create = kb.execution.new Node();
       advance = kb.execution.new Node();
 
+      val iterator_in = new CoincidentEffect.Curry<>(kb.actions, kb.data),
+          iterator_out = new CoincidentEffect.Curry<>(kb.actions, kb.data);
+
       asSequence(create)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
@@ -137,14 +140,15 @@ public class LanguageBootstrap {
           .then(spawn.data)
           .then(kb.associate(control.frameFieldPriors, kb.data))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(kb.actions.new Node(() -> kb.data.rxActivations().take(2).toList()
-              .subscribe(data -> ((DataCluster.MutableNode<Object>) data.get(1)).setData(
-                  (((String) data.get(0).getData()).codePoints().iterator())), kb.lastException::setData)))
           .then(control.stackFrame.address)
           .then(control.arg1)
+          .then(iterator_in.node)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(iterator)
+          .then(iterator_out.node)
+          .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Object>) iterator_out.require()).setData(
+              (((String) iterator_in.require().getData()).codePoints().iterator()))))
 
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
@@ -166,17 +170,23 @@ public class LanguageBootstrap {
       charDecoder = new CharacterDecoder(kb.actions, kb.data, charCluster);
       onNext = kb.execution.new Node();
 
+      val next_in = new CoincidentEffect.Curry<>(kb.actions, kb.data),
+          next_out = new CoincidentEffect.Curry<>(kb.actions, kb.data);
+
       asSequence(hasNextDecoder.isTrue)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(kb.actions.new Node(() -> kb.data.rxActivations().take(2).toList()
-              .subscribe(data -> ((DataCluster.MutableNode<Integer>) data.get(1)).setData(
-                  ((Iterator<Integer>) ((DataNode) data.get(0)).getData()).next()), kb.lastException::setData)))
           .then(control.stackFrame.address)
           .then(iterator)
+          .then(next_in.node)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(codePoint)
-          .thenDelay()
+          .then(next_out.node)
+          .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Integer>) next_out.require()).setData(
+              ((Iterator<Integer>) next_in.require().getData()).next())))
+          .thenDelay(IntegrationProfile.TRANSIENT.period())
+          .then(control.stackFrame.address)
+          .then(codePoint)
           .then(charDecoder.node)
           .then(onNext)
           // TODO: We might consider binding codePoint to a register first to avoid

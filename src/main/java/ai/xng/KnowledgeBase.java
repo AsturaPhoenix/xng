@@ -3,7 +3,6 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
-import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -40,36 +39,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
   public final ActionCluster.Node print = new CoincidentEffect.Lambda<>(actions, data,
-      node -> rxOutput.onNext(Objects.toString(node.getData()))).node,
-      findClass = actions.new Node(() -> data.rxActivations()
-          .map(DataNode::getData)
-          .firstElement()
-          .subscribe(name -> returnValue.setData(Class.forName((String) name)))),
-      getMethod = actions.new Node(() -> data.rxActivations()
-          .map(DataNode::getData)
-          .takeUntil(signals.rxActivations()
-              .filter(signal -> signal == variadicEnd))
-          .toList()
-          .subscribe(
-              args -> returnValue.setData(((Class<?>) args.get(0)).getMethod(
-                  (String) args.get(1),
-                  args.subList(2, args.size())
-                      .toArray(Class<?>[]::new))),
-              lastException::setData)),
-      invokeMethod = actions.new Node(() -> data.rxActivations()
-          .map(DataNode::getData)
-          .take(2)
-          .toList()
-          .subscribe(args -> {
-            var method = (Method) args.get(0);
-            data.rxActivations()
-                .map(DataNode::getData)
-                .take(method.getParameterCount())
-                .toList()
-                .subscribe(
-                    callArgs -> returnValue.setData(method.invoke(args.get(1), callArgs.toArray())),
-                    lastException::setData);
-          }, lastException::setData));
+      node -> rxOutput.onNext(Objects.toString(node.getData()))).node;
 
   public Observable<String> rxOutput() {
     return rxOutput;

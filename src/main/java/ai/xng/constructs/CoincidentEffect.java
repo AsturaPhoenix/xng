@@ -34,6 +34,40 @@ public abstract class CoincidentEffect<T extends Posterior> implements Serializa
     }
   }
 
+  public static class Curry<T extends Posterior> extends CoincidentEffect<T> {
+    private T valueNode;
+
+    public T require() {
+      if (!hasValueNode()) {
+        throw new IllegalStateException("Required value has not been curried.");
+      }
+      val valueNode = this.valueNode;
+      reset();
+      return valueNode;
+    }
+
+    public boolean hasValueNode() {
+      return valueNode != null;
+    }
+
+    public Curry(final ActionCluster actionCluster, final PosteriorCluster<? extends T> effectCluster) {
+      super(actionCluster, effectCluster);
+    }
+
+    @Override
+    protected void apply(final T node) {
+      if (!hasValueNode()) {
+        valueNode = node;
+        // TODO: Once timing is more robust, it may be more useful to throw an exception
+        // if a value has already been curried.
+      }
+    }
+
+    public void reset() {
+      valueNode = null;
+    }
+  }
+
   public final ActionCluster.Node node;
   public final PosteriorCluster<? extends T> cluster;
 

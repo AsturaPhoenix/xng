@@ -99,8 +99,8 @@ public class LanguageBootstrap {
           .then(stackFrame.address)
           .then(returnTo, kb.scalePosteriors(stackFrame, POP_FACTOR))
           .then(
-              kb.actions.new Node(() -> Cluster.disassociate(stackFrame, kb.gated.output)),
-              kb.actions.new Node(() -> Cluster.disassociate(stackFrame, kb.naming)))
+              kb.disassociate(stackFrame, kb.gated.output),
+              kb.disassociate(stackFrame, kb.naming))
           .then(kb.gated.gate);
     }
   }
@@ -322,7 +322,7 @@ public class LanguageBootstrap {
           .then(control.cxt.address)
           .then(kb.gated.gate)
           .then(
-              kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.input)),
+              kb.disassociate(control.cxt, kb.gated.input),
               kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.output)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.cxt.address)
@@ -473,29 +473,21 @@ public class LanguageBootstrap {
       end.inhibit(stringIterator.advance);
       asSequence(end)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.cxt.address)
-          .thenDelay()
-          .then(kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.output)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
-          .then(parse.constructionPointer, control.cxt.address)
-          .thenDelay()
+          .then(parse.constructionPointer, control.cxt.address, kb.suppressPosteriors(control.cxt))
+          .then(kb.clearPosteriors(control.cxt))
           .then(kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.input)))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.cxt.address)
           .then(kb.gated.gate)
           .then(
-              kb.actions.new Node(() -> Cluster.disassociate(control.cxt, kb.gated.input)),
+              kb.disassociate(control.cxt, kb.gated.input),
               kb.actions.new Node(() -> Cluster.associate(control.cxt, kb.gated.output)))
 
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.tmp.address)
-          .thenDelay()
-          .then(kb.actions.new Node(() -> Cluster.disassociate(control.tmp, kb.naming)))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
-          .then(control.tmp.address, parse.writePointer)
-          .thenDelay()
+          .then(control.tmp.address, parse.writePointer, kb.suppressPosteriors(control.tmp))
+          .then(kb.clearPosteriors(control.tmp))
           .then(kb.actions.new Node(() -> Cluster.associate(control.tmp, kb.naming)))
 
           .thenDelay(IntegrationProfile.TRANSIENT.period())

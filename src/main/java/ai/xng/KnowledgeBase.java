@@ -76,7 +76,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   private final Map<BiCluster, ActionCluster.Node> suppressPosteriors = new HashMap<>();
 
   public ActionCluster.Node suppressPosteriors(final BiCluster cluster) {
-    return suppressPosteriors.computeIfAbsent(cluster, c -> new CoincidentEffect<BiNode>(actions, c) {
+    return suppressPosteriors.computeIfAbsent(cluster, key -> new CoincidentEffect<BiNode>(actions, key) {
       @Override
       protected void apply(final BiNode node) {
         final float coincidence = node.getIntegrator().getNormalizedCappedValue();
@@ -100,7 +100,19 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   private final Map<Cluster<? extends Prior>, ActionCluster.Node> clearPosteriors = new HashMap<>();
 
   public ActionCluster.Node clearPosteriors(final Cluster<? extends Prior> cluster) {
-    return clearPosteriors.computeIfAbsent(cluster, c -> actions.new Node(() -> Cluster.disassociateAll(c)));
+    return clearPosteriors.computeIfAbsent(cluster, key -> actions.new Node(() -> Cluster.disassociateAll(key)));
+  }
+
+  private static record DisassociateKey(Cluster<? extends Prior> priorCluster, PosteriorCluster<?> posteriorCluster)
+      implements Serializable {
+  }
+
+  private final Map<DisassociateKey, ActionCluster.Node> disassociate = new HashMap<>();
+
+  public ActionCluster.Node disassociate(final Cluster<? extends Prior> priorCluster,
+      final PosteriorCluster<?> posteriorCluster) {
+    return disassociate.computeIfAbsent(new DisassociateKey(priorCluster, posteriorCluster),
+        key -> actions.new Node(() -> Cluster.disassociate(key.priorCluster, key.posteriorCluster)));
   }
 
   public KnowledgeBase() {

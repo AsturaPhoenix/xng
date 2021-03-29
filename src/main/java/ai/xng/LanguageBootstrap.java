@@ -302,8 +302,9 @@ public class LanguageBootstrap {
       val printInvocation = kb.gated.input.new Node("print");
       asSequence(printInvocation.output)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(kb.print, control.stackFrame.address)
-          .then(control.arg1);
+          .then(control.stackFrame.address)
+          .then(control.arg1)
+          .then(kb.print);
 
       val bindPrintEntrypoint = kb.entrypoint.new Node();
       // TODO: this timing is super fragile
@@ -505,14 +506,11 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(stringIterator.codePoint)
-          .then(new CoincidentEffect<DataNode>(kb.actions, kb.data) {
-            @Override
-            protected void apply(final DataNode node) {
-              if (node.getData() instanceof Integer codePoint) {
-                builder.appendCodePoint(codePoint);
-              }
+          .then(new CoincidentEffect.Lambda<>(kb.actions, kb.data, node -> {
+            if (node.getData() instanceof Integer codePoint) {
+              builder.appendCodePoint(codePoint);
             }
-          }.node)
+          }).node)
           .then(stringIterator.advance);
     }
   }

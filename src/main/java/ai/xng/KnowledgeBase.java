@@ -39,10 +39,8 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public final SignalCluster.Node variadicEnd = signals.new Node();
 
-  public final ActionCluster.Node print = actions.new Node(() -> data.rxActivations()
-      .map(DataNode::getData)
-      .firstElement()
-      .subscribe(arg -> rxOutput.onNext(Objects.toString(arg)), lastException::setData)),
+  public final ActionCluster.Node print = new CoincidentEffect.Lambda<>(actions, data,
+      node -> rxOutput.onNext(Objects.toString(node.getData()))).node,
       findClass = actions.new Node(() -> data.rxActivations()
           .map(DataNode::getData)
           .firstElement()
@@ -80,15 +78,12 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   private final Map<BiCluster, ActionCluster.Node> suppressPosteriors = new HashMap<>();
 
   public ActionCluster.Node suppressPosteriors(final BiCluster cluster) {
-    return suppressPosteriors.computeIfAbsent(cluster, key -> new CoincidentEffect<BiNode>(actions, key) {
-      @Override
-      protected void apply(final BiNode node) {
-        final float coincidence = node.getIntegrator().getNormalizedCappedValue();
-        for (final Connections.Entry<Posterior> entry : node.getPosteriors()) {
-          entry.edge().suppress(coincidence);
-        }
-      };
-    }.node);
+    return suppressPosteriors.computeIfAbsent(cluster, key -> new CoincidentEffect.Lambda<>(actions, key, node -> {
+      final float coincidence = node.getIntegrator().getNormalizedCappedValue();
+      for (final Connections.Entry<Posterior> entry : node.getPosteriors()) {
+        entry.edge().suppress(coincidence);
+      }
+    }).node);
   }
 
   private static record ScalePosteriorsKey(Cluster<? extends Prior> cluster, float factor) implements Serializable {

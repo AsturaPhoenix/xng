@@ -18,12 +18,7 @@ public class CoincidentEffectTest {
     TestEffect() {
       input = new SignalCluster().new Node();
       trigger = new BiCluster().new Node();
-      trigger.then(new CoincidentEffect<OutputNode>(new ActionCluster(), input.getCluster()) {
-        @Override
-        protected void apply(final OutputNode node) {
-          ++incidents;
-        }
-      }.node);
+      trigger.then(new CoincidentEffect.Lambda<>(new ActionCluster(), input.getCluster(), node -> ++incidents).node);
     }
   }
 

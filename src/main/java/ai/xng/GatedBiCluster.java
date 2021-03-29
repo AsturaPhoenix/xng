@@ -104,12 +104,7 @@ public class GatedBiCluster {
   }
 
   public GatedBiCluster(final ActionCluster gateCluster, final String comment) {
-    gate = new CoincidentEffect<>(gateCluster, input) {
-      @Override
-      protected void apply(final InputCluster.Node node) {
-        node.output.activate();
-      }
-    }.node;
+    gate = new CoincidentEffect.Lambda<>(gateCluster, input, node -> node.output.activate()).node;
     this.comment = comment;
   }
 

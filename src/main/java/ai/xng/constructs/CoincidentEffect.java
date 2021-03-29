@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.lang.ref.WeakReference;
+import java.util.function.Consumer;
 
 import ai.xng.ActionCluster;
 import ai.xng.IntegrationProfile;
@@ -15,21 +16,31 @@ import io.reactivex.disposables.Disposable;
 import lombok.val;
 
 public abstract class CoincidentEffect<T extends Posterior> implements Serializable {
+  public static class Lambda<T extends Posterior> extends CoincidentEffect<T> {
+    public interface Effect<T extends Posterior> extends Consumer<T>, Serializable {
+    }
+
+    private final Effect<T> effect;
+
+    public Lambda(final ActionCluster actionCluster, final PosteriorCluster<? extends T> effectCluster,
+        final Effect<T> effect) {
+      super(actionCluster, effectCluster);
+      this.effect = effect;
+    }
+
+    @Override
+    protected void apply(final T node) {
+      effect.accept(node);
+    }
+  }
+
   public final ActionCluster.Node node;
   public final PosteriorCluster<? extends T> cluster;
 
   public CoincidentEffect(final ActionCluster actionCluster, final PosteriorCluster<? extends T> effectCluster) {
-    node = actionCluster.new Node(this::onActivate);
+    node = actionCluster.new Node(this::applyPending);
     cluster = effectCluster;
-
-    if (node.getIntegrator().isActive()) {
-      applyPending();
-    }
     subscribe();
-  }
-
-  private void onActivate() {
-    applyPending();
   }
 
   protected abstract void apply(T node);

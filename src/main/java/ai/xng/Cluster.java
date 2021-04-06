@@ -246,6 +246,7 @@ public abstract class Cluster<T extends Node> implements Serializable {
   }
 
   public static void disassociateAll(final Cluster<? extends Prior> priorCluster) {
+    // This is a reinforcement rather than a simple clear to smooth by trace.
     forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (prior, trace) -> {
           for (val entry : prior.getPosteriors()) {

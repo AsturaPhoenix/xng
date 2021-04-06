@@ -192,9 +192,10 @@ public class AssociationTest {
     val scheduler = new TestScheduler();
     Scheduler.global = scheduler;
 
-    // This test fails at 7 priors, which is reasonable as by then the least
-    // significant prior will have decayed greatly during training.
-    for (int n = 1; n <= 6; ++n) {
+    // This test fails at 4 priors, which is okay as by then the least significant
+    // prior will have decayed during training. A previous version with less leeway
+    // would not fail until 7 priors.
+    for (int n = 1; n <= 3; ++n) {
       val input = new InputCluster(), output = new ActionCluster();
 
       val in = new InputNode[n];

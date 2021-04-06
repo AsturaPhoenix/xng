@@ -60,8 +60,8 @@ public class LanguageBootstrap {
   }
 
   private class Spawn {
-    final ActionCluster.Node gated = kb.actions.new Node(() -> kb.gated.input.new Node().activate()),
-        stateRecognition = kb.actions.new Node(() -> kb.stateRecognition.new Node().activate()),
+    final ActionCluster.Node stateRecognition = kb.actions.new Node(() -> kb.stateRecognition.new Node().activate()),
+        context = kb.actions.new Node(() -> kb.context.new Node().activate()),
         sequenceRecognition = kb.actions.new Node(() -> kb.sequenceRecognition.new Node().activate()),
         data = kb.actions.new Node(() -> kb.data.new MutableNode<>().activate());
   }
@@ -70,7 +70,7 @@ public class LanguageBootstrap {
 
   private class Control {
     final ImmutableList<Cluster.PriorClusterProfile> frameFieldPriors = new Cluster.PriorClusterProfile.ListBuilder()
-        .add(kb.gated.output)
+        .add(kb.context)
         .add(kb.naming)
         .build();
 
@@ -78,7 +78,8 @@ public class LanguageBootstrap {
         returnValue = new StmCluster("returnValue"),
         cxt = new StmCluster("cxt"),
         tmp = new StmCluster("tmp");
-    final BiCluster.Node invocation = kb.naming.new Node("invocation"),
+    final BiCluster.Node staticContext = kb.naming.new Node("staticContext"),
+        entrypoint = kb.naming.new Node("entrypoint"),
         arg1 = kb.naming.new Node("arg1"),
         returnTo = kb.naming.new Node("returnTo");
     final BiCluster.Node execute = kb.entrypoint.new Node("execute"),
@@ -91,17 +92,14 @@ public class LanguageBootstrap {
       asSequence(execute)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(stackFrame.address)
-          .then(invocation)
-          .then(kb.gated.gate);
+          .then(staticContext)
+          .then(entrypoint);
 
       asSequence(doReturn)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(stackFrame.address)
-          .then(returnTo, kb.scalePosteriors(stackFrame, POP_FACTOR))
-          .then(
-              kb.disassociate(stackFrame, kb.gated.output),
-              kb.disassociate(stackFrame, kb.naming))
-          .then(kb.gated.gate);
+          .then(kb.scalePosteriors(stackFrame, POP_FACTOR), returnTo)
+          .then(kb.disassociate(stackFrame, kb.context));
     }
   }
 
@@ -236,13 +234,12 @@ public class LanguageBootstrap {
    * binding.
    */
   private class RecognitionSequenceMemorizer {
-    final BiNode invocation;
+    final BiNode staticContext = kb.context.new Node("rsm"),
+        entrypoint = kb.entrypoint.new Node("rsm/entrypoint");
 
     {
-      invocation = kb.entrypoint.new Node("rsm");
-      val gatedInvocation = kb.gated.input.new Node("rsm");
-      invocation.then(gatedInvocation);
-      asSequence(gatedInvocation.output)
+      entrypoint.conjunction(staticContext, control.entrypoint);
+      asSequence(entrypoint)
           // TODO: It may be more idiomatic to create the capture later, but with current
           // limitations that would not allow us to bind to STM while also binding to the
           // captured sequence.
@@ -252,13 +249,13 @@ public class LanguageBootstrap {
           .then(stringIterator.create);
 
       // This is shared with String LiteralBuilder
-      recognitionClass.character.then(control.stackFrame.address, control.invocation);
+      recognitionClass.character.then(control.stackFrame.address, control.staticContext);
 
       // Hook sequence capture up after character capture to avoid dealing with the
       // input conjunction directly. Furthermore, some character types may change the
       // latch state.
       val capture = kb.execution.new Node();
-      capture.conjunction(recognitionClass.character, invocation);
+      capture.conjunction(recognitionClass.character, staticContext);
       asSequence(capture)
           .then(spawn.sequenceRecognition)
           .then(kb.associate(
@@ -268,8 +265,8 @@ public class LanguageBootstrap {
               kb.sequenceRecognition));
 
       val captureReturn = kb.execution.new Node();
-      stringIterator.hasNextDecoder.isFalse.then(control.invocation);
-      captureReturn.conjunction(stringIterator.hasNextDecoder.isFalse, invocation);
+      stringIterator.hasNextDecoder.isFalse.then(control.staticContext);
+      captureReturn.conjunction(stringIterator.hasNextDecoder.isFalse, staticContext);
       asSequence(captureReturn)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.returnValue.address)
@@ -285,61 +282,53 @@ public class LanguageBootstrap {
   public final RecognitionSequenceMemorizer recognitionSequenceMemorizer;
 
   private class Parse {
-    final BiNode invocation = kb.entrypoint.new Node("parse");
+    final BiNode staticContext = kb.context.new Node("parse"),
+        entrypoint = kb.entrypoint.new Node("parse/entrypoint");
 
     final BiCluster.Node constructionPointer = kb.naming.new Node("constructionPointer"),
         writePointer = kb.naming.new Node("writePointer");
 
     {
-      val gatedInvocation = kb.gated.input.new Node("parse");
+      entrypoint.conjunction(staticContext, control.entrypoint);
       // One of the first things we should do when we begin parsing something is start
       // constructing a stack frame.
-      //
-      // We create it as a gated node so that we can flip it into a register for
-      // unambiguous writing while it itself is scoped to the stack frame invoking
-      // parse. However, during use, it need not be gated so we can put the output
-      // node on the actual stack.
-      invocation.then(gatedInvocation);
-      asSequence(gatedInvocation.output)
+      asSequence(entrypoint)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(constructionPointer)
-          .then(spawn.gated)
-          .then(kb.associate(control.frameFieldPriors, kb.gated.input))
+          .then(spawn.context)
+          .then(kb.associate(control.frameFieldPriors, kb.context))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(stringIterator.create);
 
-      val printInvocation = kb.gated.input.new Node("print");
-      asSequence(printInvocation.output)
+      val print = kb.context.new Node("print"),
+          printEntrypoint = kb.entrypoint.new Node("print/entrypoint");
+      printEntrypoint.conjunction(print, control.entrypoint);
+      asSequence(printEntrypoint)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(control.arg1)
-          .then(kb.print);
+          .then(kb.print)
+          .then(control.doReturn);
 
       val bindPrintEntrypoint = kb.entrypoint.new Node();
       // TODO: this timing is super fragile
-      bindPrintEntrypoint.then(control.stackFrame.address, control.invocation);
+      bindPrintEntrypoint.then(control.stackFrame.address, control.staticContext);
 
       val bindPrint = kb.execution.new Node();
-      bindPrint.conjunction(bindPrintEntrypoint, invocation);
+      bindPrint.conjunction(bindPrintEntrypoint, staticContext);
       bindPrint.inhibit(stringIterator.advance);
       asSequence(bindPrint)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(constructionPointer, control.cxt.address, kb.suppressPosteriors(control.cxt))
           .then(kb.clearPosteriors(control.cxt))
-          .then(kb.associate(control.cxt, kb.gated.input))
+          .then(kb.associate(control.cxt, kb.context))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.cxt.address)
-          .then(kb.gated.gate)
-          .then(
-              kb.disassociate(control.cxt, kb.gated.input),
-              kb.associate(control.cxt, kb.gated.output))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.cxt.address)
-          .then(control.invocation)
-          .then(printInvocation)
-          .then(kb.associate(control.frameFieldPriors, kb.gated.input))
+          .then(control.staticContext)
+          .then(print)
+          .then(kb.associate(control.frameFieldPriors, kb.context))
 
           // In the future we might like to scope the write pointer per construction
           // frame, but that story is not fleshed out yet so let's keep it simple for now.
@@ -353,19 +342,19 @@ public class LanguageBootstrap {
 
       val returnParseFrame = kb.execution.new Node();
       // shared with recognition sequence memorizer
-      stringIterator.hasNextDecoder.isFalse.then(control.invocation);
-      returnParseFrame.conjunction(stringIterator.hasNextDecoder.isFalse, invocation);
+      stringIterator.hasNextDecoder.isFalse.then(control.staticContext);
+      returnParseFrame.conjunction(stringIterator.hasNextDecoder.isFalse, staticContext);
       asSequence(returnParseFrame)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(constructionPointer, control.returnValue.address, kb.suppressPosteriors(control.returnValue))
           .then(kb.clearPosteriors(control.returnValue))
-          .then(kb.associate(control.returnValue, kb.gated.input))
+          .then(kb.associate(control.returnValue, kb.context))
           .then(control.doReturn);
 
       {
-        val call = kb.gated.input.new Node("train: \"print(\"").output;
-        recognitionSequenceMemorizer.invocation.conjunction(call, control.invocation);
+        val call = kb.context.new Node("train: \"print(\"");
+        recognitionSequenceMemorizer.staticContext.conjunction(call, control.staticContext);
         kb.data.new FinalNode<>("print(").conjunction(call, control.arg1);
         val bindBindPrint = kb.execution.new Node();
         bindBindPrint.conjunction(call, control.returnTo);
@@ -386,41 +375,44 @@ public class LanguageBootstrap {
 
   // Eval parses the argument and executes the resulting construct.
   private class Eval {
-    final GatedBiCluster.InputCluster.Node invocation = kb.gated.input.new Node("eval");
+    final BiNode staticContext = kb.context.new Node("eval"),
+        entrypoint = kb.entrypoint.new Node("eval/entrypoint");
 
     {
-      val returnFrom = kb.gated.input.new Node("eval/returnFrom");
-      asSequence(returnFrom.output)
-          .then(control.doReturn);
+      entrypoint.conjunction(staticContext, control.entrypoint);
 
-      val executeParsed = kb.gated.input.new Node("eval/executeParsed");
-      asSequence(executeParsed.output)
+      val executeParsed = kb.entrypoint.new Node("eval/executeParsed");
+      asSequence(executeParsed)
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address, control.returnValue.address, kb.suppressPosteriors(control.stackFrame))
-          .then(kb.gated.gate, kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
-          .then(kb.associate(control.stackFrame, kb.gated.output))
-          .then(kb.gated.gate)
+          .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
+          .then(kb.associate(control.stackFrame, kb.context))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
           .then(control.returnTo)
-          .then(returnFrom)
-          .then(kb.associate(control.frameFieldPriors, kb.gated.input))
+          // Note that at some point, we have considered expanding suppressPosteriors to
+          // also suppress the trace, for use in pulling down nodes after activation to
+          // clear working memory. If we do end up needing that behavior, we will need to
+          // reconcile against this use case where we suppress posteriors in order to
+          // highlight a node's trace without side effects.
+          .then(control.doReturn, kb.suppressPosteriors(kb.entrypoint))
+          .then(kb.associate(control.frameFieldPriors, kb.entrypoint))
           .then(control.execute);
 
-      asSequence(invocation.output)
+      asSequence(entrypoint)
           // We're burning through *a lot* of timing nodes... It may be time to leverage a
           // dedicated profile or some other mechanism. If we go with a dedicated profile,
           // we might want to use a dedicated cluster and implement intra/intercluster
           // default profiles.
           .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.cxt.address, kb.gated.gate, kb.suppressPosteriors(control.cxt))
-          .then(spawn.gated, kb.clearPosteriors(control.cxt))
-          .then(kb.associate(control.cxt, kb.gated.output))
+          .then(control.cxt.address, kb.suppressPosteriors(control.cxt))
+          .then(spawn.context, kb.clearPosteriors(control.cxt))
+          .then(kb.associate(control.cxt, kb.context))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.cxt.address)
-          .then(control.invocation)
-          .then(parse.invocation)
-          .then(kb.associate(control.frameFieldPriors, kb.entrypoint))
+          .then(control.staticContext)
+          .then(parse.staticContext)
+          .then(kb.associate(control.frameFieldPriors, kb.context))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.tmp.address)
           .then(kb.clearPosteriors(control.tmp))
@@ -437,13 +429,12 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.cxt.address)
           .then(control.returnTo)
-          .then(executeParsed)
-          .then(kb.associate(control.frameFieldPriors, kb.gated.input))
+          .then(executeParsed, kb.suppressPosteriors(kb.entrypoint))
+          .then(kb.associate(control.frameFieldPriors, kb.entrypoint))
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address, control.cxt.address, kb.suppressPosteriors(control.stackFrame))
           .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
-          .then(kb.associate(control.stackFrame, kb.gated.output))
-          .then(kb.gated.gate)
+          .then(kb.associate(control.stackFrame, kb.context))
           .then(control.execute);
     }
   }
@@ -472,13 +463,14 @@ public class LanguageBootstrap {
       conjunction.build(quote).then(recognitionClass.character);
       start.conjunction(quoteDelayed, isParsing.isFalse);
       end.conjunction(quoteDelayed, isParsing.isTrue);
-      recognitionClass.character.then(control.invocation);
+      // Shared with RSM
+      recognitionClass.character.then(control.stackFrame.address, control.staticContext);
 
       // TODO: simple conjunction, once timing is more robust
       val queryIsParsing = kb.actions.new Node(isParsing);
       recognitionClass.character.getPosteriors().getEdge(queryIsParsing, IntegrationProfile.TRANSIENT).distribution
           .set(.7f);
-      parse.invocation.getPosteriors().getEdge(queryIsParsing, IntegrationProfile.TRANSIENT).distribution.set(.7f);
+      parse.staticContext.getPosteriors().getEdge(queryIsParsing, IntegrationProfile.TRANSIENT).distribution.set(.7f);
 
       start.then(kb.actions.new Node(() -> builder.setLength(0)));
       end.inhibit(stringIterator.advance);
@@ -487,13 +479,7 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(parse.constructionPointer, control.cxt.address, kb.suppressPosteriors(control.cxt))
           .then(kb.clearPosteriors(control.cxt))
-          .then(kb.associate(control.cxt, kb.gated.input))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
-          .then(control.cxt.address)
-          .then(kb.gated.gate)
-          .then(
-              kb.disassociate(control.cxt, kb.gated.input),
-              kb.associate(control.cxt, kb.gated.output))
+          .then(kb.associate(control.cxt, kb.context))
 
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.stackFrame.address)
@@ -541,21 +527,19 @@ public class LanguageBootstrap {
 
     // When the input changes, we need to construct an eval call.
     asSequence(kb.inputValue.onUpdate)
-        .then(control.stackFrame.address, kb.gated.gate, kb.suppressPosteriors(control.stackFrame))
-        .then(spawn.gated, kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
-        .then(kb.associate(control.stackFrame, kb.gated.output))
+        .then(control.stackFrame.address, kb.suppressPosteriors(control.stackFrame))
+        .then(spawn.context, kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
+        .then(kb.associate(control.stackFrame, kb.context))
         .thenDelay(IntegrationProfile.TRANSIENT.period())
         .then(control.stackFrame.address)
-        .then(control.invocation)
-        .then(eval.invocation)
-        .then(kb.associate(control.frameFieldPriors, kb.gated.input))
+        .then(control.staticContext)
+        .then(eval.staticContext)
+        .then(kb.associate(control.frameFieldPriors, kb.context))
         .thenDelay(IntegrationProfile.TRANSIENT.period())
         .then(control.stackFrame.address)
         .then(control.arg1)
         .then(kb.inputValue)
         .then(kb.associate(control.frameFieldPriors, kb.data))
-        .thenDelay(IntegrationProfile.TRANSIENT.period())
-        .then(kb.gated.gate)
         .then(control.execute);
   }
 }

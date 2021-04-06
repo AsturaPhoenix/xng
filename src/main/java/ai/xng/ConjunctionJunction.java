@@ -17,7 +17,11 @@ public class ConjunctionJunction {
   // sum, which would actually trigger activation, occurs well earlier, leading to
   // conjunctions that are too lenient. Keeping the max recorded component weight
   // allows us to compensate for this by scaling the norm projection so that the
-  // max component effectively becomes 1.
+  // max component effectively becomes 1; assuming uniform degradation, this gives
+  // us a linear combination that behaves consistently at the most recent peak.
+  //
+  // At the same time, also keep the min component to fine-tune the discrimination
+  // margin.
   private float norm, maxComponent;
 
   public ConjunctionJunction addAll(final Iterable<? extends Prior> priors) {
@@ -62,8 +66,7 @@ public class ConjunctionJunction {
     // work as well in the presence of less significant components as the below, as
     // it produces false positives.
     float normAdj = norm / (maxComponent * maxComponent);
-    normAdj = (normAdj <= Prior.DEFAULT_COEFFICIENT ? 1
-        : Math.max(normAdj / Prior.DEFAULT_COEFFICIENT, normAdj - .5f / normAdj)) * maxComponent;
+    normAdj = Math.max(normAdj / Prior.DEFAULT_COEFFICIENT, normAdj - .5f) * maxComponent;
 
     for (val component : components) {
       final float coefficient = component.weight() / normAdj;

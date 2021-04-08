@@ -278,11 +278,11 @@ public class Connections {
   private static final String INDENT = "  ";
 
   private static void debugPriors(final StringBuilder sb, final Posterior node, final String indent,
-      final Set<Cluster<? extends Prior>> exclude) {
+      final Prior highlightParent, final Set<Cluster<? extends Prior>> exclude) {
     sb.append(indent).append('[');
     val it = Iterators.filter(node.getPriors().iterator(), prior -> !exclude.contains(prior.node().getCluster()));
     while (it.hasNext()) {
-      debugPrior(sb, it.next());
+      debugPrior(sb, it.next(), highlightParent);
       if (it.hasNext()) {
         sb.append(", ");
       }
@@ -292,7 +292,10 @@ public class Connections {
 
   private static void debugPosteriors(final StringBuilder sb, final Prior node, final String indent,
       final int maxDepth, final Set<Cluster<? extends Prior>> excludePriors) {
-    val it = node.getPosteriors().iterator();
+    val it = Streams.stream(node.getPosteriors())
+        .map(Entry::node)
+        .distinct()
+        .iterator();
 
     if (maxDepth == 0) {
       if (it.hasNext()) {
@@ -304,9 +307,9 @@ public class Connections {
     while (it.hasNext()) {
       val posterior = it.next();
       sb.append('\n');
-      debugPriors(sb, posterior.node(), indent, excludePriors);
-      sb.append(posterior.node());
-      if (posterior.node() instanceof Prior prior) {
+      debugPriors(sb, posterior, indent, node, excludePriors);
+      sb.append(posterior);
+      if (posterior instanceof Prior prior) {
         debugPosteriors(sb, prior, indent + INDENT, maxDepth - 1, excludePriors);
       }
     }
@@ -318,7 +321,7 @@ public class Connections {
     val exclusionSet = ImmutableSet.copyOf(excludePriors);
 
     if (node instanceof Posterior posterior) {
-      debugPriors(sb, posterior, "", exclusionSet);
+      debugPriors(sb, posterior, "", null, exclusionSet);
     }
     sb.append(node);
     if (node instanceof Prior prior) {
@@ -328,9 +331,14 @@ public class Connections {
     return sb.toString();
   }
 
-  private static void debugPrior(final StringBuilder sb, final Entry<Prior> prior) {
-    sb.append(prior.node())
-        .append(": ")
+  private static void debugPrior(final StringBuilder sb, final Entry<Prior> prior, final Prior highlightParent) {
+    sb.append(prior.node());
+
+    if (prior.node() == highlightParent) {
+      sb.append('^');
+    }
+
+    sb.append(": ")
         .append(prior.node().getTrace().evaluate(Scheduler.global.now(), prior.edge().profile))
         .append("/")
         .append(prior.edge().distribution.getMode())
@@ -347,7 +355,7 @@ public class Connections {
           .append(": ");
       val curveIt = entry.getValue().iterator();
       while (curveIt.hasNext()) {
-        debugPrior(sb, curveIt.next());
+        debugPrior(sb, curveIt.next(), null);
 
         if (curveIt.hasNext()) {
           sb.append(", ");

@@ -293,7 +293,6 @@ public class LanguageBootstrap {
           .then(constructionPointer)
           .then(spawn.context)
           .then(kb.associate(control.frameFieldPriors, kb.context))
-          .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(stringIterator.create);
 
       val print = kb.context.new Node("print"),

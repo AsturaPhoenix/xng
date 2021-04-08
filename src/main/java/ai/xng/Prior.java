@@ -40,7 +40,11 @@ public interface Prior extends Node {
   }
 
   default <T extends Posterior> T then(final T posterior) {
-    getPosteriors().getEdge(posterior, IntegrationProfile.TRANSIENT).distribution.set(DEFAULT_COEFFICIENT);
+    return then(posterior, IntegrationProfile.TRANSIENT);
+  }
+
+  default <T extends Posterior> T then(final T posterior, final IntegrationProfile profile) {
+    getPosteriors().getEdge(posterior, profile).distribution.set(DEFAULT_COEFFICIENT);
     return posterior;
   }
 

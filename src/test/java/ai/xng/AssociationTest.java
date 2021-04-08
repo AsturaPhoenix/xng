@@ -359,22 +359,22 @@ public class AssociationTest {
       posterior.activate();
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
       Cluster.associate(priorCluster, posteriorCluster);
-      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
       monitor.reset();
       prior.activate();
-      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
       assertTrue(monitor.didEmit(),
           String.format("Failed on iteration %s. Posteriors: %s", i, prior.getPosteriors()));
 
       prior.activate();
       scheduler.fastForwardFor(2 * IntegrationProfile.TRANSIENT.defaultInterval());
       Cluster.disassociate(priorCluster, posteriorCluster);
-      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
       monitor.reset();
       prior.activate();
-      scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
       assertFalse(monitor.didEmit(),
           String.format("Failed on iteration %s. Posteriors: %s", i, prior.getPosteriors()));
     }

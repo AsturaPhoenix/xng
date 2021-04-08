@@ -15,6 +15,7 @@ import ai.xng.constructs.CoincidentEffect;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
+import lombok.val;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
   public static final float STACK_FACTOR = .5f, PUSH_FACTOR = STACK_FACTOR, POP_FACTOR = 1 / STACK_FACTOR;
@@ -74,6 +75,44 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   private static record AssociateKey(Set<PriorClusterProfile> priors, PosteriorCluster<?> posteriorCluster)
       implements Serializable {
+  }
+
+  private static record ResetPosteriorsKey(Cluster<? extends Prior> cluster, boolean outboundOnly) {
+  }
+
+  private final Map<ResetPosteriorsKey, ActionCluster.Node> resetPosteriors = new HashMap<>();
+
+  /**
+   * Resets the posteriors and traces of recently activated nodes in a prior
+   * cluster.
+   */
+  private ActionCluster.Node resetPosteriors(final Cluster<? extends Prior> cluster, final boolean outboundOnly) {
+    return resetPosteriors.computeIfAbsent(new ResetPosteriorsKey(cluster, outboundOnly),
+        key -> actions.new Node(() -> {
+          final long now = Scheduler.global.now();
+          final long horizon = now - IntegrationProfile.PERSISTENT.period();
+
+          for (val node : key.cluster.activations()) {
+            if (node.getLastActivation().get() <= horizon) {
+              break;
+            }
+
+            for (val entry : node.getPosteriors()) {
+              if (!key.outboundOnly || entry.node().getCluster() != key.cluster) {
+                entry.edge().clearSpikes();
+              }
+            }
+            node.getTrace().evict(now);
+          }
+        }));
+  }
+
+  public ActionCluster.Node resetPosteriors(final Cluster<? extends Prior> cluster) {
+    return resetPosteriors(cluster, false);
+  }
+
+  public ActionCluster.Node resetOutboundPosteriors(final Cluster<? extends Prior> cluster) {
+    return resetPosteriors(cluster, true);
   }
 
   private final Map<AssociateKey, ActionCluster.Node> associate = new HashMap<>();

@@ -31,6 +31,10 @@ public class BakingIntegrator {
     segments.add(segment);
   }
 
+  public void remove(final Segment segment) {
+    segments.remove(segment);
+  }
+
   public void evict(final long t) {
     segments.removeIf(s -> s.t1 <= t);
   }

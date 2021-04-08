@@ -35,11 +35,14 @@ public class LazyIntegrator {
   }
 
   /**
-   * Removes all samples with start points at or before {@code t}. Notably, this
-   * differs from the behavior of {@link BakingIntegrator#evict(long)} as the
-   * segment length is not known here.
+   * Removes all samples with start points before {@code t}. Notably, this differs
+   * from the behavior of {@link BakingIntegrator#evict(long)} as the segment
+   * length is not known here.
+   * <p>
+   * The condition is before rather than at or before to side-step a potential
+   * race condition when used to evict before "now".
    */
   public void evict(final long t) {
-    samples.removeIf(s -> s.time() <= t);
+    samples.removeIf(s -> s.time() < t);
   }
 }

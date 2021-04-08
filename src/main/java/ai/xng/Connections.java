@@ -16,6 +16,7 @@ import java.util.Set;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Multimaps;
+import com.google.common.collect.Streams;
 
 import ai.xng.ThresholdIntegrator.Spike;
 import lombok.RequiredArgsConstructor;
@@ -29,11 +30,10 @@ public class Connections {
     private final Posterior posterior;
     public final IntegrationProfile profile;
 
-    private transient List<Spike> activations;
-    private transient List<Suppression> suppressions;
+    private transient List<Component> components;
 
     @RequiredArgsConstructor
-    private static class Suppression {
+    private static class Component {
       final float factor;
       final Spike spike;
     }
@@ -64,14 +64,12 @@ public class Connections {
     }
 
     private void init() {
-      activations = new ArrayList<>();
-      suppressions = new ArrayList<>();
+      components = new ArrayList<>();
     }
 
     private void evict() {
       val now = Scheduler.global.now();
-      activations.removeIf(spike -> spike.end() <= now);
-      suppressions.removeIf(suppression -> suppression.spike.end() <= now);
+      components.removeIf(c -> c.spike.end() <= now);
     }
 
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
@@ -80,7 +78,7 @@ public class Connections {
     }
 
     private void invalidate() {
-      if (activations.isEmpty() && suppressions.isEmpty()) {
+      if (components.isEmpty()) {
         return;
       }
 
@@ -89,21 +87,26 @@ public class Connections {
       // Since these are all adjustments to the same integrator, we could actually
       // defer the invalidation, but we expect the size of this loop to be 1 so it's
       // premature optimization.
-      for (val spike : activations) {
-        spike.adjustRampUp(newRate);
-      }
-      for (val suppression : suppressions) {
-        suppression.spike.adjustRampUp(-suppression.factor * newRate);
+      for (val component : components) {
+        component.spike.adjustRampUp(component.factor * newRate);
       }
     }
 
     public void activate() {
-      activations.add(posterior.getIntegrator().add(profile, distribution.generate()));
+      components.add(new Component(1, posterior.getIntegrator().add(profile, distribution.generate())));
     }
 
     public void suppress(final float factor) {
-      suppressions.add(new Suppression(factor,
+      components.add(new Component(-factor,
           posterior.getIntegrator().add(profile, -factor * distribution.generate())));
+    }
+
+    public void clearSpikes() {
+      // Same premature optimization warning as invalidate();
+      for (val component : components) {
+        component.spike.clear();
+      }
+      components.clear();
     }
   }
 

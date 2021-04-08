@@ -40,6 +40,12 @@ public abstract class ThresholdIntegrator {
     public long end() {
       return rampDown.t1;
     }
+
+    public void clear() {
+      integrator.remove(rampUp);
+      integrator.remove(rampDown);
+      invalidate();
+    }
   }
 
   private final BakingIntegrator integrator = new BakingIntegrator();

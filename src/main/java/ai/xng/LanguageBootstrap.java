@@ -3,7 +3,6 @@ package ai.xng;
 import static ai.xng.KnowledgeBase.POP_FACTOR;
 import static ai.xng.KnowledgeBase.PUSH_FACTOR;
 
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Optional;
 
@@ -216,9 +215,7 @@ public class LanguageBootstrap {
       }));
       captureDispatch
           .then(kb.execution.new Node())
-          .then(kb.associate(
-              Arrays.asList(new Cluster.PriorClusterProfile(stringIterator.charCluster, IntegrationProfile.TRANSIENT)),
-              kb.stateRecognition));
+          .then(kb.associate(stringIterator.charCluster, kb.stateRecognition));
     }
   }
 
@@ -252,17 +249,15 @@ public class LanguageBootstrap {
       recognitionClass.character.then(control.stackFrame.address, control.staticContext);
 
       // Hook sequence capture up after character capture to avoid dealing with the
-      // input conjunction directly. Furthermore, some character types may change the
-      // latch state.
+      // input conjunction directly.
       val capture = kb.execution.new Node();
       capture.conjunction(recognitionClass.character, staticContext);
       asSequence(capture)
           .then(spawn.sequenceRecognition)
-          .then(kb.associate(
-              new Cluster.PriorClusterProfile.ListBuilder()
-                  .add(kb.sequenceRecognition, IntegrationProfile.TWOGRAM)
-                  .add(kb.stateRecognition).build(),
-              kb.sequenceRecognition));
+          .then(kb.associate()
+              .priors(kb.sequenceRecognition, IntegrationProfile.TWOGRAM)
+              .priors(kb.stateRecognition)
+              .to(kb.sequenceRecognition));
 
       val captureReturn = kb.execution.new Node();
       stringIterator.hasNextDecoder.isFalse.then(control.staticContext);
@@ -271,10 +266,10 @@ public class LanguageBootstrap {
           .thenDelay(IntegrationProfile.TRANSIENT.period())
           .then(control.returnValue.address)
           .thenDelay()
-          .then(kb.associate(new Cluster.PriorClusterProfile.ListBuilder()
+          .then(kb.associate()
               .baseProfiles(IntegrationProfile.TWOGRAM)
-              .add(kb.sequenceRecognition)
-              .build(), kb.stateRecognition))
+              .priors(kb.sequenceRecognition)
+              .to(kb.stateRecognition))
           .then(control.doReturn);
     }
   }

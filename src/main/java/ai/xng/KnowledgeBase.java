@@ -78,16 +78,25 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   private final Map<AssociateKey, ActionCluster.Node> associate = new HashMap<>();
 
-  public ActionCluster.Node associate(final Cluster<? extends Prior> priorCluster,
-      final PosteriorCluster<?> posteriorCluster) {
-    return associate(ImmutableSet.of(new PriorClusterProfile(priorCluster, IntegrationProfile.TRANSIENT)),
-        posteriorCluster);
-  }
-
   public ActionCluster.Node associate(final Iterable<PriorClusterProfile> priors,
       final PosteriorCluster<?> posteriorCluster) {
     return associate.computeIfAbsent(new AssociateKey(ImmutableSet.copyOf(priors), posteriorCluster),
         key -> actions.new Node(() -> Cluster.associate(key.priors, key.posteriorCluster)));
+  }
+
+  public Cluster.AssociationBuilder<ActionCluster.Node> associate() {
+    return new Cluster.AssociationBuilder<>() {
+      @Override
+      protected ActionCluster.Node associate(final Iterable<PriorClusterProfile> priors,
+          final PosteriorCluster<?> posteriorCluster) {
+        return KnowledgeBase.this.associate(priors, posteriorCluster);
+      }
+    };
+  }
+
+  public ActionCluster.Node associate(final Cluster<? extends Prior> priorCluster,
+      final PosteriorCluster<?> posteriorCluster) {
+    return associate().priors(priorCluster).to(posteriorCluster);
   }
 
   private static record DisassociateKey(Cluster<? extends Prior> priorCluster, PosteriorCluster<?> posteriorCluster)

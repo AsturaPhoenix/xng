@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Arrays;
 import java.util.Stack;
 
 import org.junit.jupiter.api.Test;
@@ -329,7 +328,7 @@ public class AssociationTest {
       val out = TestUtil.testNode(output, monitor);
       out.activate();
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.peak());
-      Cluster.associate(Arrays.asList(new Cluster.PriorClusterProfile(input, IntegrationProfile.TRANSIENT)), output);
+      Cluster.associate(input, output);
 
       scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampDown());
       monitor.reset();

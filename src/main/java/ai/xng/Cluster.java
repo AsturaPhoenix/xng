@@ -196,21 +196,51 @@ public abstract class Cluster<T extends Node> implements Serializable {
    * based on a {@link IntegrationProfile#TRANSIENT} window.
    */
   public static void associate(final Iterable<PriorClusterProfile> priors,
-      final Cluster<? extends Posterior> posteriorCluster, final long effectiveTime) {
-    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, effectiveTime,
+      final PosteriorCluster<?> posteriorCluster) {
+    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (posterior, posteriorTrace) -> {
           associate(priors, posterior, posterior.getLastActivation().get(), posteriorTrace);
         });
   }
 
-  public static void associate(final Iterable<PriorClusterProfile> priors,
-      final Cluster<? extends Posterior> posteriorCluster) {
-    associate(priors, posteriorCluster, Scheduler.global.now());
+  public static abstract class AssociationBuilder<T> {
+    private final PriorClusterProfile.ListBuilder priors = new PriorClusterProfile.ListBuilder();
+
+    public AssociationBuilder<T> baseProfiles(final IntegrationProfile... profiles) {
+      priors.baseProfiles(profiles);
+      return this;
+    }
+
+    public AssociationBuilder<T> priors(final Cluster<? extends Prior> cluster,
+        final IntegrationProfile... additionalProfiles) {
+      priors.add(cluster, additionalProfiles);
+      return this;
+    }
+
+    public T to(final PosteriorCluster<?> posteriorCluster) {
+      return associate(priors.build(), posteriorCluster);
+    }
+
+    protected abstract T associate(Iterable<PriorClusterProfile> priors, PosteriorCluster<?> posteriorCluster);
+  }
+
+  public static abstract class ChainableAssociationBuilder extends AssociationBuilder<ChainableAssociationBuilder> {
+  }
+
+  public static ChainableAssociationBuilder associate() {
+    return new ChainableAssociationBuilder() {
+      @Override
+      protected ChainableAssociationBuilder associate(final Iterable<PriorClusterProfile> priors,
+          final PosteriorCluster<?> posteriorCluster) {
+        Cluster.associate(priors, posteriorCluster);
+        return this;
+      }
+    };
   }
 
   public static void associate(final Cluster<? extends Prior> priorCluster,
-      final Cluster<? extends Posterior> posteriorCluster) {
-    associate(Arrays.asList(new PriorClusterProfile(priorCluster, IntegrationProfile.TRANSIENT)), posteriorCluster);
+      final PosteriorCluster<?> posteriorCluster) {
+    associate().priors(priorCluster).to(posteriorCluster);
   }
 
   private static float weightByTrace(final float value, final float identity, final float trace) {

@@ -186,7 +186,13 @@ public abstract class Cluster<T extends Node> implements Serializable {
         forEachByTrace(prior.cluster, profile, t, (node, trace) -> conjunction.add(node, profile, trace));
       }
     }
-    conjunction.build(posterior, weight);
+    conjunction.build(posterior, (distribution, coefficient) -> {
+      // This condition prevents association from ever making pre-existing connections
+      // more restrictive.
+      if (coefficient >= distribution.getMode()) {
+        distribution.add(coefficient, weight);
+      }
+    });
   }
 
   /**

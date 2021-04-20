@@ -2,6 +2,7 @@ package ai.xng;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 import lombok.RequiredArgsConstructor;
 import lombok.val;
@@ -47,7 +48,7 @@ public class ConjunctionJunction {
   }
 
   public <T extends Posterior> T build(final T posterior) {
-    return build(posterior, 1);
+    return build(posterior, Distribution::set);
   }
 
   /**
@@ -56,7 +57,7 @@ public class ConjunctionJunction {
    * that priors already more strongly associated with the posterior are not
    * weakened.
    */
-  public <T extends Posterior> T build(final T posterior, final float weight) {
+  public <T extends Posterior> T build(final T posterior, final BiConsumer<Distribution, Float> update) {
     // Scale such that activation of the last principal component (may be
     // hypothetical, with relative weight 1) roughly has margins on either side of
     // the activation threshold (but cap the maximum at the default coefficient, and
@@ -72,12 +73,8 @@ public class ConjunctionJunction {
       final float coefficient = component.weight() / normAdj;
       assert coefficient <= Prior.DEFAULT_COEFFICIENT;
       val distribution = component.prior().getPosteriors().getEdge(posterior, component.profile()).distribution;
-      // This condition prevents association from ever making pre-existing connections
-      // more restrictive. This is specifically for association. In the naive
-      // conjunction case, there are no pre-existing condtions.
-      if (coefficient >= distribution.getMode()) {
-        distribution.add(coefficient, weight);
-      }
+
+      update.accept(distribution, coefficient);
     }
 
     return posterior;

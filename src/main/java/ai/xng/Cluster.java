@@ -2,12 +2,8 @@ package ai.xng;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.lang.ref.WeakReference;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.function.BiConsumer;
 
 import com.google.common.collect.ImmutableList;
@@ -18,7 +14,7 @@ import io.reactivex.subjects.Subject;
 import lombok.val;
 
 public abstract class Cluster<T extends Node> implements Serializable {
-  private transient RecencyQueue<WeakReference<T>> activations;
+  private final WeakSerializableRecencyQueue<T> activations = new WeakSerializableRecencyQueue<>();
   private transient Subject<T> rxActivations;
 
   public Observable<T> rxActivations() {
@@ -31,45 +27,18 @@ public abstract class Cluster<T extends Node> implements Serializable {
 
   // TODO: register cleanup task
 
-  private void writeObject(final ObjectOutputStream o) throws IOException {
-    o.defaultWriteObject();
-    val nodes = new ArrayList<T>();
-    for (val ref : activations) {
-      final T node = ref.get();
-      if (node != null) {
-        nodes.add(node);
-      }
-    }
-    o.writeObject(nodes);
-  }
-
   private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
     o.defaultReadObject();
     init();
-    // Nodes will be re-added as they activate.
-    o.readObject();
   }
 
   private void init() {
-    activations = new RecencyQueue<>();
     rxActivations = PublishSubject.create();
   }
 
-  protected class Link implements Serializable {
-    private transient RecencyQueue<WeakReference<T>>.Link link;
-
+  protected class Link extends WeakSerializableRecencyQueue<T>.Link {
     public Link(final T node) {
-      link = activations.new Link(new WeakReference<>(node));
-    }
-
-    private void writeObject(final ObjectOutputStream o) throws IOException {
-      o.defaultWriteObject();
-      o.writeObject(link.get().get());
-    }
-
-    private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
-      o.defaultReadObject();
-      link = activations.new Link(new WeakReference<>((T) o.readObject()));
+      activations.super(node);
     }
 
     /**
@@ -79,62 +48,24 @@ public abstract class Cluster<T extends Node> implements Serializable {
      * timestamps.
      */
     public void promote() {
-      link.promote();
-      rxActivations.onNext(link.get().get());
+      super.promote();
+      rxActivations.onNext(get());
     }
   }
 
   public void clean() {
-    // TODO: Guard against connected but rarely activated nodes blocking GC by
-    // thresholding this.
-    val it = activations.reverseIterator();
-    while (it.hasNext() && it.next().get() == null) {
-      it.remove();
-    }
+    activations.clean();
   }
 
   public Iterable<T> activations() {
-    return () -> new Iterator<T>() {
-      final Iterator<WeakReference<T>> it = activations.iterator();
-      T next;
-
-      {
-        advance();
-      }
-
-      private void advance() {
-        while (it.hasNext()) {
-          next = it.next()
-              .get();
-          if (next == null) {
-            it.remove();
-          } else {
-            return;
-          }
-        }
-
-        next = null;
-      }
-
-      @Override
-      public boolean hasNext() {
-        return next != null;
-      }
-
-      @Override
-      public T next() {
-        val next = this.next;
-        advance();
-        return next;
-      }
-    };
+    return activations::iterator;
   }
 
   public static <T extends Node> void forEachByTrace(final Cluster<T> cluster, final IntegrationProfile profile,
       final long t, final BiConsumer<T, Float> action) {
     final long horizon = t - profile.period();
 
-    for (final T node : cluster.activations()) {
+    for (final T node : cluster.activations) {
       if (node.getLastActivation().get() <= horizon) {
         break;
       }

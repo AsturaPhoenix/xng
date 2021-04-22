@@ -12,11 +12,11 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
   }
 
   public class Node extends ActionNode {
-    private final Link link;
+    private final ClusterNodeTrait clusterNode;
 
     public Node(final Action onActivate) {
       super(onActivate);
-      link = new Link(this);
+      clusterNode = new ClusterNodeTrait(this);
     }
 
     @Override
@@ -26,7 +26,7 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
 
     @Override
     public final void activate() {
-      link.promote();
+      clusterNode.activate();
       try {
         super.activate();
       } catch (final RuntimeException e) {

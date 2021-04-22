@@ -14,7 +14,7 @@ public class BiCluster extends PosteriorCluster<BiCluster.Node> {
   }
 
   public class Node extends BiNode {
-    private final Link link;
+    private final ClusterNodeTrait clusterNode;
     private final String comment;
 
     public Node() {
@@ -22,7 +22,7 @@ public class BiCluster extends PosteriorCluster<BiCluster.Node> {
     }
 
     public Node(final String comment) {
-      link = new Link(this);
+      clusterNode = new ClusterNodeTrait(this);
       this.comment = comment;
     }
 
@@ -33,7 +33,7 @@ public class BiCluster extends PosteriorCluster<BiCluster.Node> {
 
     @Override
     public void activate() {
-      link.promote();
+      clusterNode.activate();
       super.activate();
     }
 

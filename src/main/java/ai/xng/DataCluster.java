@@ -4,7 +4,7 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
   private final InputCluster updateCluster;
 
   public abstract class Node extends OutputNode implements DataNode {
-    private final Link link = new Link(this);
+    private final ClusterNodeTrait clusterNode = new ClusterNodeTrait(this);
 
     private Node() {
     }
@@ -16,7 +16,7 @@ public class DataCluster extends PosteriorCluster<DataCluster.Node> {
 
     @Override
     public final void activate() {
-      link.promote();
+      clusterNode.activate();
       super.activate();
     }
   }

@@ -2,10 +2,10 @@ package ai.xng;
 
 public class InputCluster extends Cluster<InputCluster.Node> {
   public class Node extends InputNode {
-    private final Link link;
+    private final ClusterNodeTrait clusterNode;
 
     public Node() {
-      link = new Link(this);
+      clusterNode = new ClusterNodeTrait(this);
     }
 
     @Override
@@ -15,7 +15,7 @@ public class InputCluster extends Cluster<InputCluster.Node> {
 
     @Override
     public void activate() {
-      link.promote();
+      clusterNode.activate();
       super.activate();
     }
   }

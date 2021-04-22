@@ -36,20 +36,22 @@ public abstract class Cluster<T extends Node> implements Serializable {
     rxActivations = PublishSubject.create();
   }
 
-  protected class Link extends WeakSerializableRecencyQueue<T>.Link {
-    public Link(final T node) {
-      activations.super(node);
+  protected class ClusterNodeTrait implements Serializable {
+    private final WeakSerializableRecencyQueue<T>.Link link;
+
+    public ClusterNodeTrait(final T owner) {
+      link = activations.new Link(owner);
     }
 
     /**
-     * Promotes the node within the recency queue. This should be called at the
-     * beginning of the node activation to ensure that any side effects that query
-     * the recency queue receive a sequence consistent with the updated activation
-     * timestamps.
+     * Promotes the node within the recency queue and publishes it to the
+     * Observable. This should be called at the beginning of the node activation to
+     * ensure that any side effects that query the recency queue receive a sequence
+     * consistent with the updated activation timestamps.
      */
-    public void promote() {
-      super.promote();
-      rxActivations.onNext(get());
+    public void activate() {
+      link.promote();
+      rxActivations.onNext(link.get());
     }
   }
 

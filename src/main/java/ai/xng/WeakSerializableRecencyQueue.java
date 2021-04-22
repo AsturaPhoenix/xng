@@ -9,7 +9,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
 
+import ai.xng.util.EvictingIterator;
 import lombok.val;
 
 /**
@@ -17,41 +19,6 @@ import lombok.val;
  * on iteration and explicit cleanup).
  */
 public class WeakSerializableRecencyQueue<T extends Serializable> implements Iterable<T>, Serializable {
-  private static class WeakIterator<T> implements Iterator<T> {
-    final Iterator<WeakReference<T>> backing;
-    T next;
-
-    WeakIterator(final Iterator<WeakReference<T>> backing) {
-      this.backing = backing;
-      advance();
-    }
-
-    private void advance() {
-      while (backing.hasNext()) {
-        next = backing.next().get();
-        if (next == null) {
-          backing.remove();
-        } else {
-          return;
-        }
-      }
-
-      next = null;
-    }
-
-    @Override
-    public boolean hasNext() {
-      return next != null;
-    }
-
-    @Override
-    public T next() {
-      val next = this.next;
-      advance();
-      return next;
-    }
-  }
-
   private transient RecencyQueue<WeakReference<T>> backing;
 
   public class Link implements Serializable {
@@ -80,13 +47,22 @@ public class WeakSerializableRecencyQueue<T extends Serializable> implements Ite
     }
   }
 
+  private Iterator<T> weakIterator(final Iterator<WeakReference<T>> backing) {
+    return new EvictingIterator<>(Iterators.transform(backing, WeakReference::get)) {
+      @Override
+      protected boolean shouldEvict(final T item) {
+        return item == null;
+      }
+    };
+  }
+
   @Override
   public java.util.Iterator<T> iterator() {
-    return new WeakIterator<>(backing.iterator());
+    return weakIterator(backing.iterator());
   }
 
   public java.util.Iterator<T> reverseIterator() {
-    return new WeakIterator<>(backing.reverseIterator());
+    return weakIterator(backing.reverseIterator());
   }
 
   public void clean() {

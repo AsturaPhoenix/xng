@@ -1,18 +1,21 @@
 package ai.xng;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.function.BiConsumer;
+
+import com.google.common.collect.Iterators;
 
 import lombok.RequiredArgsConstructor;
 import lombok.val;
 
 @RequiredArgsConstructor
-public class ConjunctionJunction {
-  private static record Component(Prior prior, IntegrationProfile profile, float weight) {
+public class ConjunctionJunction implements Iterable<ConjunctionJunction.Component> {
+  public static record Component(Prior node, IntegrationProfile profile, float weight) {
   }
 
-  private final List<Component> components = new ArrayList<>();
+  private final List<Component> priors = new ArrayList<>();
   // Norm keeps a projected summation under the delay before posterior activation
   // captured during training. However, this can be unrealistic if the maximum
   // sum, which would actually trigger activation, occurs well earlier, leading to
@@ -24,6 +27,11 @@ public class ConjunctionJunction {
   // At the same time, also keep the min component to fine-tune the discrimination
   // margin.
   private float norm, maxComponent;
+
+  @Override
+  public Iterator<Component> iterator() {
+    return Iterators.unmodifiableIterator(priors.iterator());
+  }
 
   public ConjunctionJunction addAll(final Iterable<? extends Prior> priors) {
     for (val prior : priors) {
@@ -38,11 +46,14 @@ public class ConjunctionJunction {
 
   public ConjunctionJunction add(final Prior prior, final IntegrationProfile profile, final float weight) {
     if (weight > 0) {
-      components.add(new Component(prior, profile, weight));
+      priors.add(new Component(prior, profile, weight));
       norm += weight * weight;
       if (weight > maxComponent) {
         maxComponent = weight;
       }
+    } else {
+      // 0s can clear out associations when used in capture.
+      priors.add(new Component(prior, profile, 0));
     }
     return this;
   }
@@ -51,30 +62,41 @@ public class ConjunctionJunction {
     return build(posterior, Distribution::set);
   }
 
+  public <T extends Posterior> T build(final T posterior, final BiConsumer<Distribution, Float> update) {
+    return build(posterior, Prior.THRESHOLD_MARGIN, (prior, coefficient) -> update
+        .accept(prior.node().getPosteriors().getEdge(posterior, prior.profile()).distribution, coefficient));
+  }
+
   /**
    * Associates the added priors with the given posterior. The proposed weights
-   * are calculated conjunctively but added to the posterior disjunctively, so
-   * that priors already more strongly associated with the posterior are not
-   * weakened.
+   * are calculated conjunctively.
    */
-  public <T extends Posterior> T build(final T posterior, final BiConsumer<Distribution, Float> update) {
-    // Scale such that activation of the last principal component (may be
-    // hypothetical, with relative weight 1) roughly has margins on either side of
-    // the activation threshold (but cap the maximum at the default coefficient, and
-    // never increase coefficients as a result of normalization).
-    //
-    // The actual formulation of the above, (norm - 1) / (1 - .5 / norm), doesn't
-    // work as well in the presence of less significant components as the below, as
-    // it produces false positives.
-    float normAdj = norm / (maxComponent * maxComponent);
-    normAdj = Math.max(normAdj / Prior.DEFAULT_COEFFICIENT, normAdj - .5f) * maxComponent;
+  public <T extends Posterior> T build(final T posterior, final float margin,
+      final BiConsumer<Component, Float> update) {
+    if (maxComponent > 0) {
+      // Scale such that activation of the last principal component (may be
+      // hypothetical, with relative weight 1) roughly has margins on either side of
+      // the activation threshold (but cap the maximum at the default coefficient, and
+      // never increase coefficients as a result of normalization).
+      //
+      // The actual formulation of the above, (norm - 1) / (1 - .5 / norm), doesn't
+      // work as well in the presence of less significant components as the below, as
+      // it produces false positives.
+      float normAdj = norm / maxComponent;
+      if (margin != 0) {
+        normAdj = Math.max(normAdj / (1 + margin), normAdj - maxComponent / 2);
+      }
 
-    for (val component : components) {
-      final float coefficient = component.weight() / normAdj;
-      assert coefficient <= Prior.DEFAULT_COEFFICIENT;
-      val distribution = component.prior().getPosteriors().getEdge(posterior, component.profile()).distribution;
-
-      update.accept(distribution, coefficient);
+      for (val prior : priors) {
+        final float coefficient = prior.weight() / normAdj;
+        assert coefficient <= Prior.DEFAULT_COEFFICIENT + Math.ulp(Prior.DEFAULT_COEFFICIENT) : coefficient;
+        update.accept(prior, coefficient);
+      }
+    } else {
+      // The degnereate case approaches full disassociation.
+      for (val prior : priors) {
+        update.accept(prior, 0f);
+      }
     }
 
     return posterior;

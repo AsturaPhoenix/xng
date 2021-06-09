@@ -15,6 +15,10 @@ import io.reactivex.Observer;
 import io.reactivex.disposables.Disposable;
 import lombok.val;
 
+/**
+ * Note that although this class is serializable in terms of wiring, since
+ * integrators are transient, so is activation state.
+ */
 public abstract class CoincidentEffect<T extends Posterior> implements Serializable {
   public static class Lambda<T extends Posterior> extends CoincidentEffect<T> {
     public interface Effect<T extends Posterior> extends Consumer<T>, Serializable {
@@ -72,20 +76,27 @@ public abstract class CoincidentEffect<T extends Posterior> implements Serializa
   public final PosteriorCluster<? extends T> cluster;
 
   public CoincidentEffect(final ActionCluster actionCluster, final PosteriorCluster<? extends T> effectCluster) {
-    node = actionCluster.new Node(this::applyPending);
+    node = actionCluster.new Node(this::onActivate);
     cluster = effectCluster;
     subscribe();
   }
 
   protected abstract void apply(T node);
 
-  private void applyPending() {
+  /**
+   * Subclass implementations must call {@code super.onActivate()}. For a given
+   * activation, this method is guaranteed to be called before any coincident
+   * {@link #apply(Posterior)} calls.
+   */
+  protected void onActivate() {
     for (val recent : cluster.activations()) {
-      if (recent.getIntegrator().isPending()) {
+      final long lastActivation = recent.getLastActivation().get(), now = Scheduler.global.now();
+
+      if (recent.getIntegrator().isPending() || lastActivation == now) {
         // This case will be handled by the subscription.
         continue;
       }
-      if (recent.getLastActivation().get() < Scheduler.global.now() - IntegrationProfile.PERSISTENT.period()) {
+      if (lastActivation < now - IntegrationProfile.PERSISTENT.period()) {
         // This assumes that PERSISTENT is an upper bound on integration curve periods.
         break;
       }

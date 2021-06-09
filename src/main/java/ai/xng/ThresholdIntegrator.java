@@ -2,7 +2,6 @@ package ai.xng;
 
 import java.util.Optional;
 
-import ai.xng.BakingIntegrator.Segment;
 import ai.xng.util.TimeSeries;
 import io.reactivex.disposables.Disposable;
 import lombok.val;
@@ -10,13 +9,9 @@ import lombok.val;
 public abstract class ThresholdIntegrator {
   public static final float THRESHOLD = 1;
 
-  public class Spike {
-    private final Segment rampUp, rampDown;
-
+  public class Spike extends BakingIntegrator.Spike {
     private Spike(final IntegrationProfile profile, final float magnitude) {
-      final long now = Scheduler.global.now();
-      rampUp = new Segment(now + profile.delay(), now + profile.peak(), 0, magnitude / profile.rampUp());
-      rampDown = new Segment(rampUp.t1, now + profile.period(), magnitude, -magnitude / profile.rampDown());
+      integrator.super(Scheduler.global.now(), profile, magnitude);
     }
 
     /**
@@ -37,13 +32,8 @@ public abstract class ThresholdIntegrator {
       }
     }
 
-    public long end() {
-      return rampDown.t1;
-    }
-
     public void clear() {
-      integrator.remove(rampUp);
-      integrator.remove(rampDown);
+      super.clear();
       invalidate();
     }
   }
@@ -66,8 +56,12 @@ public abstract class ThresholdIntegrator {
     return nextThreshold().map(t -> t <= Scheduler.global.now()).orElse(false);
   }
 
-  private float getValue() {
-    return integrator.evaluate(Scheduler.global.now()).value();
+  public float getValue() {
+    return getValue(Scheduler.global.now());
+  }
+
+  public float getValue(final long t) {
+    return integrator.evaluate(t).value();
   }
 
   public float getNormalizedCappedValue() {
@@ -80,8 +74,6 @@ public abstract class ThresholdIntegrator {
   public Spike add(final IntegrationProfile profile, final float magnitude) {
     evict();
     val spike = new Spike(profile, magnitude);
-    integrator.add(spike.rampUp);
-    integrator.add(spike.rampDown);
     invalidate();
     return spike;
   }
@@ -92,7 +84,7 @@ public abstract class ThresholdIntegrator {
       return;
     }
 
-    final Optional<Long> updatedNextThreshold = nextThreshold(now);
+    final Optional<Long> updatedNextThreshold = nextThreshold(now, 1);
     if (nextThreshold == null || updatedNextThreshold.map(t -> t != nextThreshold.time())
         .orElse(true)) {
       if (nextThreshold != null) {
@@ -102,13 +94,16 @@ public abstract class ThresholdIntegrator {
     }
   }
 
-  public Optional<Long> nextThreshold(long t) {
+  /**
+   * @param direction 1 for rising, -1 for falling
+   */
+  public Optional<Long> nextThreshold(long t, final int direction) {
     while (true) {
       val trajectory = integrator.evaluate(t);
       val nextCriticalPoint = integrator.nextCriticalPoint(t);
 
-      if (trajectory.value() < THRESHOLD) {
-        if (trajectory.rate() > 0) {
+      if (Math.signum(Float.compare(THRESHOLD, trajectory.value())) == direction) {
+        if (Math.signum(trajectory.rate()) == direction) {
           final long intercept = t + (long) Math.ceil((THRESHOLD - trajectory.value()) / trajectory.rate());
           if (nextCriticalPoint.map(tc -> intercept <= tc)
               .orElse(true)) {
@@ -137,7 +132,7 @@ public abstract class ThresholdIntegrator {
     nextThreshold = tOpt.map(t -> new TimeSeries<Disposable>(Scheduler.global.postTask(() -> {
       onThreshold();
       evict();
-      schedule(nextThreshold(Scheduler.global.now()));
+      schedule(nextThreshold(Scheduler.global.now(), 1));
     }, t), t))
         .orElse(null);
   }

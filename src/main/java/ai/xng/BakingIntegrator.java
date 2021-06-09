@@ -22,6 +22,27 @@ public class BakingIntegrator {
     }
   }
 
+  public class Spike {
+    public final Segment rampUp, rampDown;
+
+    public Spike(final long t, final IntegrationProfile profile, final float magnitude) {
+      rampUp = new Segment(t + profile.delay(), t + profile.peak(), 0, magnitude / profile.rampUp());
+      rampDown = new Segment(rampUp.t1, t + profile.period(), magnitude, -magnitude / profile.rampDown());
+
+      add(rampUp);
+      add(rampDown);
+    }
+
+    public long end() {
+      return rampDown.t1;
+    }
+
+    public void clear() {
+      remove(rampUp);
+      remove(rampDown);
+    }
+  }
+
   public static record Ray(float value, float rate) {
   }
 
@@ -51,6 +72,8 @@ public class BakingIntegrator {
   }
 
   public Optional<Long> nextCriticalPoint(final long t) {
+    // We can probably optimize by returning the value at the critical point as
+    // well, but using that value can complicate the caller logic.
     Optional<Long> next = Optional.empty();
     for (val s : segments) {
       Optional<Long> candidate = Optional.empty();

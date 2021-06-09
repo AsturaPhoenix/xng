@@ -3,11 +3,20 @@ package ai.xng;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Optional;
 import java.util.function.BiConsumer;
+import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterators;
 
+import ai.xng.constructs.CoincidentEffect;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
@@ -51,7 +60,11 @@ public abstract class Cluster<T extends Node> implements Serializable {
      */
     public void activate() {
       link.promote();
-      rxActivations.onNext(link.get());
+      // Defer publishing the update until other node updates (like last activation
+      // time) have been processed.
+      // TODO: This seems like it could be done better. If this is made more robust,
+      // also revisit the race condition mitigations in CoincidentEffect.
+      Scheduler.global.postTask(() -> rxActivations.onNext(link.get()));
     }
   }
 
@@ -63,8 +76,8 @@ public abstract class Cluster<T extends Node> implements Serializable {
     return activations::iterator;
   }
 
-  public static <T extends Node> void forEachByTrace(final Cluster<T> cluster, final IntegrationProfile profile,
-      final long t, final BiConsumer<T, Float> action) {
+  public static <T extends Node> void forEachByTrace(final Cluster<? extends T> cluster,
+      final IntegrationProfile profile, final long t, final BiConsumer<T, Float> action) {
     final long horizon = t - profile.period();
 
     for (final T node : cluster.activations) {
@@ -111,75 +124,207 @@ public abstract class Cluster<T extends Node> implements Serializable {
     }
   }
 
-  private static void associate(final Iterable<PriorClusterProfile> priors, final Posterior posterior,
-      final long t, final float weight) {
-    val conjunction = new ConjunctionJunction();
-    for (val prior : priors) {
-      for (val profile : prior.profiles) {
-        forEachByTrace(prior.cluster, profile, t, (node, trace) -> conjunction.add(node, profile, trace));
-      }
-    }
-    conjunction.build(posterior, (distribution, coefficient) -> {
-      // This condition prevents association from ever making pre-existing connections
-      // more restrictive.
-      if (coefficient >= distribution.getMode()) {
-        distribution.add(coefficient, weight);
-      }
-    });
-  }
-
-  /**
-   * Forms explicit conjunctive associations between the given prior cluster and
-   * posterior cluster, using the given integration profile for the new edges. The
-   * active posteriors considered at the time this function executes are always
-   * based on a {@link IntegrationProfile#TRANSIENT} window.
-   */
-  public static void associate(final Iterable<PriorClusterProfile> priors,
-      final PosteriorCluster<?> posteriorCluster) {
-    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
-        (posterior, posteriorTrace) -> {
-          associate(priors, posterior, posterior.getLastActivation().get(), posteriorTrace);
-        });
-  }
-
-  public static abstract class AssociationBuilder<T> {
+  public static abstract class CaptureBuilder {
     private final PriorClusterProfile.ListBuilder priors = new PriorClusterProfile.ListBuilder();
 
-    public AssociationBuilder<T> baseProfiles(final IntegrationProfile... profiles) {
+    public CaptureBuilder baseProfiles(final IntegrationProfile... profiles) {
       priors.baseProfiles(profiles);
       return this;
     }
 
-    public AssociationBuilder<T> priors(final Cluster<? extends Prior> cluster,
+    public CaptureBuilder priors(final Cluster<? extends Prior> cluster,
         final IntegrationProfile... additionalProfiles) {
       priors.add(cluster, additionalProfiles);
       return this;
     }
 
-    public T to(final PosteriorCluster<?> posteriorCluster) {
-      return associate(priors.build(), posteriorCluster);
+    public ActionCluster.Node posteriors(final PosteriorCluster<?> posteriorCluster) {
+      return posteriors(posteriorCluster, 1);
     }
 
-    protected abstract T associate(Iterable<PriorClusterProfile> priors, PosteriorCluster<?> posteriorCluster);
+    public ActionCluster.Node posteriors(final PosteriorCluster<?> posteriorCluster, final float weight) {
+      return capture(priors.build(), posteriorCluster, weight);
+    }
+
+    protected abstract ActionCluster.Node capture(Iterable<PriorClusterProfile> priors,
+        PosteriorCluster<?> posteriorCluster, float weight);
   }
 
-  public static abstract class ChainableAssociationBuilder extends AssociationBuilder<ChainableAssociationBuilder> {
-  }
+  /**
+   * Captures a posterior activation state to be reproduced by activations in the
+   * given prior clusters, using the given integration profiles. Posteriors are
+   * captured by coincidence and priors are captured by trace.
+   * <p>
+   * To respect firing order, the traces for priors are evaluated against the
+   * firing time of each posterior. However, to ensure that the expected
+   * disassociation happens for edges not exercised during the capture, this
+   * occurs over the set of priors captured during this operation rather than the
+   * set of priors with nonzero traces at the time of posterior activation.
+   * Notably this means that priors whose traces have decayed by the time the
+   * capture takes place are ignored even if they did have nonzero traces at the
+   * time of posterior activation. This should not affect common usage.
+   * <p>
+   * Furthermore to allow for use in property binding, where conjunctions need to
+   * be captured with priors in common with other conjunctions captured at
+   * different times, we must not disassociate edges that are not expected to
+   * result in an activation. An example is capturing AB -> C but later AD -> E.
+   * Naively, the second capture would observe that since A activated but C did
+   * not, the A-C edge should disassociate; this is not the desired behavior.
+   * <p>
+   * For convenience in the common case, disassociation is not limited to the
+   * selected cluster. Any expected posterior of the selected priors that was not
+   * activated during the capture is disassociated.
+   * <p>
+   * More sophisticated capture behaviors are conceivable but requirements easily
+   * become self inconsistent.
+   */
+  public static class Capture extends CoincidentEffect<Posterior> {
+    private static class ExpectedPosterior {
+      final BakingIntegrator subsetIntegrator = new BakingIntegrator();
+      final Collection<ConjunctionJunction.Component> contributors = new ArrayList<>();
+    }
 
-  public static ChainableAssociationBuilder associate() {
-    return new ChainableAssociationBuilder() {
-      @Override
-      protected ChainableAssociationBuilder associate(final Iterable<PriorClusterProfile> priors,
-          final PosteriorCluster<?> posteriorCluster) {
-        Cluster.associate(priors, posteriorCluster);
-        return this;
+    private final Iterable<PriorClusterProfile> priors;
+    private final float weight;
+
+    private transient ConjunctionJunction capturedPriors;
+    private transient Map<Posterior, ExpectedPosterior> wantedPosteriors;
+
+    /**
+     * @param weight The weight to use for {@link Distribution#set(float, float)}
+     *               operations. A weight of 0 turns this into a disassociate
+     *               operation. Weight is not used when disassociating missing
+     *               expected posteriors.
+     */
+    public Capture(final ActionCluster actionCluster, final Iterable<PriorClusterProfile> priors,
+        final PosteriorCluster<?> posteriorCluster, final float weight) {
+      super(actionCluster, posteriorCluster);
+      this.priors = priors;
+      this.weight = weight;
+    }
+
+    @Override
+    protected void onActivate() {
+      capturePriors();
+      scheduleDeactivationCheck();
+      super.onActivate();
+    }
+
+    private void capturePriors() {
+      final long t = Scheduler.global.now();
+      capturedPriors = new ConjunctionJunction();
+      wantedPosteriors = new HashMap<>();
+
+      for (val prior : priors) {
+        for (val profile : prior.profiles) {
+          forEachByTrace(prior.cluster, profile, t, (node, trace) -> {
+            capturedPriors.add(node, profile, trace);
+            val contributor = new ConjunctionJunction.Component(node, profile, trace);
+            for (val posterior : node.getPosteriors()) {
+              // The posteriors considered for disassocation are not limited to the selected
+              // posterior cluster, for convenience in the common usage.
+
+              // If the posterior is currently active, of course we won't disassociate it.
+              if (posterior.node().getIntegrator().isActive()) {
+                continue;
+              }
+
+              final ExpectedPosterior expectedPosterior = wantedPosteriors.computeIfAbsent(posterior.node(),
+                  __ -> new ExpectedPosterior());
+
+              // This includes only pulses from the actual prior and not suppressions of those
+              // pulses via suppressPosteriors. This allows suppressPosteriors to be used to
+              // disassociate posteriors that would otherwise have fired.
+              for (val spike : posterior.edge().spikes()) {
+                expectedPosterior.subsetIntegrator.add(spike.rampUp);
+                expectedPosterior.subsetIntegrator.add(spike.rampDown);
+              }
+
+              expectedPosterior.contributors.add(contributor);
+            }
+          });
+        }
       }
-    };
-  }
+    }
 
-  public static void associate(final Cluster<? extends Prior> priorCluster,
-      final PosteriorCluster<?> posteriorCluster) {
-    associate().priors(priorCluster).to(posteriorCluster);
+    private void scheduleDeactivationCheck() {
+      final Optional<Long> deactivation = node.getIntegrator().nextThreshold(Scheduler.global.now(), -1);
+      if (deactivation.isPresent()) {
+        Scheduler.global.postTask(() -> {
+          if (node.getIntegrator().isActive()) {
+            scheduleDeactivationCheck();
+          } else {
+            endCapture();
+          }
+        }, deactivation.get());
+      } else {
+        endCapture();
+      }
+    }
+
+    private static Iterator<Long> upperBound(final Iterator<Long> source, final long limit) {
+      return new Iterator<Long>() {
+        boolean truncate;
+
+        @Override
+        public boolean hasNext() {
+          return source.hasNext() && !truncate;
+        }
+
+        @Override
+        public Long next() {
+          final long next = source.next();
+          if (next >= limit) {
+            truncate = true;
+            return limit;
+          }
+          return next;
+        }
+      };
+    }
+
+    /**
+     * Disassociates any expected posterior cluster nodes that were not active
+     * during the capture.
+     */
+    private void endCapture() {
+      final long captureStart = node.getLastActivation().get(), now = Scheduler.global.now();
+
+      for (val posterior : wantedPosteriors.entrySet()) {
+        if (posterior.getKey().getLastActivation().map(t -> t >= captureStart).orElse(false)) {
+          continue;
+        }
+
+        val subsetIntegrator = posterior.getValue().subsetIntegrator;
+        if (Iterators.any(upperBound(Stream
+            .iterate(Optional.of(captureStart), t -> subsetIntegrator.nextCriticalPoint(t.get()))
+            .takeWhile(Optional::isPresent).map(Optional::get).iterator(), now),
+            t -> subsetIntegrator.evaluate(t).value() >= ThresholdIntegrator.THRESHOLD)) {
+
+          for (val contributor : posterior.getValue().contributors) {
+            val distribution = contributor.node().getPosteriors().getEdge(posterior.getKey(),
+                contributor.profile()).distribution;
+            distribution.reinforce(weightByTrace(-distribution.getWeight(), 0, contributor.weight()));
+          }
+        }
+      }
+
+      capturedPriors = null;
+      wantedPosteriors = null;
+    }
+
+    @Override
+    protected void apply(final Posterior posterior) {
+      // Re-evaluate prior traces to respect firing order.
+      final long t = posterior.getLastActivation().get();
+      val timeSensitiveConjunction = new ConjunctionJunction();
+      for (val component : capturedPriors) {
+        timeSensitiveConjunction.add(component.node(), component.profile(),
+            component.node().getTrace().evaluate(t, component.profile()));
+      }
+      timeSensitiveConjunction.build(posterior, (distribution, coefficient) -> distribution.set(coefficient, weight));
+      wantedPosteriors.remove(posterior);
+    }
   }
 
   private static float weightByTrace(final float value, final float identity, final float trace) {
@@ -188,43 +333,8 @@ public abstract class Cluster<T extends Node> implements Serializable {
   }
 
   /**
-   * Breaks associations between the given prior cluster and posterior cluster.
-   * The active posteriors considered at the time this function executes are
-   * always based on a {@link IntegrationProfile#TRANSIENT} window. The degree to
-   * which associations are broken are determined by this window and the prior
-   * trace.
+   * Scales posteriors of nodes in a prior cluster by prior cluster trace.
    */
-  public static void disassociate(final Cluster<? extends Prior> priorCluster,
-      final Cluster<? extends Posterior> posteriorCluster) {
-    forEachByTrace(posteriorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
-        (posterior, posteriorTrace) -> {
-          // For each posterior, find all priors in the designated cluster and reduce
-          // their weight by the product of the pertinent traces.
-
-          for (val prior : posterior.getPriors()) {
-            if (prior.node().getCluster() == priorCluster) {
-              final float priorTrace = prior.node().getTrace()
-                  .evaluate(posterior.getLastActivation().get(), prior.edge().profile);
-              if (priorTrace > 0) {
-                prior.edge().distribution.reinforce(weightByTrace(
-                    -prior.edge().distribution.getWeight(), 0, priorTrace * posteriorTrace));
-              }
-            }
-          }
-        });
-  }
-
-  public static void disassociateAll(final Cluster<? extends Prior> priorCluster) {
-    // This is a reinforcement rather than a simple clear to smooth by trace.
-    forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
-        (prior, trace) -> {
-          for (val entry : prior.getPosteriors()) {
-            entry.edge().distribution
-                .reinforce(weightByTrace(-entry.edge().distribution.getWeight(), 0, trace));
-          }
-        });
-  }
-
   public static void scalePosteriors(final Cluster<? extends Prior> priorCluster, final float factor) {
     forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
         (prior, trace) -> {

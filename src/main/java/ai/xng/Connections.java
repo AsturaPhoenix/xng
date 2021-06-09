@@ -6,6 +6,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -14,7 +15,9 @@ import java.util.Objects;
 import java.util.Set;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Streams;
 
@@ -30,12 +33,17 @@ public class Connections {
     private final Posterior posterior;
     public final IntegrationProfile profile;
 
-    private transient List<Component> components;
+    private transient List<Component> activationComponents, suppressionComponents;
+    private transient Iterable<Component> allComponents;
 
     @RequiredArgsConstructor
     private static class Component {
       final float factor;
       final Spike spike;
+    }
+
+    public List<Spike> spikes() {
+      return Collections.unmodifiableList(Lists.transform(activationComponents, c -> c.spike));
     }
 
     private Edge(final Posterior posterior, final IntegrationProfile profile) {
@@ -64,12 +72,14 @@ public class Connections {
     }
 
     private void init() {
-      components = new ArrayList<>();
+      activationComponents = new ArrayList<>();
+      suppressionComponents = new ArrayList<>();
+      allComponents = Iterables.concat(activationComponents, suppressionComponents);
     }
 
     private void evict() {
       val now = Scheduler.global.now();
-      components.removeIf(c -> c.spike.end() <= now);
+      Iterables.removeIf(allComponents, c -> c.spike.end() <= now);
     }
 
     private void readObject(final ObjectInputStream o) throws ClassNotFoundException, IOException {
@@ -78,7 +88,7 @@ public class Connections {
     }
 
     private void invalidate() {
-      if (components.isEmpty()) {
+      if (Iterables.isEmpty(allComponents)) {
         return;
       }
 
@@ -87,26 +97,27 @@ public class Connections {
       // Since these are all adjustments to the same integrator, we could actually
       // defer the invalidation, but we expect the size of this loop to be 1 so it's
       // premature optimization.
-      for (val component : components) {
+      for (val component : allComponents) {
         component.spike.adjustRampUp(component.factor * newRate);
       }
     }
 
     public void activate() {
-      components.add(new Component(1, posterior.getIntegrator().add(profile, distribution.generate())));
+      activationComponents.add(new Component(1, posterior.getIntegrator().add(profile, distribution.generate())));
     }
 
     public void suppress(final float factor) {
-      components.add(new Component(-factor,
+      suppressionComponents.add(new Component(-factor,
           posterior.getIntegrator().add(profile, -factor * distribution.generate())));
     }
 
     public void clearSpikes() {
       // Same premature optimization warning as invalidate();
-      for (val component : components) {
+      for (val component : allComponents) {
         component.spike.clear();
       }
-      components.clear();
+      activationComponents.clear();
+      suppressionComponents.clear();
     }
   }
 

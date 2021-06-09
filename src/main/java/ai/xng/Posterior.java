@@ -82,7 +82,27 @@ public interface Posterior extends Node {
   }
 
   default Posterior inhibitor(final Prior prior) {
-    prior.inhibit(this);
+    return inhibitor(prior, IntegrationProfile.TRANSIENT);
+  }
+
+  default Posterior inhibitor(final Prior prior, final IntegrationProfile profile) {
+    prior.inhibit(this, profile);
     return this;
+  }
+
+  /**
+   * Activates a posterior via its integrator. By itself, this will cause the
+   * posterior to activate after
+   * {@code IntegrationProfile.TRANSIENT.defaultInterval()}.
+   */
+  default void trigger() {
+    getIntegrator().add(IntegrationProfile.TRANSIENT, Prior.DEFAULT_COEFFICIENT);
+  }
+
+  /**
+   * Inhibits a posterior via its integrator.
+   */
+  default void inhibit() {
+    getIntegrator().add(IntegrationProfile.TRANSIENT, -Prior.DEFAULT_COEFFICIENT);
   }
 }

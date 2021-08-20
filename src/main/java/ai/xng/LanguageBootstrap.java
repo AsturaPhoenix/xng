@@ -3,11 +3,15 @@ package ai.xng;
 import static ai.xng.KnowledgeBase.POP_FACTOR;
 import static ai.xng.KnowledgeBase.PUSH_FACTOR;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import com.google.common.collect.ImmutableList;
 
+import ai.xng.ThresholdIntegrator.Spike;
 import ai.xng.constructs.BooleanDecoder;
 import ai.xng.constructs.CharacterDecoder;
 import ai.xng.constructs.CoincidentEffect;
@@ -53,10 +57,22 @@ public class LanguageBootstrap {
   }
 
   private class Spawn {
-    final ActionCluster.Node stateRecognition = kb.actions.new Node(() -> kb.stateRecognition.new Node().trigger()),
-        context = kb.actions.new Node(() -> kb.context.new Node().trigger()),
-        sequenceRecognition = kb.actions.new Node(() -> kb.sequenceRecognition.new Node().trigger()),
-        data = kb.actions.new Node(() -> kb.data.new MutableNode<>().trigger());
+    // TODO: manage eviction
+    final Collection<Spike> triggers = new ArrayList<>();
+
+    ActionCluster.Node spawner(final Supplier<Posterior> factory) {
+      return kb.actions.new Node(() -> triggers.add(factory.get().trigger()));
+    }
+
+    final ActionCluster.Node stateRecognition = spawner(() -> kb.stateRecognition.new Node()),
+        context = spawner(() -> kb.context.new Node()),
+        sequenceRecognition = spawner(() -> kb.sequenceRecognition.new Node()),
+        data = spawner(() -> kb.data.new MutableNode<>());
+
+    final ActionCluster.Node clearSpawns = kb.actions.new Node(() -> {
+      triggers.forEach(Spike::clear);
+      triggers.clear();
+    });
   }
 
   private final Spawn spawn;
@@ -89,7 +105,8 @@ public class LanguageBootstrap {
           kb.resetPosteriors(tmp),
           kb.resetPosteriors(kb.naming),
           kb.resetPosteriors(kb.context),
-          kb.resetPosteriors(kb.entrypoint));
+          kb.resetPosteriors(kb.entrypoint),
+          spawn.clearSpawns);
 
       asSequence(execute)
           .stanza()
@@ -135,8 +152,6 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(iterator, spawn.data)
           .then(kb.capture(control.frameFieldPriors, kb.data))
-          // TODO: why?
-          .thenDelay()
 
           .stanza()
           .then(control.stackFrame.address)
@@ -147,8 +162,8 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(iterator)
           .then(iterator_out.node)
-          .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Object>) iterator_out.require()).setData(
-              (((String) iterator_in.require().getData()).codePoints().iterator()))))
+          .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Object>) iterator_out.require())
+              .setData((((String) iterator_in.require().getData()).codePoints().iterator()))))
 
           .stanza()
           .then(control.stackFrame.address)

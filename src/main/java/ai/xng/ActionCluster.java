@@ -30,6 +30,9 @@ public class ActionCluster extends PosteriorCluster<ActionCluster.Node> {
       try {
         super.activate();
       } catch (final RuntimeException e) {
+        // TODO: Consider removing this when it becomes less useful, or adding a real
+        // logger.
+        System.err.println(e);
         if (exceptionHandler != null) {
           exceptionHandler.setData(e);
         } else {

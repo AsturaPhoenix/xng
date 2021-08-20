@@ -247,6 +247,8 @@ public abstract class Cluster<T extends Node> implements Serializable {
       }
     }
 
+    // TODO: This can misbehave in cases where the integrator is reset via
+    // resetPosteriors.
     private void scheduleDeactivationCheck() {
       final Optional<Long> deactivation = node.getIntegrator().nextThreshold(Scheduler.global.now(), -1);
       if (deactivation.isPresent()) {

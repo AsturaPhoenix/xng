@@ -50,6 +50,10 @@ public abstract class CoincidentEffect<T extends Posterior> implements Serializa
       return valueNode;
     }
 
+    public T peek() {
+      return valueNode;
+    }
+
     public boolean hasValueNode() {
       return valueNode != null;
     }

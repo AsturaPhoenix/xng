@@ -5,6 +5,7 @@ import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.Arrays;
 
+import ai.xng.ThresholdIntegrator.Spike;
 import lombok.Getter;
 import lombok.val;
 
@@ -95,14 +96,14 @@ public interface Posterior extends Node {
    * posterior to activate after
    * {@code IntegrationProfile.TRANSIENT.defaultInterval()}.
    */
-  default void trigger() {
-    getIntegrator().add(IntegrationProfile.TRANSIENT, Prior.DEFAULT_COEFFICIENT);
+  default Spike trigger() {
+    return getIntegrator().add(IntegrationProfile.TRANSIENT, Prior.DEFAULT_COEFFICIENT);
   }
 
   /**
    * Inhibits a posterior via its integrator.
    */
-  default void inhibit() {
-    getIntegrator().add(IntegrationProfile.TRANSIENT, -Prior.DEFAULT_COEFFICIENT);
+  default Spike inhibit() {
+    return getIntegrator().add(IntegrationProfile.TRANSIENT, -Prior.DEFAULT_COEFFICIENT);
   }
 }

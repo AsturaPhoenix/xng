@@ -20,6 +20,11 @@ public class BakingIntegrator {
     public long duration() {
       return t1 - t0;
     }
+
+    @Override
+    public String toString() {
+      return String.format("(%s, %.2f)-(%s, %.2f)", t0, v0, t1, evaluate(t1));
+    }
   }
 
   public class Spike {

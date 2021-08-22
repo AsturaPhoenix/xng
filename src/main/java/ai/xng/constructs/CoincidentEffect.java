@@ -64,11 +64,11 @@ public abstract class CoincidentEffect<T extends Posterior> implements Serializa
 
     @Override
     protected void apply(final T node) {
-      if (!hasValueNode()) {
-        valueNode = node;
-        // TODO: Once timing is more robust, it may be more useful to throw an exception
-        // if a value has already been curried.
+      if (hasValueNode()) {
+        throw new IllegalStateException("A value has already been curried.");
       }
+
+      valueNode = node;
     }
 
     public void reset() {

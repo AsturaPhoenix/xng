@@ -11,7 +11,6 @@ import java.util.function.Supplier;
 
 import com.google.common.collect.ImmutableList;
 
-import ai.xng.ThresholdIntegrator.Spike;
 import ai.xng.constructs.BooleanDecoder;
 import ai.xng.constructs.CharacterDecoder;
 import ai.xng.constructs.CoincidentEffect;
@@ -58,20 +57,30 @@ public class LanguageBootstrap {
 
   private class Spawn {
     // TODO: manage eviction
-    final Collection<Spike> triggers = new ArrayList<>();
+    final Collection<Runnable> cleanup = new ArrayList<>();
 
     ActionCluster.Node spawner(final Supplier<Posterior> factory) {
-      return kb.actions.new Node(() -> triggers.add(factory.get().trigger()));
+      return kb.actions.new Node(() -> {
+        val node = factory.get();
+        val trigger = node.trigger();
+        cleanup.add(() -> {
+          trigger.clear();
+          node.getTrace().evict(Scheduler.global.now());
+        });
+      });
     }
 
     final ActionCluster.Node stateRecognition = spawner(() -> kb.stateRecognition.new Node()),
         context = spawner(() -> kb.context.new Node()),
-        sequenceRecognition = spawner(() -> kb.sequenceRecognition.new Node()),
-        data = spawner(() -> kb.data.new MutableNode<>());
+        data = spawner(() -> kb.data.new MutableNode<>()),
+        // Sequence recognition is a bit different in that we don't want to clear the
+        // trace when we do stanza resets.
+        sequenceRecognition = kb.actions.new Node(
+            () -> cleanup.add(kb.sequenceRecognition.new Node().trigger()::clear));
 
     final ActionCluster.Node clearSpawns = kb.actions.new Node(() -> {
-      triggers.forEach(Spike::clear);
-      triggers.clear();
+      cleanup.forEach(Runnable::run);
+      cleanup.clear();
     });
   }
 
@@ -94,7 +103,13 @@ public class LanguageBootstrap {
     final BiCluster.Node execute = kb.entrypoint.new Node("execute"),
         doReturn = kb.entrypoint.new Node("doReturn");
 
-    final BiCluster.Node resetStanza = kb.execution.new Node();
+    // Stanza reset needs to be in a dedicated cluster since it tends to come after
+    // captures and yet should usually not itself be the target of a capture.
+    //
+    // Capture operations tend to be punctuated by stanza resets. Stanza resets also
+    // tend to occur after other invocation-like sequences.
+    final BiCluster controlCluster = new BiCluster();
+    final BiCluster.Node resetStanza = controlCluster.new Node();
 
     void setUp() {
       resetStanza.then(
@@ -106,6 +121,7 @@ public class LanguageBootstrap {
           kb.resetPosteriors(kb.naming),
           kb.resetPosteriors(kb.context),
           kb.resetPosteriors(kb.entrypoint),
+          kb.resetPosteriors(controlCluster),
           spawn.clearSpawns);
 
       asSequence(execute)
@@ -399,8 +415,6 @@ public class LanguageBootstrap {
           .stanza()
           .then(control.cxt.address, kb.suppressPosteriors(control.cxt), spawn.context)
           .then(kb.capture(control.cxt, kb.context))
-          // TODO: why?
-          .thenDelay()
 
           .stanza()
           .then(control.cxt.address)

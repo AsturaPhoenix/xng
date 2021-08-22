@@ -1,6 +1,7 @@
 package ai.xng;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -678,5 +679,18 @@ public class CaptureTest {
     prior.activate();
     scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
+  }
+
+  @Test
+  public void testNoSelfCapture() {
+    val cluster = new BiCluster();
+    val node = cluster.new Node();
+
+    node.trigger();
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.rampUp());
+    capture(cluster, cluster).trigger();
+    scheduler.fastForwardUntilIdle();
+
+    assertEquals(0, node.getPosteriors().getEdge(node, IntegrationProfile.TRANSIENT).distribution.generate());
   }
 }

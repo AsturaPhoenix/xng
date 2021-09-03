@@ -49,11 +49,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
   private final Map<BiCluster, ActionCluster.Node> suppressPosteriors = new HashMap<>();
 
   public ActionCluster.Node suppressPosteriors(final BiCluster cluster) {
-    return suppressPosteriors.computeIfAbsent(cluster, key -> new CoincidentEffect.Lambda<>(actions, key, node -> {
-      for (final Connections.Entry<Posterior> entry : node.getPosteriors()) {
-        entry.edge().suppress(1);
-      }
-    }).node);
+    return suppressPosteriors.computeIfAbsent(cluster, key -> Cluster.suppressPosteriors(actions, key));
   }
 
   private static record ScalePosteriorsKey(Cluster<? extends Prior> cluster, float factor) implements Serializable {

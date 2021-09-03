@@ -43,9 +43,8 @@ public class CaptureTest {
     return capture().priors(priorCluster).posteriors(posteriorCluster);
   }
 
-  private ActionCluster.Node disassociate(final Cluster<? extends Prior> priorCluster,
-      final PosteriorCluster<?> posteriorCluster) {
-    return capture().priors(priorCluster).posteriors(posteriorCluster, 0);
+  private ActionCluster.Node suppressPosteriors(final BiCluster cluster) {
+    return Cluster.suppressPosteriors(actions, cluster);
   }
 
   @Test
@@ -579,6 +578,88 @@ public class CaptureTest {
   }
 
   /**
+   * Ensures that associativity-preserving property bindings can be set properly.
+   * 
+   * <p>
+   * Naive direct "conjunctive" property bindings without an intermediate binding
+   * layer do not preserve associativity, allowing unrelated keys to combine to
+   * access bindings they should not. In Boolean logic terms, a key such as:
+   * 
+   * <pre>
+   * A && B || C && D
+   * </pre>
+   * 
+   * implemented naively as priors of weights ~ .5 ends up erroneously satisified
+   * by A && C or B && D. As a concrete example, the bindings "Stephen is the son
+   * of Carolyn" and "Stephen is the father of Reuben" end up erroneously
+   * implying/encoding that "Stephen is the father of Carolyn" and "Stephen is the
+   * son of Reuben".
+   * 
+   * <p>
+   * The simplest way to solve this problem is to use separate nodes to encode the
+   * conjunctions. To further simplify the implementation, we can make these nodes
+   * throwaway, creating new ones for any property set operation and
+   * disassociating old ones.
+   * 
+   * <p>
+   * Seeing that this scheme preserves associativity is trivial. However, we
+   * should test that setting such bindings works as expected.
+   */
+  @Test
+  public void testBindingAssociativity() {
+    val keys = new BiCluster(),
+        binding = new BiCluster(),
+        values = new ActionCluster();
+
+    val object = keys.new Node(), property = keys.new Node();
+    val oldMonitor = new EmissionMonitor<Long>(), newMonitor = new EmissionMonitor<Long>();
+    val oldValue = TestUtil.testNode(values, oldMonitor), newValue = TestUtil.testNode(values, newMonitor);
+
+    val captureConjunction = capture(keys, binding), captureDisjunction = capture(binding, values);
+
+    // set old value
+    object.trigger();
+    property.trigger();
+    suppressPosteriors(keys).trigger(); // (no effect, but to be consistent with the next set operation)
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+    binding.new Node().trigger();
+    captureConjunction.trigger();
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+    oldValue.trigger();
+    captureDisjunction.trigger();
+
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
+    oldMonitor.reset();
+
+    // verify old value
+    object.trigger();
+    property.trigger();
+    scheduler.fastForwardFor(2 * IntegrationProfile.TRANSIENT.period());
+    assertTrue(oldMonitor.didEmit());
+
+    // set new value
+    object.trigger();
+    property.trigger();
+    suppressPosteriors(keys).trigger();
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+    binding.new Node().trigger();
+    captureConjunction.trigger();
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+    newValue.trigger();
+    captureDisjunction.trigger();
+
+    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
+    newMonitor.reset();
+
+    // verify new value
+    object.trigger();
+    property.trigger();
+    scheduler.fastForwardFor(2 * IntegrationProfile.TRANSIENT.period());
+    assertFalse(oldMonitor.didEmit());
+    assertTrue(newMonitor.didEmit());
+  }
+
+  /**
    * Ensures that doing a capture does not erase posteriors whose contributions
    * from the designated prior clusters is sub-threshold. If this happens, it can
    * erase property bindings when new properties are bound.
@@ -607,76 +688,93 @@ public class CaptureTest {
     assertTrue(monitor.didEmit());
   }
 
-  // TODO: Use linked structure instead of salience stack. A linked structure
-  // seems more correct and may eliminate the need for the scale operation.
-  @Test
-  public void testStack() {
-    val priorCluster = new InputCluster();
-    val posteriorCluster = new SignalCluster();
-    val testStack = priorCluster.new Node();
-    val monitor = EmissionMonitor.fromObservable(posteriorCluster.rxActivations());
-    val refStack = new Stack<SignalCluster.Node>();
-
-    for (int i = 0; i < 32; ++i) {
-      val item = posteriorCluster.new Node();
-      refStack.push(item);
-
-      testStack.activate();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
-      Cluster.scalePosteriors(priorCluster, KnowledgeBase.PUSH_FACTOR);
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
-
-      testStack.activate();
-      item.trigger();
-      capture(priorCluster, posteriorCluster).trigger();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
-    }
-
-    monitor.reset();
-
-    while (!refStack.isEmpty()) {
-      val item = refStack.pop();
-      testStack.activate();
-      disassociate(priorCluster, posteriorCluster).trigger();
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
-      Cluster.scalePosteriors(priorCluster, KnowledgeBase.POP_FACTOR);
-      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
-      assertThat(monitor.emissions()).as("Stack size: %s", refStack.size() + 1).containsExactly(item);
-    }
-  }
-
   /**
-   * Ensures that any residual connection after a symmetric associate/disassociate
-   * pair will not be scaled back up to potency during stack pops.
+   * Demonstrates stack behavior using a linked structure.
    */
   @Test
-  public void testStackEviction() {
-    val monitor = new EmissionMonitor<Long>();
+  public void testStack() {
+    val testStack = new StmCluster("testStack");
+    val parent = new StmCluster("parent"); // In practice, this would be a naming BiCluster.
+    val bindings = new BiCluster(); // Not necessary for this simple case, but we want to exercise more realistic
+                                    // property binding.
+    val items = new BiCluster("items");
+    val tmp = new StmCluster("tmp");
+    val monitor = EmissionMonitor.fromObservable(items.rxActivations());
+    val refStack = new Stack<BiCluster.Node>();
 
-    val priorCluster = new InputCluster();
-    val posteriorCluster = new ActionCluster();
-    val prior = priorCluster.new Node();
-    val posterior = TestUtil.testNode(posteriorCluster, monitor);
+    for (int i = 0; i < 10; ++i) {
+      val item = items.new Node(Integer.toString(i));
+      refStack.push(item);
 
-    // An associate/disassociate pair from testAssociateDisassociateSymmetry before
-    // scaling.
+      // tmp = stack
+      testStack.address.trigger();
+      tmp.address.trigger();
+      suppressPosteriors(tmp).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
 
-    prior.activate();
-    posterior.trigger();
-    capture(priorCluster, posteriorCluster).trigger();
-    scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      capture(tmp, items).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
 
-    prior.activate();
-    disassociate(priorCluster, posteriorCluster).trigger();
-    scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      // stack = item
+      testStack.address.trigger();
+      suppressPosteriors(testStack).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
 
-    prior.activate();
-    scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
-    Cluster.scalePosteriors(priorCluster, (float) Math.pow(KnowledgeBase.POP_FACTOR, 32));
-    scheduler.fastForwardFor(IntegrationProfile.PERSISTENT.period());
+      item.trigger();
+      capture(testStack, items).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
+
+      // item.parent = tmp
+      testStack.address.trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+
+      parent.address.trigger();
+      suppressPosteriors(items).trigger();
+      suppressPosteriors(parent).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+
+      bindings.new Node().trigger();
+      capture().priors(items).priors(parent).posteriors(bindings).trigger();
+
+      tmp.address.trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+      capture().priors(bindings).posteriors(items).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
+    }
+
+    while (!refStack.isEmpty()) {
+      monitor.reset();
+      val item = refStack.pop();
+      testStack.address.activate();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
+      assertThat(monitor.emissions()).as("Stack size: %s", refStack.size() + 1).containsExactly(item);
+
+      // tmp = stack.parent
+      testStack.address.trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+      parent.address.trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+
+      tmp.address.trigger();
+      suppressPosteriors(tmp).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+
+      capture(tmp, items).trigger();
+      suppressPosteriors(items).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
+
+      // stack = tmp
+      testStack.address.trigger();
+      suppressPosteriors(testStack).trigger();
+      tmp.address.trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.defaultInterval());
+
+      capture(testStack, items).trigger();
+      scheduler.fastForwardFor(IntegrationProfile.TRANSIENT.period());
+    }
 
     monitor.reset();
-    prior.activate();
+    testStack.address.activate();
     scheduler.fastForwardUntilIdle();
     assertFalse(monitor.didEmit());
   }

@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -292,9 +293,10 @@ public class Connections {
   private static final String INDENT = "  ";
 
   private static void debugPriors(final StringBuilder sb, final Posterior node, final String indent,
-      final Prior highlightParent, final Set<Cluster<? extends Prior>> exclude) {
+      final Prior highlightParent, final boolean includeZeros, final Set<Cluster<? extends Prior>> exclude) {
     sb.append(indent).append('[');
-    val it = Iterators.filter(node.getPriors().iterator(), prior -> !exclude.contains(prior.node().getCluster()));
+    val it = Iterators.filter(node.getPriors().iterator(), prior -> !exclude.contains(prior.node().getCluster()) &&
+        (includeZeros || prior.edge().distribution.getMode() != 0));
     while (it.hasNext()) {
       debugPrior(sb, it.next(), highlightParent);
       if (it.hasNext()) {
@@ -305,8 +307,12 @@ public class Connections {
   }
 
   private static void debugPosteriors(final StringBuilder sb, final Prior node, final String indent,
-      final int maxDepth, final Set<Cluster<? extends Prior>> excludePriors) {
-    val it = Streams.stream(node.getPosteriors())
+      final int maxDepth, final boolean includeZeros, final Set<Cluster<? extends Prior>> excludePriors) {
+    Stream<Connections.Entry<Posterior>> posteriors = Streams.stream(node.getPosteriors());
+    if (!includeZeros) {
+      posteriors = posteriors.filter(e -> e.edge().distribution.getMode() != 0);
+    }
+    val it = posteriors
         .map(Entry::node)
         .distinct()
         .iterator();
@@ -321,25 +327,25 @@ public class Connections {
     while (it.hasNext()) {
       val posterior = it.next();
       sb.append('\n');
-      debugPriors(sb, posterior, indent, node, excludePriors);
+      debugPriors(sb, posterior, indent, node, includeZeros, excludePriors);
       sb.append(posterior);
       if (posterior instanceof Prior prior) {
-        debugPosteriors(sb, prior, indent + INDENT, maxDepth - 1, excludePriors);
+        debugPosteriors(sb, prior, indent + INDENT, maxDepth - 1, includeZeros, excludePriors);
       }
     }
   }
 
-  public static String debugGraph(final Node node, final int maxDepth,
+  public static String debugGraph(final Node node, final int maxDepth, final boolean includeZeros,
       final Cluster<? extends Prior>... excludePriors) {
     val sb = new StringBuilder();
     val exclusionSet = ImmutableSet.copyOf(excludePriors);
 
     if (node instanceof Posterior posterior) {
-      debugPriors(sb, posterior, "", null, exclusionSet);
+      debugPriors(sb, posterior, "", null, includeZeros, exclusionSet);
     }
     sb.append(node);
     if (node instanceof Prior prior) {
-      debugPosteriors(sb, prior, INDENT, maxDepth, exclusionSet);
+      debugPosteriors(sb, prior, INDENT, maxDepth, includeZeros, exclusionSet);
     }
 
     return sb.toString();

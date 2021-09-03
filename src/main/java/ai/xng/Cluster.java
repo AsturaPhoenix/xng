@@ -329,6 +329,14 @@ public abstract class Cluster<T extends Node> implements Serializable {
     }
   }
 
+  public static ActionCluster.Node suppressPosteriors(final ActionCluster actionCluster, final BiCluster priorCluster) {
+    return new CoincidentEffect.Lambda<>(actionCluster, priorCluster, node -> {
+      for (final Connections.Entry<Posterior> entry : node.getPosteriors()) {
+        entry.edge().suppress(1);
+      }
+    }).node;
+  }
+
   private static float weightByTrace(final float value, final float identity, final float trace) {
     final float tolerantTrace = Math.min(1, trace * (1 + Prior.THRESHOLD_MARGIN));
     return identity + (value - identity) * tolerantTrace;

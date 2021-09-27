@@ -1,5 +1,6 @@
 /backup/
 /bin/
+/reference/
 /target/
 .classpath
 .factorypath

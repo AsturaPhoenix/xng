@@ -294,6 +294,7 @@ public abstract class Cluster<T extends Node> implements Serializable {
 
       for (val posterior : wantedPosteriors.entrySet()) {
         if (posterior.getKey().getLastActivation().map(t -> t >= captureStart).orElse(false)) {
+          // This covers posteriors that aren't in this particular posterior cluster.
           continue;
         }
 
@@ -317,7 +318,10 @@ public abstract class Cluster<T extends Node> implements Serializable {
 
     @Override
     protected void apply(final Posterior posterior) {
-      // Re-evaluate prior traces to respect firing order.
+      // Re-evaluate prior traces to respect firing order. While this is "now" for
+      // nodes activated while the capture operation is active, and thus does not
+      // affect firing order, this can be in the past for nodes already active when
+      // the capture activates, and can in some cases preceed captured priors.
       final long t = posterior.getLastActivation().get();
       val timeSensitiveConjunction = new ConjunctionJunction();
       for (val component : capturedPriors) {

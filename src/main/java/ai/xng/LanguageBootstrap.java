@@ -94,11 +94,23 @@ public class LanguageBootstrap {
 
     final StmCluster stackFrame = new StmCluster("stackFrame"),
         returnValue = new StmCluster("returnValue"),
+        // A register for holding an object during qualified resolution.
         cxt = new StmCluster("cxt"),
+        // An intermediate register for transfer operations.
         tmp = new StmCluster("tmp");
+
+    // The following are fields on stack frame contexts.
+
+    // statically scoped data, including the subroutine entrypoint and any static
+    // variables. The context node here is a convenient way to refer to a particular
+    // subroutine being called without invoking its entrypoint. Otherwise, it would
+    // not be a simple matter to suppress invocation of the entrypoint and still use
+    // it as a prior condition for other logic.
     final BiCluster.Node staticContext = kb.naming.new Node("staticContext"),
         entrypoint = kb.naming.new Node("entrypoint"),
         arg1 = kb.naming.new Node("arg1"),
+        // the entrypoint node to be invoked after restoring the calling context to the
+        // call stack
         returnTo = kb.naming.new Node("returnTo");
     final BiCluster.Node execute = kb.entrypoint.new Node("execute"),
         doReturn = kb.entrypoint.new Node("doReturn");

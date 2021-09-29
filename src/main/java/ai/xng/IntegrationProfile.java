@@ -8,6 +8,8 @@ import lombok.val;
 
 public record IntegrationProfile(long delay, long peak, long period) implements Serializable {
 
+  // See the "Aclockalypse" design dump for why we need to use asymmetric timing
+  // profiles.
   public static final IntegrationProfile TRANSIENT = new IntegrationProfile(0, 5, 50);
   public static final IntegrationProfile TWOGRAM = new IntegrationProfile(0, 5, 500);
   public static final IntegrationProfile PERSISTENT = new IntegrationProfile(50, 100, 3000);

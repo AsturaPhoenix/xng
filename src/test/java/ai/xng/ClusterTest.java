@@ -19,7 +19,11 @@ public class ClusterTest {
   @Test
   public void testActivations3() {
     val cluster = new InputCluster();
-    val a = cluster.new Node(), b = cluster.new Node(), c = cluster.new Node();
+
+    val a = cluster.new Node();
+    val b = cluster.new Node();
+    val c = cluster.new Node();
+
     a.activate();
     b.activate();
     c.activate();

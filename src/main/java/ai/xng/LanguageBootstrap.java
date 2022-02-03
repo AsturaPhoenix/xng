@@ -172,8 +172,8 @@ public class LanguageBootstrap {
     void setUp() {
       val iterator = kb.naming.new Node();
 
-      val iterator_in = new CoincidentEffect.Curry<>(kb.actions, kb.data),
-          iterator_out = new CoincidentEffect.Curry<>(kb.actions, kb.data);
+      val iterator_in = new CoincidentEffect.Curry<>(kb.actions, kb.data);
+      val iterator_out = new CoincidentEffect.Curry<>(kb.actions, kb.data);
 
       asSequence(create)
           .stanza()
@@ -206,8 +206,8 @@ public class LanguageBootstrap {
           .then(iterator)
           .then(hasNextDecoder.node);
 
-      val next_in = new CoincidentEffect.Curry<>(kb.actions, kb.data),
-          next_out = new CoincidentEffect.Curry<>(kb.actions, kb.data);
+      val next_in = new CoincidentEffect.Curry<>(kb.actions, kb.data);
+      val next_out = new CoincidentEffect.Curry<>(kb.actions, kb.data);
 
       asSequence(hasNextDecoder.isTrue)
           .stanza()
@@ -328,8 +328,8 @@ public class LanguageBootstrap {
           .then(kb.capture(control.frameFieldPriors, kb.context))
           .then(stringIterator.create);
 
-      val print = kb.context.new Node("print"),
-          printEntrypoint = kb.entrypoint.new Node("print/entrypoint");
+      val print = kb.context.new Node("print");
+      val printEntrypoint = kb.entrypoint.new Node("print/entrypoint");
       printEntrypoint.conjunction(print, control.entrypoint);
       asSequence(printEntrypoint)
           .stanza()
@@ -466,9 +466,9 @@ public class LanguageBootstrap {
     void setUp() {
       val builder = new StringBuilder();
 
-      val start = kb.execution.new Node(),
-          append = kb.execution.new Node(),
-          end = kb.execution.new Node();
+      val start = kb.execution.new Node();
+      val append = kb.execution.new Node();
+      val end = kb.execution.new Node();
       start.then(isParsing.set);
       end.then(isParsing.clear);
 

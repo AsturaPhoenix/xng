@@ -50,8 +50,12 @@ public class CaptureTest {
   @Test
   public void testNoPrior() {
     val monitor = new EmissionMonitor<Long>();
-    val input = new InputCluster(), output = new ActionCluster();
-    val a = input.new Node(), out = TestUtil.testNode(output, monitor);
+
+    val input = new InputCluster();
+    val output = new ActionCluster();
+
+    val a = input.new Node();
+    val out = TestUtil.testNode(output, monitor);
 
     out.trigger();
     capture(input, output).trigger();
@@ -67,7 +71,10 @@ public class CaptureTest {
   @Test
   public void testNoPosterior() {
     val monitor = new EmissionMonitor<Long>();
-    val input = new InputCluster(), output = new ActionCluster();
+
+    val input = new InputCluster();
+    val output = new ActionCluster();
+
     val a = input.new Node();
     TestUtil.testNode(output, monitor);
 
@@ -84,8 +91,8 @@ public class CaptureTest {
 
   @Test
   public void testAssociate() {
-    val input = new InputCluster(),
-        output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
     val in = input.new Node();
     val monitor = new EmissionMonitor<Long>();
@@ -105,8 +112,8 @@ public class CaptureTest {
 
   @Test
   public void testAlreadyAssociated() {
-    val input = new InputCluster(),
-        output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
     val in = input.new Node();
     val monitor = new EmissionMonitor<Long>();
@@ -126,8 +133,8 @@ public class CaptureTest {
 
   @Test
   public void testDisassociate() {
-    val input = new InputCluster(),
-        output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
     val in = input.new Node();
     val monitor = new EmissionMonitor<Long>();
@@ -148,8 +155,8 @@ public class CaptureTest {
 
   @Test
   public void testNoCoincidentAssociate() {
-    val input = new InputCluster(),
-        output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
     val in = input.new Node();
     val monitor = new EmissionMonitor<Long>();
@@ -170,8 +177,8 @@ public class CaptureTest {
 
   @Test
   public void testCoincidentDisassociate() {
-    val input = new InputCluster(),
-        output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
     val in = input.new Node();
     val monitor = new EmissionMonitor<Long>();
@@ -195,8 +202,8 @@ public class CaptureTest {
   @Test
   public void testConjunction() {
     for (int n = 2; n <= MAX_PRIORS; ++n) {
-      val input = new InputCluster(),
-          output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -223,7 +230,8 @@ public class CaptureTest {
   @Test
   public void testAllButOne() {
     for (int n = 2; n <= MAX_PRIORS; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -250,7 +258,8 @@ public class CaptureTest {
   @Test
   public void testTestPriorJitter() {
     for (int n = 2; n <= MAX_PRIORS; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -279,7 +288,8 @@ public class CaptureTest {
   @Test
   public void testAllButOneJitter() {
     for (int n = 2; n <= MAX_PRIORS; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -311,7 +321,8 @@ public class CaptureTest {
     // prior will have decayed during training. A previous version with less leeway
     // would not fail until 7 priors.
     for (int n = 2; n <= 3; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -343,7 +354,9 @@ public class CaptureTest {
    */
   @Test
   public void testDisassociateOthers() {
-    val input = new InputCluster(), output = new ActionCluster(), observer = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
+    val observer = new ActionCluster();
 
     val in = input.new Node();
     val monitor = new EmissionMonitor<Long>();
@@ -367,7 +380,9 @@ public class CaptureTest {
    */
   @Test
   public void testUnchangedOthers() {
-    val input = new InputCluster(), output = new ActionCluster(), observer = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
+    val observer = new ActionCluster();
 
     val in = input.new Node();
     val monitor = new EmissionMonitor<Long>();
@@ -390,7 +405,9 @@ public class CaptureTest {
    */
   @Test
   public void testStickSequence() {
-    val input = new InputCluster(), recog = new BiCluster(), output = new ActionCluster();
+    val input = new InputCluster();
+    val recog = new BiCluster();
+    val output = new ActionCluster();
 
     val in = input.new Node();
     Prior tail = in;
@@ -416,7 +433,8 @@ public class CaptureTest {
 
   @Test
   public void testFullyDelayedTraining() {
-    val input = new InputCluster(), output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
     final InputNode in = input.new Node();
     in.activate();
@@ -437,7 +455,8 @@ public class CaptureTest {
 
   @Test
   public void testMostlyDelayedTraining() {
-    val input = new InputCluster(), output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
     final InputNode in = input.new Node();
     in.activate();
@@ -459,7 +478,8 @@ public class CaptureTest {
   @Test
   public void testDelayedConjunction() {
     for (int n = 1; n <= MAX_PRIORS; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -488,7 +508,8 @@ public class CaptureTest {
   @Test
   public void testDelayedAllButOne() {
     for (int n = 1; n <= MAX_PRIORS; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -518,7 +539,8 @@ public class CaptureTest {
   @Test
   public void testDelayedCapture() {
     for (int n = 1; n <= MAX_PRIORS; ++n) {
-      val input = new InputCluster(), output = new ActionCluster();
+      val input = new InputCluster();
+      val output = new ActionCluster();
 
       val in = new InputNode[n];
       for (int i = 0; i < in.length; ++i) {
@@ -607,15 +629,21 @@ public class CaptureTest {
    */
   @Test
   public void testBindingAssociativity() {
-    val keys = new BiCluster(),
-        binding = new BiCluster(),
-        values = new ActionCluster();
+    val keys = new BiCluster();
+    val binding = new BiCluster();
+    val values = new ActionCluster();
 
-    val object = keys.new Node(), property = keys.new Node();
-    val oldMonitor = new EmissionMonitor<Long>(), newMonitor = new EmissionMonitor<Long>();
-    val oldValue = TestUtil.testNode(values, oldMonitor), newValue = TestUtil.testNode(values, newMonitor);
+    val object = keys.new Node();
+    val property = keys.new Node();
 
-    val captureConjunction = capture(keys, binding), captureDisjunction = capture(binding, values);
+    val oldMonitor = new EmissionMonitor<Long>();
+    val newMonitor = new EmissionMonitor<Long>();
+
+    val oldValue = TestUtil.testNode(values, oldMonitor);
+    val newValue = TestUtil.testNode(values, newMonitor);
+
+    val captureConjunction = capture(keys, binding);
+    val captureDisjunction = capture(binding, values);
 
     // set old value
     object.trigger();
@@ -669,10 +697,11 @@ public class CaptureTest {
    */
   @Test
   public void testPreserveProperty() {
-    val input = new InputCluster(),
-        output = new ActionCluster();
+    val input = new InputCluster();
+    val output = new ActionCluster();
 
-    val object = input.new Node(), property = input.new Node();
+    val object = input.new Node();
+    val property = input.new Node();
 
     val monitor = new EmissionMonitor<Long>();
     TestUtil.testNode(output, monitor).conjunction(object, property);

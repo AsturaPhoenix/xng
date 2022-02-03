@@ -28,8 +28,10 @@ public class NodeTest {
     Scheduler.global = scheduler;
 
     val monitor = new EmissionMonitor<Long>();
+
     val prior = new InputCluster().new Node();
     val posterior = TestUtil.testNode(new ActionCluster(), monitor);
+
     prior.then(posterior);
     prior.activate();
     scheduler.fastForwardUntilIdle();
@@ -42,8 +44,14 @@ public class NodeTest {
     Scheduler.global = scheduler;
 
     val monitor = new EmissionMonitor<Long>();
-    val input = new InputCluster(), output = new ActionCluster();
-    val a = input.new Node(), b = input.new Node(), and = TestUtil.testNode(output, monitor);
+
+    val input = new InputCluster();
+    val output = new ActionCluster();
+
+    val a = input.new Node();
+    val b = input.new Node();
+    val and = TestUtil.testNode(output, monitor);
+
     and.conjunction(a, b);
     a.activate();
     b.activate();
@@ -57,8 +65,14 @@ public class NodeTest {
     Scheduler.global = scheduler;
 
     val monitor = new EmissionMonitor<Long>();
-    val input = new InputCluster(), output = new ActionCluster();
-    val a = input.new Node(), b = input.new Node(), and = TestUtil.testNode(output, monitor);
+
+    val input = new InputCluster();
+    val output = new ActionCluster();
+
+    val a = input.new Node();
+    val b = input.new Node();
+    val and = TestUtil.testNode(output, monitor);
+
     and.conjunction(a, b);
 
     a.activate();
@@ -74,9 +88,16 @@ public class NodeTest {
     Scheduler.global = scheduler;
 
     val monitor = new EmissionMonitor<Long>();
-    val input = new InputCluster(), output = new ActionCluster();
-    val a = input.new Node(), b = input.new Node(), c = input.new Node(), d = input.new Node(),
-        and = TestUtil.testNode(output, monitor);
+
+    val input = new InputCluster();
+    val output = new ActionCluster();
+
+    val a = input.new Node();
+    val b = input.new Node();
+    val c = input.new Node();
+    val d = input.new Node();
+    val and = TestUtil.testNode(output, monitor);
+
     and.conjunction(a, b, c, d);
 
     a.activate();
@@ -145,8 +166,14 @@ public class NodeTest {
     Scheduler.global = scheduler;
 
     val monitor = new EmissionMonitor<Long>();
-    val input = new InputCluster(), output = new ActionCluster();
-    val a = input.new Node(), b = input.new Node(), and = TestUtil.testNode(output, monitor);
+
+    val input = new InputCluster();
+    val output = new ActionCluster();
+
+    val a = input.new Node();
+    val b = input.new Node();
+    val and = TestUtil.testNode(output, monitor);
+
     and.conjunction(a, b);
     a.activate();
     b.activate();
@@ -161,8 +188,14 @@ public class NodeTest {
     Scheduler.global = scheduler;
 
     val monitor = new EmissionMonitor<Long>();
-    val input = new InputCluster(), output = new ActionCluster();
-    val up = input.new Node(), down = input.new Node(), out = TestUtil.testNode(output, monitor);
+
+    val input = new InputCluster();
+    val output = new ActionCluster();
+
+    val up = input.new Node();
+    val down = input.new Node();
+    val out = TestUtil.testNode(output, monitor);
+
     up.then(out);
     down.inhibit(out);
 

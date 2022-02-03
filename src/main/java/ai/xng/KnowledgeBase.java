@@ -32,6 +32,7 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
       sequenceRecognition = new BiCluster("sequenceRecognition"),
       context = new BiCluster("context"),
       naming = new BiCluster("naming"),
+      binding = new BiCluster("binding"),
       entrypoint = new BiCluster("entrypoint"),
       execution = new BiCluster("execution");
   public final ActionCluster actions = new ActionCluster(lastException);

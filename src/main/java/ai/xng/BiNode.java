@@ -38,4 +38,9 @@ public abstract class BiNode implements Prior, Posterior {
     input.activate();
     output.activate();
   }
+
+  @Override
+  public BiNode conjunction(Prior... priors) {
+    return (BiNode) Posterior.super.conjunction(priors);
+  }
 }

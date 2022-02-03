@@ -9,8 +9,7 @@ import java.util.Iterator;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-import com.google.common.collect.ImmutableList;
-
+import ai.xng.Cluster.PriorClusterProfile;
 import ai.xng.constructs.BooleanDecoder;
 import ai.xng.constructs.CharacterDecoder;
 import ai.xng.constructs.CoincidentEffect;
@@ -53,6 +52,11 @@ public class LanguageBootstrap {
           .thenDelay()
           .thenDelay();
     }
+
+    public Sequence<H> inhibit(final Posterior node, final IntegrationProfile profile) {
+      tail.inhibit(node, profile);
+      return this;
+    }
   }
 
   private class Spawn {
@@ -72,6 +76,7 @@ public class LanguageBootstrap {
 
     final ActionCluster.Node stateRecognition = spawner(() -> kb.stateRecognition.new Node()),
         context = spawner(() -> kb.context.new Node()),
+        binding = spawner(() -> kb.binding.new Node()),
         data = spawner(() -> kb.data.new MutableNode<>()),
         // Sequence recognition is a bit different in that we don't want to clear the
         // trace when we do stanza resets.
@@ -86,13 +91,8 @@ public class LanguageBootstrap {
 
   private final Spawn spawn;
 
-  private class Control {
-    final ImmutableList<Cluster.PriorClusterProfile> frameFieldPriors = new Cluster.PriorClusterProfile.ListBuilder()
-        .add(kb.context)
-        .add(kb.naming)
-        .build();
-
-    final StmCluster stackFrame = new StmCluster("stackFrame"),
+  public final class Control {
+    public final StmCluster stackFrame = new StmCluster("stackFrame"),
         returnValue = new StmCluster("returnValue"),
         // A register for holding an object during qualified resolution.
         cxt = new StmCluster("cxt"),
@@ -106,13 +106,13 @@ public class LanguageBootstrap {
     // subroutine being called without invoking its entrypoint. Otherwise, it would
     // not be a simple matter to suppress invocation of the entrypoint and still use
     // it as a prior condition for other logic.
-    final BiCluster.Node staticContext = kb.naming.new Node("staticContext"),
+    public final BiCluster.Node staticContext = kb.naming.new Node("staticContext"),
         entrypoint = kb.naming.new Node("entrypoint"),
         arg1 = kb.naming.new Node("arg1"),
         // the entrypoint node to be invoked after restoring the calling context to the
         // call stack
         returnTo = kb.naming.new Node("returnTo");
-    final BiCluster.Node execute = kb.entrypoint.new Node("execute"),
+    public final BiCluster.Node execute = kb.entrypoint.new Node("execute"),
         doReturn = kb.entrypoint.new Node("doReturn");
 
     // Stanza reset needs to be in a dedicated cluster since it tends to come after
@@ -120,10 +120,30 @@ public class LanguageBootstrap {
     //
     // Capture operations tend to be punctuated by stanza resets. Stanza resets also
     // tend to occur after other invocation-like sequences.
-    final BiCluster controlCluster = new BiCluster();
-    final BiCluster.Node resetStanza = controlCluster.new Node();
+    public final BiCluster controlCluster = new BiCluster();
+    public final BiCluster.Node resetStanza = controlCluster.new Node();
 
-    void setUp() {
+    // Property binding is done through a dedicated layer of throwaway nodes to
+    // separate disjunctions of conjunctions and honor correct associativity.
+    //
+    // This node will suppress any current binding, spawn a new binding node, and
+    // capture it. It should be activated before the context and naming nodes to
+    // serve as keys, and the keys and value should be separated by a pause for the
+    // binding. The caller is responsible for binding the appropriate value cluster,
+    // though it's conceivable that a future change would unify this.
+    //
+    // Event sequence:
+    // * bindProperty entrypoint
+    // * no-op (execution dispatch)
+    // * context, naming, suppressPosteriors, spawn binding
+    // * binding, capture binding
+    // * value, capture value
+    public final BiCluster.Node bindProperty = kb.entrypoint.new Node("bindProperty");
+
+    private Control() {
+    }
+
+    private void setUp() {
       resetStanza.then(
           kb.resetOutboundPosteriors(kb.execution),
           kb.resetPosteriors(stackFrame),
@@ -140,16 +160,24 @@ public class LanguageBootstrap {
           .stanza()
           .then(stackFrame.address)
           .then(staticContext)
+          .thenDelay()
           .then(entrypoint);
 
       asSequence(doReturn)
           .stanza()
           .then(stackFrame.address)
           .then(kb.scalePosteriors(stackFrame, POP_FACTOR), returnTo, kb.disassociate(stackFrame, kb.context));
+
+      asSequence(bindProperty)
+          .then(kb.suppressPosteriors(kb.context), kb.suppressPosteriors(kb.naming), spawn.binding)
+          .then(kb.capture(new PriorClusterProfile.ListBuilder()
+              .add(kb.context)
+              .add(kb.naming)
+              .build(), kb.binding));
     }
   }
 
-  private final Control control;
+  public final Control control;
 
   private class StringIterator {
     final BiNode create = kb.execution.new Node();
@@ -165,6 +193,10 @@ public class LanguageBootstrap {
     final BiNode advance = kb.entrypoint.new Node();
     final BooleanDecoder hasNextDecoder = new BooleanDecoder(kb.actions, kb.data, kb.input,
         data -> data instanceof Iterator<?> i ? Optional.of(i.hasNext()) : Optional.empty());
+    // When hasNext is false, we'll often want to dispatch the next action based on
+    // the static context.
+    // TODO: There are probably better ways to do this.
+    final BiCluster.Node terminalStaticContext = kb.execution.new Node();
     final BiNode codePoint = kb.naming.new Node();
     final InputCluster charCluster = new InputCluster();
     final CharacterDecoder charDecoder = new CharacterDecoder(kb.actions, kb.data, charCluster);
@@ -177,26 +209,32 @@ public class LanguageBootstrap {
 
       asSequence(create)
           .stanza()
+          .then(control.bindProperty)
           .then(control.stackFrame.address)
-          .then(iterator, spawn.data)
-          .then(kb.capture(control.frameFieldPriors, kb.data))
+          .then(iterator)
+          .then(spawn.data)
+          .then(kb.capture(kb.binding, kb.data))
 
           .stanza()
           .then(control.stackFrame.address)
           .then(control.arg1)
+          .thenDelay()
           .then(iterator_in.node)
 
           .stanza()
           .then(control.stackFrame.address)
           .then(iterator)
+          .thenDelay()
           .then(iterator_out.node)
           .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Object>) iterator_out.require())
               .setData((((String) iterator_in.require().getData()).codePoints().iterator()))))
 
           .stanza()
+          .then(control.bindProperty)
           .then(control.stackFrame.address)
-          .then(codePoint, spawn.data)
-          .then(kb.capture(control.frameFieldPriors, kb.data))
+          .then(codePoint)
+          .then(spawn.data)
+          .then(kb.capture(kb.binding, kb.data))
 
           .then(advance);
 
@@ -204,6 +242,7 @@ public class LanguageBootstrap {
           .stanza()
           .then(control.stackFrame.address)
           .then(iterator)
+          .thenDelay()
           .then(hasNextDecoder.node);
 
       val next_in = new CoincidentEffect.Curry<>(kb.actions, kb.data);
@@ -213,30 +252,45 @@ public class LanguageBootstrap {
           .stanza()
           .then(control.stackFrame.address)
           .then(iterator)
+          .thenDelay()
           .then(next_in.node)
 
           .stanza()
           .then(control.stackFrame.address)
           .then(codePoint)
+          .thenDelay()
           .then(next_out.node)
-          .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Integer>) next_out.require()).setData(
-              ((Iterator<Integer>) next_in.require().getData()).next())))
+          .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Integer>) next_out.require())
+              .setData(((Iterator<Integer>) next_in.require().getData()).next())))
 
           .stanza()
           .then(control.stackFrame.address)
           .then(codePoint)
+          .thenDelay()
           .then(charDecoder.node, onNext)
           // TODO: We might consider binding codePoint to a register first to avoid
           // polluted state during recognition.
           // Advance by default unless inhibited.
           .thenDirect(advance, IntegrationProfile.PERSISTENT);
+
+      asSequence(hasNextDecoder.isFalse)
+          .stanza()
+          .then(control.stackFrame.address)
+          .then(control.staticContext)
+          .thenDelay()
+          .then(terminalStaticContext);
     }
   }
 
   private final StringIterator stringIterator;
 
   private class RecognitionClass {
+    // TODO: formalize cluster or use stare recognition
     final BiCluster.Node character = new BiCluster().new Node();
+    // When we recognize a character, we'll often want to dispatch the next action
+    // based on the static context.
+    // TODO: There are probably better ways to do this.
+    final BiCluster.Node staticContextQuery = kb.execution.new Node();
 
     void setUp() {
       // character recognition capture
@@ -255,6 +309,12 @@ public class LanguageBootstrap {
       captureDispatch
           .then(kb.execution.new Node())
           .then(kb.capture(stringIterator.charCluster, kb.stateRecognition));
+
+      asSequence(character)
+          .then(control.stackFrame.address)
+          .then(control.staticContext)
+          .thenDelay()
+          .then(staticContextQuery);
     }
   }
 
@@ -274,33 +334,31 @@ public class LanguageBootstrap {
         entrypoint = kb.entrypoint.new Node("rsm/entrypoint");
 
     void setUp() {
-      entrypoint.conjunction(staticContext, control.entrypoint);
+      kb.binding.new Node().conjunction(staticContext, control.entrypoint).then(entrypoint);
       asSequence(entrypoint)
           // TODO: It may be more idiomatic to create the capture later.
           .then(control.returnValue.address, kb.suppressPosteriors(control.returnValue), spawn.stateRecognition)
           .then(kb.capture(control.returnValue, kb.stateRecognition))
           .then(stringIterator.create);
 
-      // This is shared with String LiteralBuilder
-      recognitionClass.character.then(control.stackFrame.address, control.staticContext);
-
       // Hook sequence capture up after character capture to avoid dealing with the
       // input conjunction directly.
       val capture = kb.execution.new Node();
-      capture.conjunction(recognitionClass.character, staticContext);
+      capture.conjunction(recognitionClass.staticContextQuery, staticContext);
       asSequence(capture)
           .then(spawn.sequenceRecognition)
           .then(kb.capture()
-              .priors(kb.sequenceRecognition, IntegrationProfile.TWOGRAM)
+              .baseProfiles(IntegrationProfile.TWOGRAM)
+              .priors(kb.sequenceRecognition)
               .priors(kb.stateRecognition)
               .posteriors(kb.sequenceRecognition));
 
       val captureReturn = kb.execution.new Node();
-      stringIterator.hasNextDecoder.isFalse.then(control.staticContext);
-      captureReturn.conjunction(stringIterator.hasNextDecoder.isFalse, staticContext);
+      captureReturn.conjunction(stringIterator.terminalStaticContext, staticContext);
       asSequence(captureReturn)
           .stanza()
-          .then(control.returnValue.address, kb.capture()
+          .then(control.returnValue.address)
+          .then(kb.capture()
               .baseProfiles(IntegrationProfile.TWOGRAM)
               .priors(kb.sequenceRecognition)
               .posteriors(kb.stateRecognition))
@@ -308,80 +366,89 @@ public class LanguageBootstrap {
     }
   }
 
-  public final RecognitionSequenceMemorizer recognitionSequenceMemorizer;
+  private final RecognitionSequenceMemorizer recognitionSequenceMemorizer;
 
-  private class Parse {
-    final BiNode staticContext = kb.context.new Node("parse"),
+  public final class Parse {
+    public final BiNode staticContext = kb.context.new Node("parse"),
         entrypoint = kb.entrypoint.new Node("parse/entrypoint");
 
-    final BiCluster.Node constructionPointer = kb.naming.new Node("constructionPointer"),
+    public final BiCluster.Node constructionPointer = kb.naming.new Node("constructionPointer"),
         writePointer = kb.naming.new Node("writePointer");
 
-    void setUp() {
-      entrypoint.conjunction(staticContext, control.entrypoint);
+    private Parse() {
+    }
+
+    private void setUp() {
+      kb.binding.new Node().conjunction(staticContext, control.entrypoint).then(entrypoint);
       // One of the first things we should do when we begin parsing something is start
       // constructing a stack frame.
       asSequence(entrypoint)
           .stanza()
+          .then(control.bindProperty)
           .then(control.stackFrame.address)
-          .then(constructionPointer, spawn.context)
-          .then(kb.capture(control.frameFieldPriors, kb.context))
+          .then(constructionPointer)
+          .then(spawn.context)
+          .then(kb.capture(kb.binding, kb.context))
           .then(stringIterator.create);
 
       val print = kb.context.new Node("print");
       val printEntrypoint = kb.entrypoint.new Node("print/entrypoint");
-      printEntrypoint.conjunction(print, control.entrypoint);
+      kb.binding.new Node().conjunction(print, control.entrypoint).then(printEntrypoint);
       asSequence(printEntrypoint)
           .stanza()
           .then(control.stackFrame.address)
           .then(control.arg1)
+          .thenDelay()
           .then(kb.print)
           .then(control.doReturn);
 
       val bindPrintEntrypoint = kb.entrypoint.new Node();
-      val bindPrint = kb.execution.new Node();
-      bindPrint.conjunction(bindPrintEntrypoint, staticContext);
-      bindPrint.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
-      asSequence(bindPrint)
+      asSequence(bindPrintEntrypoint)
+          .inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT)
           .stanza()
           .then(control.stackFrame.address)
-          .then(constructionPointer, control.cxt.address, kb.suppressPosteriors(control.cxt))
+          .then(constructionPointer)
+          .then(control.cxt.address, kb.suppressPosteriors(control.cxt))
           .then(kb.capture(control.cxt, kb.context))
 
           .stanza()
+          .then(control.bindProperty)
           .then(control.cxt.address)
           .then(control.staticContext)
-          .then(print, kb.capture(control.frameFieldPriors, kb.context))
+          .thenDelay()
+          .then(print, kb.capture(kb.binding, kb.context))
 
           // In the future we might like to scope the write pointer per construction
           // frame, but that story is not fleshed out yet so let's keep it simple for now.
           .stanza()
+          .then(control.bindProperty)
           .then(control.stackFrame.address)
           .then(writePointer)
-          .then(control.arg1, kb.capture(control.frameFieldPriors, kb.naming))
+          .thenDelay()
+          .then(control.arg1, kb.capture(kb.binding, kb.naming))
           .then(stringIterator.advance);
 
       val returnParseFrame = kb.execution.new Node();
-      // shared with recognition sequence memorizer
-      stringIterator.hasNextDecoder.isFalse.then(control.staticContext);
-      returnParseFrame.conjunction(stringIterator.hasNextDecoder.isFalse, staticContext);
+      returnParseFrame.conjunction(stringIterator.terminalStaticContext, staticContext);
       asSequence(returnParseFrame)
           .stanza()
           .then(control.stackFrame.address)
-          .then(constructionPointer, control.returnValue.address, kb.suppressPosteriors(control.returnValue))
+          .then(constructionPointer)
+          .then(control.returnValue.address, kb.suppressPosteriors(control.returnValue))
           .then(kb.capture(control.returnValue, kb.context))
           .then(control.doReturn);
 
       {
         val call = kb.context.new Node("train: \"print(\"");
-        recognitionSequenceMemorizer.staticContext.conjunction(call, control.staticContext);
+        kb.binding.new Node().conjunction(call, control.staticContext).then(recognitionSequenceMemorizer.staticContext);
         kb.data.new FinalNode<>("print(").conjunction(call, control.arg1);
         val bindBindPrint = kb.execution.new Node();
-        bindBindPrint.conjunction(call, control.returnTo);
+        kb.binding.new Node().conjunction(call, control.returnTo).then(bindBindPrint);
         asSequence(bindBindPrint)
             .then(control.returnValue.address)
             .thenDelay()
-            .then(bindPrintEntrypoint, kb.capture(kb.stateRecognition, kb.entrypoint));
+            .then(bindPrintEntrypoint, kb.capture(kb.stateRecognition, kb.entrypoint),
+                kb.suppressPosteriors(kb.entrypoint));
         control.stackFrame.address.then(call);
         control.execute.activate();
         Scheduler.global.fastForwardUntilIdle();
@@ -390,14 +457,17 @@ public class LanguageBootstrap {
     }
   }
 
-  private final Parse parse;
+  public final Parse parse;
 
   // Eval parses the argument and executes the resulting construct.
-  private class Eval {
-    final BiNode staticContext = kb.context.new Node("eval"),
+  public final class Eval {
+    public final BiNode staticContext = kb.context.new Node("eval"),
         entrypoint = kb.entrypoint.new Node("eval/entrypoint");
 
-    void setUp() {
+    private Eval() {
+    }
+
+    private void setUp() {
       entrypoint.conjunction(staticContext, control.entrypoint);
 
       val executeParsed = kb.entrypoint.new Node("eval/executeParsed");
@@ -408,15 +478,16 @@ public class LanguageBootstrap {
           .then(kb.capture(control.stackFrame, kb.context))
 
           .stanza()
+          .then(control.bindProperty)
           .then(control.stackFrame.address)
           .then(control.returnTo)
+          .thenDelay()
           // Note that at some point, we have considered expanding suppressPosteriors to
           // also suppress the trace, for use in pulling down nodes after activation to
           // clear working memory. If we do end up needing that behavior, we will need to
           // reconcile against this use case where we suppress posteriors in order to
           // highlight a node's trace without side effects.
-          .then(control.doReturn, kb.suppressPosteriors(kb.entrypoint),
-              kb.capture(control.frameFieldPriors, kb.entrypoint))
+          .then(control.doReturn, kb.suppressPosteriors(kb.entrypoint), kb.capture(kb.binding, kb.entrypoint))
           .thenDelay()
           .then(control.execute);
 
@@ -426,25 +497,31 @@ public class LanguageBootstrap {
           .then(kb.capture(control.cxt, kb.context))
 
           .stanza()
+          .then(control.bindProperty)
           .then(control.cxt.address)
           .then(control.staticContext)
-          .then(parse.staticContext, kb.capture(control.frameFieldPriors, kb.context))
+          .thenDelay()
+          .then(parse.staticContext, kb.capture(kb.binding, kb.context))
 
           .stanza()
           .then(control.stackFrame.address)
-          .then(control.arg1, control.tmp.address, kb.suppressPosteriors(control.tmp))
+          .then(control.arg1)
+          .then(control.tmp.address, kb.suppressPosteriors(control.tmp))
           .then(kb.capture(control.tmp, kb.data))
 
           .stanza()
+          .then(control.bindProperty)
           .then(control.cxt.address)
-          .then(control.arg1, control.tmp.address)
-          .then(kb.capture(control.frameFieldPriors, kb.data))
+          .then(control.arg1)
+          .then(control.tmp.address)
+          .then(kb.capture(kb.binding, kb.data))
 
           .stanza()
+          .then(control.bindProperty)
           .then(control.cxt.address)
           .then(control.returnTo)
-          .then(executeParsed, kb.suppressPosteriors(kb.entrypoint),
-              kb.capture(control.frameFieldPriors, kb.entrypoint))
+          .thenDelay()
+          .then(executeParsed, kb.suppressPosteriors(kb.entrypoint), kb.capture(kb.binding, kb.entrypoint))
 
           .stanza()
           .then(control.stackFrame.address, control.cxt.address, kb.suppressPosteriors(control.stackFrame))
@@ -455,7 +532,7 @@ public class LanguageBootstrap {
     }
   }
 
-  private final Eval eval;
+  public final Eval eval;
 
   private class StringLiteralBuilder {
     final Latch isParsing = new Latch(kb.actions, kb.input);
@@ -470,46 +547,47 @@ public class LanguageBootstrap {
       end.then(isParsing.clear);
 
       val quote = kb.stateRecognition.new Node();
-      val quoteDelayed = quote
-          .then(kb.execution.new Node())
-          .then(kb.execution.new Node());
       val conjunction = new ConjunctionJunction();
       stringIterator.charDecoder.forOutput('"', conjunction::add);
       conjunction.build(quote).then(recognitionClass.character);
-      start.conjunction(quoteDelayed, isParsing.isFalse);
-      end.conjunction(quoteDelayed, isParsing.isTrue);
-      // Shared with RSM
-      recognitionClass.character.then(control.stackFrame.address, control.staticContext);
 
-      kb.actions.new Node(isParsing).conjunction(recognitionClass.character, parse.staticContext);
+      new ConjunctionJunction().add(quote, IntegrationProfile.TWOGRAM).add(isParsing.isFalse).build(start);
+      new ConjunctionJunction().add(quote, IntegrationProfile.TWOGRAM).add(isParsing.isTrue).build(end);
+
+      kb.actions.new Node(isParsing).conjunction(recognitionClass.staticContextQuery, parse.staticContext);
 
       start.then(kb.actions.new Node(() -> builder.setLength(0)));
       end.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
       asSequence(end)
           .stanza()
           .then(control.stackFrame.address)
-          .then(parse.constructionPointer, control.cxt.address, kb.suppressPosteriors(control.cxt))
+          .then(parse.constructionPointer)
+          .then(control.cxt.address, kb.suppressPosteriors(control.cxt))
           .then(kb.capture(control.cxt, kb.context))
 
           .stanza()
           .then(control.stackFrame.address)
-          .then(control.tmp.address, parse.writePointer, kb.suppressPosteriors(control.tmp))
+          .then(parse.writePointer)
+          .then(control.tmp.address, kb.suppressPosteriors(control.tmp))
           .then(kb.capture(control.tmp, kb.naming))
 
           .stanza()
+          .then(control.bindProperty)
           .then(control.tmp.address, control.cxt.address)
+          .thenDelay()
           .then(kb.actions.new Node(() -> kb.data.new FinalNode<>(builder.toString()).trigger()))
-          .then(kb.capture(control.frameFieldPriors, kb.data))
+          .then(kb.capture(kb.binding, kb.data))
           .then(stringIterator.advance);
 
       val notQuote = kb.stateRecognition.new Node();
       recognitionClass.character.then(notQuote).inhibitor(quote);
-      append.conjunction(notQuote, isParsing.isTrue);
+      new ConjunctionJunction().add(notQuote, IntegrationProfile.TWOGRAM).add(isParsing.isTrue).build(append);
       append.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
       asSequence(append)
           .stanza()
           .then(control.stackFrame.address)
           .then(stringIterator.codePoint)
+          .thenDelay()
           .then(new CoincidentEffect.Lambda<>(kb.actions, kb.data, node -> {
             if (node.getData() instanceof Integer codePoint) {
               builder.appendCodePoint(codePoint);
@@ -548,14 +626,18 @@ public class LanguageBootstrap {
         .then(kb.capture(control.stackFrame, kb.context))
 
         .stanza()
+        .then(control.bindProperty)
         .then(control.stackFrame.address)
         .then(control.staticContext)
-        .then(eval.staticContext, kb.capture(control.frameFieldPriors, kb.context))
+        .thenDelay()
+        .then(eval.staticContext, kb.capture(kb.binding, kb.context))
 
         .stanza()
+        .then(control.bindProperty)
         .then(control.stackFrame.address)
         .then(control.arg1)
-        .then(kb.inputValue, kb.capture(control.frameFieldPriors, kb.data))
+        .thenDelay()
+        .then(kb.inputValue, kb.capture(kb.binding, kb.data))
         .then(control.execute);
   }
 }

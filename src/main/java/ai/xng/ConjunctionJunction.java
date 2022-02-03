@@ -41,7 +41,11 @@ public class ConjunctionJunction implements Iterable<ConjunctionJunction.Compone
   }
 
   public ConjunctionJunction add(final Prior prior) {
-    return add(prior, IntegrationProfile.TRANSIENT, 1);
+    return add(prior, IntegrationProfile.TRANSIENT);
+  }
+
+  public ConjunctionJunction add(final Prior prior, final IntegrationProfile profile) {
+    return add(prior, profile, 1);
   }
 
   public ConjunctionJunction add(final Prior prior, final IntegrationProfile profile, final float weight) {

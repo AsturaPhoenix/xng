@@ -339,8 +339,6 @@ public class LanguageBootstrap {
           .then(control.doReturn);
 
       val bindPrintEntrypoint = kb.entrypoint.new Node();
-      bindPrintEntrypoint.then(control.stackFrame.address, control.staticContext);
-
       val bindPrint = kb.execution.new Node();
       bindPrint.conjunction(bindPrintEntrypoint, staticContext);
       bindPrint.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
@@ -361,7 +359,6 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(writePointer)
           .then(control.arg1, kb.capture(control.frameFieldPriors, kb.naming))
-          .then(control.arg1)
           .then(stringIterator.advance);
 
       val returnParseFrame = kb.execution.new Node();
@@ -514,7 +511,7 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(stringIterator.codePoint)
           .then(new CoincidentEffect.Lambda<>(kb.actions, kb.data, node -> {
-            if (node.getData()instanceof Integer codePoint) {
+            if (node.getData() instanceof Integer codePoint) {
               builder.appendCodePoint(codePoint);
             }
           }).node)

@@ -409,14 +409,14 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(constructionPointer)
           .then(control.cxt.address, kb.suppressPosteriors(control.cxt))
-          .then(kb.capture(control.cxt, kb.context))
+          .then(kb.capture(control.cxt, kb.context), kb.suppressPosteriors(kb.context))
 
           .stanza()
           .then(control.bindProperty)
           .then(control.cxt.address)
           .then(control.staticContext)
           .thenDelay()
-          .then(print, kb.capture(kb.binding, kb.context))
+          .then(print, kb.capture(kb.binding, kb.context), kb.suppressPosteriors(kb.context))
 
           // In the future we might like to scope the write pointer per construction
           // frame, but that story is not fleshed out yet so let's keep it simple for now.
@@ -425,7 +425,7 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(writePointer)
           .thenDelay()
-          .then(control.arg1, kb.capture(kb.binding, kb.naming))
+          .then(control.arg1, kb.capture(kb.binding, kb.naming), kb.suppressPosteriors(kb.naming))
           .then(stringIterator.advance);
 
       val returnParseFrame = kb.execution.new Node();
@@ -435,7 +435,7 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(constructionPointer)
           .then(control.returnValue.address, kb.suppressPosteriors(control.returnValue))
-          .then(kb.capture(control.returnValue, kb.context))
+          .then(kb.capture(control.returnValue, kb.context), kb.suppressPosteriors(kb.context))
           .then(control.doReturn);
 
       {
@@ -475,7 +475,7 @@ public class LanguageBootstrap {
           .stanza()
           .then(control.stackFrame.address, control.returnValue.address, kb.suppressPosteriors(control.stackFrame))
           .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
-          .then(kb.capture(control.stackFrame, kb.context))
+          .then(kb.capture(control.stackFrame, kb.context), kb.suppressPosteriors(kb.context))
 
           .stanza()
           .then(control.bindProperty)
@@ -487,21 +487,21 @@ public class LanguageBootstrap {
           // clear working memory. If we do end up needing that behavior, we will need to
           // reconcile against this use case where we suppress posteriors in order to
           // highlight a node's trace without side effects.
-          .then(control.doReturn, kb.suppressPosteriors(kb.entrypoint), kb.capture(kb.binding, kb.entrypoint))
+          .then(control.doReturn, kb.capture(kb.binding, kb.entrypoint), kb.suppressPosteriors(kb.entrypoint))
           .thenDelay()
           .then(control.execute);
 
       asSequence(entrypoint)
           .stanza()
           .then(control.cxt.address, kb.suppressPosteriors(control.cxt), spawn.context)
-          .then(kb.capture(control.cxt, kb.context))
+          .then(kb.capture(control.cxt, kb.context), kb.suppressPosteriors(kb.context))
 
           .stanza()
           .then(control.bindProperty)
           .then(control.cxt.address)
           .then(control.staticContext)
           .thenDelay()
-          .then(parse.staticContext, kb.capture(kb.binding, kb.context))
+          .then(parse.staticContext, kb.capture(kb.binding, kb.context), kb.suppressPosteriors(kb.context))
 
           .stanza()
           .then(control.stackFrame.address)
@@ -521,12 +521,12 @@ public class LanguageBootstrap {
           .then(control.cxt.address)
           .then(control.returnTo)
           .thenDelay()
-          .then(executeParsed, kb.suppressPosteriors(kb.entrypoint), kb.capture(kb.binding, kb.entrypoint))
+          .then(executeParsed, kb.capture(kb.binding, kb.entrypoint), kb.suppressPosteriors(kb.entrypoint))
 
           .stanza()
           .then(control.stackFrame.address, control.cxt.address, kb.suppressPosteriors(control.stackFrame))
           .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
-          .then(kb.capture(control.stackFrame, kb.context))
+          .then(kb.capture(control.stackFrame, kb.context), kb.suppressPosteriors(kb.context))
 
           .then(control.execute);
     }
@@ -563,13 +563,13 @@ public class LanguageBootstrap {
           .then(control.stackFrame.address)
           .then(parse.constructionPointer)
           .then(control.cxt.address, kb.suppressPosteriors(control.cxt))
-          .then(kb.capture(control.cxt, kb.context))
+          .then(kb.capture(control.cxt, kb.context), kb.suppressPosteriors(kb.context))
 
           .stanza()
           .then(control.stackFrame.address)
           .then(parse.writePointer)
           .then(control.tmp.address, kb.suppressPosteriors(control.tmp))
-          .then(kb.capture(control.tmp, kb.naming))
+          .then(kb.capture(control.tmp, kb.naming), kb.suppressPosteriors(kb.naming))
 
           .stanza()
           .then(control.bindProperty)
@@ -623,14 +623,14 @@ public class LanguageBootstrap {
     asSequence(kb.inputValue.onUpdate)
         .then(control.stackFrame.address, kb.suppressPosteriors(control.stackFrame), spawn.context)
         .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
-        .then(kb.capture(control.stackFrame, kb.context))
+        .then(kb.capture(control.stackFrame, kb.context), kb.suppressPosteriors(kb.context))
 
         .stanza()
         .then(control.bindProperty)
         .then(control.stackFrame.address)
         .then(control.staticContext)
         .thenDelay()
-        .then(eval.staticContext, kb.capture(kb.binding, kb.context))
+        .then(eval.staticContext, kb.capture(kb.binding, kb.context), kb.suppressPosteriors(kb.context))
 
         .stanza()
         .then(control.bindProperty)

@@ -345,16 +345,4 @@ public abstract class Cluster<T extends Node> implements Serializable {
     final float tolerantTrace = Math.min(1, trace * (1 + Prior.THRESHOLD_MARGIN));
     return identity + (value - identity) * tolerantTrace;
   }
-
-  /**
-   * Scales posteriors of nodes in a prior cluster by prior cluster trace.
-   */
-  public static void scalePosteriors(final Cluster<? extends Prior> priorCluster, final float factor) {
-    forEachByTrace(priorCluster, IntegrationProfile.TRANSIENT, Scheduler.global.now(),
-        (prior, trace) -> {
-          for (val entry : prior.getPosteriors()) {
-            entry.edge().distribution.scale(weightByTrace(factor, 1, trace));
-          }
-        });
-  }
 }

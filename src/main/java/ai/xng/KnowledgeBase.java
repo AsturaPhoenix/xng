@@ -18,8 +18,6 @@ import io.reactivex.subjects.Subject;
 import lombok.val;
 
 public class KnowledgeBase implements Serializable, AutoCloseable {
-  public static final float STACK_FACTOR = .5f, PUSH_FACTOR = STACK_FACTOR, POP_FACTOR = 1 / STACK_FACTOR;
-
   private transient Subject<String> rxOutput;
 
   public final InputCluster input = new InputCluster();
@@ -51,16 +49,6 @@ public class KnowledgeBase implements Serializable, AutoCloseable {
 
   public ActionCluster.Node suppressPosteriors(final BiCluster cluster) {
     return suppressPosteriors.computeIfAbsent(cluster, key -> Cluster.suppressPosteriors(actions, key));
-  }
-
-  private static record ScalePosteriorsKey(Cluster<? extends Prior> cluster, float factor) implements Serializable {
-  }
-
-  private final Map<ScalePosteriorsKey, ActionCluster.Node> scalePosteriors = new HashMap<>();
-
-  public ActionCluster.Node scalePosteriors(final Cluster<? extends Prior> cluster, final float factor) {
-    return scalePosteriors.computeIfAbsent(new ScalePosteriorsKey(cluster, factor),
-        key -> actions.new Node(() -> Cluster.scalePosteriors(key.cluster, key.factor)));
   }
 
   private static record ResetPosteriorsKey(Cluster<? extends Prior> cluster, boolean outboundOnly) {

@@ -1,8 +1,5 @@
 package ai.xng;
 
-import static ai.xng.KnowledgeBase.POP_FACTOR;
-import static ai.xng.KnowledgeBase.PUSH_FACTOR;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -109,6 +106,8 @@ public class LanguageBootstrap {
     public final BiCluster.Node staticContext = kb.naming.new Node("staticContext"),
         entrypoint = kb.naming.new Node("entrypoint"),
         arg1 = kb.naming.new Node("arg1"),
+        // the calling context of a linked stack frame
+        parent = kb.naming.new Node("parent"),
         // the entrypoint node to be invoked after restoring the calling context to the
         // call stack
         returnTo = kb.naming.new Node("returnTo");
@@ -164,9 +163,22 @@ public class LanguageBootstrap {
           .then(entrypoint);
 
       asSequence(doReturn)
+          // cxt = stackFrame
           .stanza()
-          .then(stackFrame.address)
-          .then(kb.scalePosteriors(stackFrame, POP_FACTOR), returnTo, kb.disassociate(stackFrame, kb.context));
+          .then(cxt.address, stackFrame.address, kb.suppressPosteriors(cxt))
+          .then(kb.capture(cxt, kb.context), kb.suppressPosteriors(kb.context))
+
+          // stackFrame = cxt.Parent
+          .stanza()
+          .then(cxt.address)
+          .then(parent)
+          .then(stackFrame.address, kb.suppressPosteriors(stackFrame))
+          .then(kb.capture(stackFrame, kb.context), kb.suppressPosteriors(kb.context))
+
+          // parent/cxt.returnTo
+          .stanza()
+          .then(cxt.address)
+          .then(returnTo);
 
       asSequence(bindProperty)
           .then(kb.suppressPosteriors(kb.context), kb.suppressPosteriors(kb.naming), spawn.binding)
@@ -472,9 +484,17 @@ public class LanguageBootstrap {
 
       val executeParsed = kb.entrypoint.new Node("eval/executeParsed");
       asSequence(executeParsed)
+          // returnValue.parent = stackFrame
+          .stanza()
+          .then(control.bindProperty)
+          .then(control.returnValue.address)
+          .then(control.parent)
+          .then(control.stackFrame.address)
+          .then(kb.capture(kb.binding, kb.context), kb.suppressPosteriors(kb.context))
+
+          // stackFrame = returnValue
           .stanza()
           .then(control.stackFrame.address, control.returnValue.address, kb.suppressPosteriors(control.stackFrame))
-          .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
           .then(kb.capture(control.stackFrame, kb.context), kb.suppressPosteriors(kb.context))
 
           .stanza()
@@ -523,9 +543,17 @@ public class LanguageBootstrap {
           .thenDelay()
           .then(executeParsed, kb.capture(kb.binding, kb.entrypoint), kb.suppressPosteriors(kb.entrypoint))
 
+          // cxt.parent = stackFrame
+          .stanza()
+          .then(control.bindProperty)
+          .then(control.cxt.address)
+          .then(control.parent)
+          .then(control.stackFrame.address)
+          .then(kb.capture(kb.binding, kb.context), kb.suppressPosteriors(kb.context))
+
+          // stackFrame = cxt
           .stanza()
           .then(control.stackFrame.address, control.cxt.address, kb.suppressPosteriors(control.stackFrame))
-          .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
           .then(kb.capture(control.stackFrame, kb.context), kb.suppressPosteriors(kb.context))
 
           .then(control.execute);
@@ -621,8 +649,22 @@ public class LanguageBootstrap {
 
     // When the input changes, we need to construct an eval call.
     asSequence(kb.inputValue.onUpdate)
-        .then(control.stackFrame.address, kb.suppressPosteriors(control.stackFrame), spawn.context)
-        .then(kb.scalePosteriors(control.stackFrame, PUSH_FACTOR))
+        // cxt = spawn.context
+        .stanza()
+        .then(control.cxt.address, kb.suppressPosteriors(control.cxt), spawn.context)
+        .then(kb.capture(control.cxt, kb.context))
+
+        // cxt.parent = stackFrame
+        .stanza()
+        .then(control.bindProperty)
+        .then(control.cxt.address)
+        .then(control.parent)
+        .then(control.stackFrame.address)
+        .then(kb.capture(kb.binding, kb.context), kb.suppressPosteriors(kb.context))
+
+        // stackFrame = cxt
+        .stanza()
+        .then(control.stackFrame.address, kb.suppressPosteriors(control.stackFrame), control.cxt.address)
         .then(kb.capture(control.stackFrame, kb.context), kb.suppressPosteriors(kb.context))
 
         .stanza()

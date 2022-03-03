@@ -43,4 +43,14 @@ public abstract class BiNode implements Prior, Posterior {
   public BiNode conjunction(Prior... priors) {
     return (BiNode) Posterior.super.conjunction(priors);
   }
+
+  @Override
+  public BiNode inhibitor(Prior prior) {
+    return (BiNode) Posterior.super.inhibitor(prior);
+  }
+
+  @Override
+  public BiNode inhibitor(Prior prior, IntegrationProfile profile) {
+    return (BiNode) Posterior.super.inhibitor(prior, profile);
+  }
 }

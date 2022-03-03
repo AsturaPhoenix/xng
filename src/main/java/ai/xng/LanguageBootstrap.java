@@ -10,7 +10,6 @@ import ai.xng.Cluster.PriorClusterProfile;
 import ai.xng.constructs.BooleanDecoder;
 import ai.xng.constructs.CharacterDecoder;
 import ai.xng.constructs.CoincidentEffect;
-import ai.xng.constructs.Latch;
 import lombok.AllArgsConstructor;
 import lombok.val;
 
@@ -58,6 +57,22 @@ public class LanguageBootstrap {
     public Sequence inhibit(final Posterior node, final IntegrationProfile profile) {
       tail.inhibit(node, profile);
       tail = tail.then(kb.execution.new Node());
+      return this;
+    }
+
+    /**
+     * Creates a conjunction on {@code condition}s via disinhibition. This
+     * conjunction is robust against temporal summation. The query sequence operates
+     * on a {@link IntegrationProfile#TRANSIENT} timing profile, while the
+     * conditions disinhibit on a {@link IntegrationProfile#TWOGRAM} timing profile.
+     */
+    public Sequence disinhibit(final BiNode... conditions) {
+      val query = tail;
+      thenDelay().thenDelay();
+      val action = tail;
+      for (val condition : conditions) {
+        query.then(kb.execution.new Node()).inhibitor(condition, IntegrationProfile.TWOGRAM).inhibit(action);
+      }
       return this;
     }
   }
@@ -258,6 +273,16 @@ public class LanguageBootstrap {
 
       dispatchSequence(advance)
           .stanza()
+
+          // It's not entirely clear if this is the right way to go about this, but it's
+          // very valuable to be able to use persistent timing for most state recognition
+          // while keeping it "scoped". The difficulty comes in separating this from state
+          // that should not be scoped to a given iteration, and/or generalizing this to
+          // different notions of scoping. Probably the most ideal way to do this would be
+          // sustained activity, but using the simplified synapse model we have issues
+          // with spike trains.
+          .then(kb.resetPosteriors(kb.stateRecognition))
+
           .then(control.stackFrame.address)
           .then(iterator)
           .thenDelay()
@@ -278,8 +303,12 @@ public class LanguageBootstrap {
           .then(codePoint)
           .thenDelay()
           .then(next_out.node)
-          .then(kb.actions.new Node(() -> ((DataCluster.MutableNode<Integer>) next_out.require())
-              .setData(((Iterator<Integer>) next_in.require().getData()).next())))
+          .then(kb.actions.new Node(() -> {
+            val chr = ((Iterator<Integer>) next_in.require().getData()).next();
+            System.out.println(new StringBuilder().appendCodePoint(chr));
+            ((DataCluster.MutableNode<Integer>) next_out.require())
+                .setData(chr);
+          }))
 
           .stanza()
           .then(control.stackFrame.address)
@@ -569,30 +598,81 @@ public class LanguageBootstrap {
   public final Eval eval;
 
   private class StringLiteralBuilder {
-    final Latch isParsing = new Latch(kb.actions, kb.input);
+    final BiNode isActive = kb.stateRecognition.new Node() {
+      @Override
+      public void activate() {
+        System.out.println("isActive");
+        super.activate();
+      }
+    };;
 
     void setUp() {
       val builder = new StringBuilder();
 
-      val start = kb.execution.new Node();
-      val append = kb.execution.new Node();
-      val end = kb.execution.new Node();
-      start.then(isParsing.set);
-      end.then(isParsing.clear);
+      val start = kb.execution.new Node() {
+        @Override
+        public void activate() {
+          System.out.println("start");
+          super.activate();
+        }
+      };
+      val append = kb.execution.new Node() {
+        @Override
+        public void activate() {
+          System.out.println("append");
+          super.activate();
+        }
+      };
+      val end = kb.execution.new Node() {
+        @Override
+        public void activate() {
+          System.out.println("end");
+          super.activate();
+        }
+      };
 
-      val quote = kb.stateRecognition.new Node();
+      val quote = kb.stateRecognition.new Node() {
+        @Override
+        public void activate() {
+          System.out.println("quote");
+          super.activate();
+        }
+      };
       val conjunction = new ConjunctionJunction();
       stringIterator.charDecoder.forOutput('"', conjunction::add);
       conjunction.build(quote).then(recognitionClass.character);
 
-      new ConjunctionJunction().add(quote, IntegrationProfile.TWOGRAM).add(isParsing.isFalse).build(start);
-      new ConjunctionJunction().add(quote, IntegrationProfile.TWOGRAM).add(isParsing.isTrue).build(end);
+      new ConjunctionJunction()
+          .add(quote, IntegrationProfile.TWOGRAM)
+          .add(parse.staticContext)
+          .build(start.inhibitor(isActive));
+      new ConjunctionJunction()
+          .add(quote, IntegrationProfile.TWOGRAM)
+          .add(parse.staticContext)
+          .add(isActive, IntegrationProfile.TWOGRAM)
+          .build(end);
 
-      kb.actions.new Node(isParsing).conjunction(recognitionClass.staticContextQuery, parse.staticContext);
+      directSequence(start)
+          .inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT)
+          .then(kb.actions.new Node(() -> builder.setLength(0)))
+          .stanza()
+          .then(control.stackFrame.address)
+          .thenDelay()
+          .then(isActive, kb.capture()
+              .baseProfiles(IntegrationProfile.TWOGRAM) // This is needed to avoid hyperactivation over the 2-gram
+                                                        // profile. Is this the right way to go about it?
+                                                        // This doesn't work. We could do disinhibition...
+              .priors(kb.context)
+              .posteriors(kb.stateRecognition))
+          .then(stringIterator.advance);
 
-      start.then(kb.actions.new Node(() -> builder.setLength(0)));
       end.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
       directSequence(end)
+          .stanza()
+          .then(control.stackFrame.address)
+          .thenDelay()
+          .then(kb.capture(kb.context, kb.stateRecognition)).inhibit(isActive, IntegrationProfile.TRANSIENT)
+
           .stanza()
           .then(control.stackFrame.address)
           .then(parse.constructionPointer)
@@ -613,9 +693,17 @@ public class LanguageBootstrap {
           .then(kb.capture(kb.binding, kb.data))
           .then(stringIterator.advance);
 
-      val notQuote = kb.stateRecognition.new Node();
+      val notQuote = kb.stateRecognition.new Node() {
+        @Override
+        public void activate() {
+          System.out.println("notQuote");
+          super.activate();
+        }
+      };
       recognitionClass.character.then(notQuote).inhibitor(quote);
-      new ConjunctionJunction().add(notQuote, IntegrationProfile.TWOGRAM).add(isParsing.isTrue).build(append);
+      new ConjunctionJunction()
+          .add(notQuote, IntegrationProfile.TWOGRAM)
+          .add(isActive, IntegrationProfile.TWOGRAM).build(append);
       append.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
       directSequence(append)
           .stanza()

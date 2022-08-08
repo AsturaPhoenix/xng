@@ -60,13 +60,18 @@ public class LanguageBootstrap {
       return this;
     }
 
+    public Sequence inhibitor(final Prior inhibitor) {
+      inhibitor.inhibit(tail);
+      return this;
+    }
+
     /**
      * Creates a conjunction on {@code condition}s via disinhibition. This
      * conjunction is robust against temporal summation. The query sequence operates
      * on a {@link IntegrationProfile#TRANSIENT} timing profile, while the
      * conditions disinhibit on a {@link IntegrationProfile#TWOGRAM} timing profile.
      */
-    public Sequence disinhibit(final BiNode... conditions) {
+    public Sequence disinhibit(final Prior... conditions) {
       val query = tail;
       thenDelay().thenDelay();
       val action = tail;
@@ -604,32 +609,10 @@ public class LanguageBootstrap {
         System.out.println("isActive");
         super.activate();
       }
-    };;
+    };
 
     void setUp() {
       val builder = new StringBuilder();
-
-      val start = kb.execution.new Node() {
-        @Override
-        public void activate() {
-          System.out.println("start");
-          super.activate();
-        }
-      };
-      val append = kb.execution.new Node() {
-        @Override
-        public void activate() {
-          System.out.println("append");
-          super.activate();
-        }
-      };
-      val end = kb.execution.new Node() {
-        @Override
-        public void activate() {
-          System.out.println("end");
-          super.activate();
-        }
-      };
 
       val quote = kb.stateRecognition.new Node() {
         @Override
@@ -642,35 +625,27 @@ public class LanguageBootstrap {
       stringIterator.charDecoder.forOutput('"', conjunction::add);
       conjunction.build(quote).then(recognitionClass.character);
 
-      new ConjunctionJunction()
-          .add(quote, IntegrationProfile.TWOGRAM)
-          .add(parse.staticContext)
-          .build(start.inhibitor(isActive));
-      new ConjunctionJunction()
-          .add(quote, IntegrationProfile.TWOGRAM)
-          .add(parse.staticContext)
-          .add(isActive, IntegrationProfile.TWOGRAM)
-          .build(end);
+      // The stack frame and static context will be activated by the recognizer with
+      // recognitionClass.staticContextQuery.;
 
-      directSequence(start)
+      dispatchSequence(parse.staticContext)
+          .disinhibit(quote)
+          .inhibitor(isActive)
           .inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT)
           .then(kb.actions.new Node(() -> builder.setLength(0)))
           .stanza()
           .then(control.stackFrame.address)
           .thenDelay()
-          .then(isActive, kb.capture()
-              .baseProfiles(IntegrationProfile.TWOGRAM) // This is needed to avoid hyperactivation over the 2-gram
-                                                        // profile. Is this the right way to go about it?
-                                                        // This doesn't work. We could do disinhibition...
-              .priors(kb.context)
-              .posteriors(kb.stateRecognition))
+          .then(isActive, kb.capture(kb.context, kb.stateRecognition))
           .then(stringIterator.advance);
 
-      end.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
-      directSequence(end)
+      dispatchSequence(quote)
+          .disinhibit(isActive)
+          .inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT)
           .stanza()
           .then(control.stackFrame.address)
           .thenDelay()
+          // TODO: This doesn't seem to be working.
           .then(kb.capture(kb.context, kb.stateRecognition)).inhibit(isActive, IntegrationProfile.TRANSIENT)
 
           .stanza()
@@ -701,11 +676,9 @@ public class LanguageBootstrap {
         }
       };
       recognitionClass.character.then(notQuote).inhibitor(quote);
-      new ConjunctionJunction()
-          .add(notQuote, IntegrationProfile.TWOGRAM)
-          .add(isActive, IntegrationProfile.TWOGRAM).build(append);
-      append.inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT);
-      directSequence(append)
+      dispatchSequence(notQuote)
+          .disinhibit(isActive)
+          .inhibit(stringIterator.advance, IntegrationProfile.PERSISTENT)
           .stanza()
           .then(control.stackFrame.address)
           .then(stringIterator.codePoint)
